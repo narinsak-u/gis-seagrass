@@ -123,6 +123,7 @@ DECLARE
     site_code text := 'schema-check-' || gen_random_uuid()::text;
     duplicate_site_code text := 'schema-check-duplicate-' || gen_random_uuid()::text;
     site_id bigint;
+    survey_id bigint;
     now_at timestamptz := now();
 BEGIN
     BEGIN
