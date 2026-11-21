@@ -3,6 +3,7 @@ BEGIN;
 DO $schema_catalog$
 DECLARE
     missing_tables text;
+    missing_attribution_foreign_keys text;
 BEGIN
     SELECT string_agg(required.name, ', ' ORDER BY required.name)
       INTO missing_tables
@@ -72,6 +73,20 @@ BEGIN
          WHERE c.conrelid = 'public.survey_species'::regclass AND c.confrelid = 'public.species'::regclass
            AND c.contype = 'f' AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = c.conrelid AND attname = 'species_code')]::smallint[]
     ) THEN RAISE EXCEPTION 'survey_species.species_code foreign key is missing'; END IF;
+    SELECT string_agg(format('%s.%s', required.table_name, required.column_name), ', ' ORDER BY required.table_name, required.column_name)
+      INTO missing_attribution_foreign_keys
+      FROM (VALUES ('sites', 'created_by'), ('sites', 'updated_by'),
+                   ('surveys', 'created_by'), ('surveys', 'updated_by')) AS required(table_name, column_name)
+     WHERE NOT EXISTS (
+         SELECT 1 FROM pg_constraint c
+          WHERE c.conrelid = to_regclass(format('public.%I', required.table_name))
+            AND c.confrelid = 'public.users'::regclass AND c.contype = 'f'
+            AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = c.conrelid AND attname = required.column_name)]::smallint[]
+     );
+    IF missing_attribution_foreign_keys IS NOT NULL THEN
+        RAISE EXCEPTION 'Attribution foreign key(s) to users missing: %', missing_attribution_foreign_keys;
+    END IF;
+
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_index i JOIN pg_class idx ON idx.oid = i.indexrelid
