@@ -46,7 +46,7 @@ export const sites = pgTable('sites', {
   deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'date' }),
 }, (table) => [
   check('sites_version_check', sql`${table.version} > 0`),
-  uniqueIndex('uq_sites_active_code').on(table.code).where(sql`${table.deletedAt} IS NULL`),
+  uniqueIndex('uq_sites_code').on(table.code),
   index('idx_sites_geom').using('gist', table.geom),
 ]);
 

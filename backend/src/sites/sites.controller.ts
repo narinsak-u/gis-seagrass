@@ -1,4 +1,6 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Param, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
+import { isRecord } from '../import/guards';
+import { parseSiteFeature, SiteValidationError } from '../import/sites';
 import { Pool } from 'pg';
 
 interface SiteSummary {
@@ -27,11 +29,83 @@ interface SiteFeature {
   };
 }
 
+interface CreatedSiteFeature {
+  type: 'Feature';
+  geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
+  properties: SiteSummary;
+}
+
 const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
 @Controller('sites')
 export class SitesController {
   constructor(private readonly pool: Pool) {}
 
+  @Post()
+  async create(@Body() body: unknown): Promise<CreatedSiteFeature> {
+    const site = validateCreateFeature(body);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const source = JSON.stringify(site.geometry);
+      const validity = await client.query<{ valid: boolean; empty: boolean }>(
+        `SELECT ST_IsValid(geom) AS valid, ST_IsEmpty(geom) AS empty
+           FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) input`,
+        [source],
+      );
+      if (!validity.rows[0].valid || validity.rows[0].empty) {
+        throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
+      }
+      const result = await client.query<{
+        province_code: string | null;
+        area_rai: string;
+        geometry: CreatedSiteFeature['geometry'];
+      }>(
+        `WITH candidate AS (
+           SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
+         ), coverage AS (
+           SELECT p.code,
+                  ST_Area(ST_Intersection(c.geom, p.geom)::geography) AS overlap_area
+             FROM candidate c
+             JOIN provinces p ON ST_Intersects(c.geom, p.geom)
+         )
+         SELECT (SELECT code FROM coverage WHERE overlap_area > 0 ORDER BY overlap_area DESC, code ASC LIMIT 1) AS province_code,
+                ROUND((ST_Area(ST_Multi(c.geom)::geography) / 1600)::numeric, 2)::text AS area_rai,
+                ST_AsGeoJSON(ST_Multi(c.geom))::jsonb AS geometry
+           FROM candidate c`,
+        [source],
+      );
+      const derived = result.rows[0];
+      if (derived.province_code === null) {
+        throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
+      }
+      const inserted = await client.query<{ version: number; geometry: CreatedSiteFeature['geometry'] }>(
+        `INSERT INTO sites (code, name, province_code, geom, area_rai)
+         VALUES ($1, $2, $3, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326), $5)
+         RETURNING version, ST_AsGeoJSON(geom)::jsonb AS geometry`,
+        [site.code, site.name, derived.province_code, JSON.stringify(derived.geometry), derived.area_rai],
+      );
+      await client.query('COMMIT');
+      return {
+        type: 'Feature',
+        geometry: inserted.rows[0].geometry,
+        properties: {
+          code: site.code,
+          name: site.name,
+          province_code: derived.province_code,
+          area_rai: Number(derived.area_rai),
+          version: inserted.rows[0].version,
+        },
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      if (isRecord(error) && error.code === '23505' && error.constraint === 'uq_sites_code') {
+        throw new ConflictException({ code: 'DUPLICATE_CODE', message: 'Site code already exists', details: {} });
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   @Get()
   async list(@Query() query: Record<string, unknown>): Promise<SiteList> {
     if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.includes(key))) throw new BadRequestException();
@@ -147,4 +221,22 @@ function parsePositiveInteger(value: unknown, fallback: number): number | undefi
   if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return undefined;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function validateCreateFeature(body: unknown) {
+  if (!isRecord(body) || Object.keys(body).sort().join(',') !== 'geometry,properties,type'
+    || body.type !== 'Feature' || !isRecord(body.properties)
+    || Object.keys(body.properties).some((key) => key !== 'code' && key !== 'name')
+    || !isRecord(body.geometry) || Object.keys(body.geometry).sort().join(',') !== 'coordinates,type') {
+    throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });
+  }
+  try {
+    return parseSiteFeature(body);
+  } catch (error) {
+    if (error instanceof SiteValidationError
+      && (error.message === 'INVALID_GEOMETRY' || error.message === 'INVALID_COORDINATES')) {
+      throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
+    }
+    throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });
+  }
 }
