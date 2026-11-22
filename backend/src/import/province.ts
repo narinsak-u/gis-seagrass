@@ -1,5 +1,5 @@
-import { isRecord } from './guards';
-import { validCoordinates } from './geometry';
+import { isRecord } from '../domain/guards';
+import { validCoordinates } from '../domain/geometry';
 
 export interface ProvinceRecord {
   code: string;

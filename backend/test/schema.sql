@@ -90,10 +90,9 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_index i JOIN pg_class idx ON idx.oid = i.indexrelid
-         WHERE i.indrelid = 'public.sites'::regclass AND i.indisunique AND i.indpred IS NOT NULL
+         WHERE i.indrelid = 'public.sites'::regclass AND i.indisunique AND i.indpred IS NULL
            AND i.indnatts = 1 AND i.indkey[0] = (SELECT attnum FROM pg_attribute WHERE attrelid = i.indrelid AND attname = 'code')
-           AND pg_get_expr(i.indpred, i.indrelid) ILIKE '%deleted_at IS NULL%'
-    ) THEN RAISE EXCEPTION 'Active site-code unique index is missing'; END IF;
+    ) THEN RAISE EXCEPTION 'Permanent site-code unique index is missing'; END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_index i
          WHERE i.indrelid = 'public.surveys'::regclass AND i.indisunique AND i.indpred IS NOT NULL
@@ -180,13 +179,17 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN NULL;
     END;
 
-    INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
-    VALUES (duplicate_site_code, 'Schema test soft-deleted duplicate', province_code,
-            ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
-    UPDATE sites SET deleted_at = now_at WHERE code = duplicate_site_code;
-    INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
-    VALUES (duplicate_site_code, 'Schema test reused code', province_code,
-            ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+    BEGIN
+        INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
+        VALUES (duplicate_site_code, 'Schema test soft-deleted duplicate', province_code,
+                ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+        UPDATE sites SET deleted_at = now_at WHERE code = duplicate_site_code;
+        INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
+        VALUES (duplicate_site_code, 'Schema test reused code', province_code,
+                ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+        RAISE EXCEPTION 'Soft-deleted site code was reused';
+    EXCEPTION WHEN unique_violation THEN NULL;
+    END;
 
     BEGIN
         INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, created_at, updated_at)

@@ -1,4 +1,4 @@
-import { isRecord } from './guards';
+import { isRecord } from '../domain/guards';
 import type { PoolClient } from 'pg';
 
 export interface SpeciesRecord {
