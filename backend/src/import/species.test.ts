@@ -47,6 +47,7 @@ before(async () => {
   directory = await mkdtemp(join(tmpdir(), 'species-import-'));
   reportPath = join(directory, 'import_report.csv');
   await writeFile(join(directory, 'provinces.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
+  await writeFile(join(directory, 'seagrass_sites.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
   await writeFile(join(directory, 'species.json'), JSON.stringify([
     { code: codes[0], name_th: 'ชื่อแรก', name_sci: 'First species' },
     { code: codes[0], name_th: 'ชื่อซ้ำ', name_sci: 'Duplicate species' },

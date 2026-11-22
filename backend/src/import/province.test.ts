@@ -57,6 +57,8 @@ before(async () => {
       feature(codes[2], [[106, 10], [108, 12], [106, 12], [108, 10], [106, 10]]),
     ],
   }));
+  await writeFile(join(directory, 'species.json'), JSON.stringify([]));
+  await writeFile(join(directory, 'seagrass_sites.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
   await pool.query(
     'INSERT INTO provinces (code, name_th, geom) VALUES ($1, $2, ST_GeomFromText($3,4326))',
     [codes[1], 'Existing', 'MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))'],
