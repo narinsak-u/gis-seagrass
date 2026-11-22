@@ -4,7 +4,7 @@
 
 PostGIS stores province and site boundaries as `geometry(MultiPolygon, 4326)` and survey locations as `geometry(Point, 4326)`. These column types enforce geometry type and SRID. GiST indexes support future spatial queries; Step 1 implements no spatial API.
 
-The database enforces required fields, foreign keys, allowed user roles, positive site versions, survey cover between 0 and 100, and uniqueness rules for active site codes and present survey references. Foreign keys restrict deletion of referenced records. Application validation is limited to the seed importer; it does not repair geometry or require boundary containment.
+The database enforces required fields, foreign keys, allowed user roles, positive site versions, survey cover between 0 and 100, permanent Site-code uniqueness, and uniqueness for present survey references. Foreign keys restrict deletion of referenced records. Application validation is limited to the seed importer; it does not repair geometry or require boundary containment.
 
 ## Soft-deleted Site codes
 
@@ -20,7 +20,7 @@ Step 3 write routes have no authentication or authorization. Step 5 owns JWT and
 
 ## Migration ordering
 
-Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
+Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
 
 ## Concurrency and scaling limits
 
