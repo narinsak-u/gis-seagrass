@@ -49,7 +49,7 @@ Run unit and isolated PostGIS integration tests:
 (cd backend && npm test)
 ```
 
-`npm test` builds the backend and runs its tests. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database; use the container and test command below to run them. The current isolated PostGIS suite has 35 passing tests. Swagger runtime/browser verification remains pending.
+`npm test` builds the backend and runs its tests. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database; use the container and test command below to run them. The isolated Step 3 PostGIS suite has 36 passing tests. Swagger UI was browser-verified at <http://localhost:3000/docs>; OpenAPI JSON at <http://localhost:3000/docs-json> returned HTTP 200. The read requests above were verified against the running API.
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 

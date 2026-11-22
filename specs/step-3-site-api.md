@@ -1,6 +1,6 @@
 # Step 3 — Site API
 
-**Project phase:** Step 3 — Site API. **Prerequisite:** Steps 1 and 2 completed and committed. **Commit prefix:** `step-3:`. **Status:** Implementation underway; verification pending. Acceptance criteria remain unchecked until verified.
+**Project phase:** Step 3 — Site API. **Prerequisite:** Steps 1 and 2 completed and committed. **Commit prefix:** `step-3:`. **Status:** Implemented and verified; 36/36 isolated PostGIS tests passed, Swagger UI was browser-verified, and live API requests succeeded.
 
 ## Objective
 
@@ -74,15 +74,15 @@ Step 3 implements the PATCH version check and conflict guarantee because its API
 
 ## Definition of done
 
-- [ ] Every listed endpoint responds with the specified success status and shape.
-- [ ] Every agreed failure case responds with the specified HTTP status and error code in the shared envelope.
-- [ ] Site geometry, coverage, province assignment, and area follow the validation rules above.
-- [ ] Listing, bbox, search, pagination, ordering, and geometry omission match the contract.
-- [ ] PATCH preserves immutable code, increments version atomically, and preserves the agreed Survey distance rule.
-- [ ] DELETE soft-deletes only Sites without Surveys.
-- [ ] `/docs` serves usable OpenAPI/Swagger documentation for the implemented API.
-- [ ] Automated tests pass; verified criteria are checked and any gaps remain unchecked.
-- [ ] Root README describes only the API features verified as implemented.
+- [x] Every listed endpoint responds with the specified success status and shape.
+- [x] Every agreed failure case responds with the specified HTTP status and error code in the shared envelope.
+- [x] Site geometry, coverage, province assignment, and area follow the validation rules above.
+- [x] Listing, bbox, search, pagination, ordering, and geometry omission match the contract.
+- [x] PATCH preserves immutable code, increments version atomically, and preserves the agreed Survey distance rule.
+- [x] DELETE soft-deletes only Sites without Surveys.
+- [x] `/docs` serves usable OpenAPI/Swagger documentation for the implemented API.
+- [x] Automated tests pass; verified criteria are checked and any gaps remain unchecked.
+- [x] Root README describes only the API features verified as implemented.
 
 ## Git instructions for this Step
 

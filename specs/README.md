@@ -10,7 +10,7 @@ These specifications define the implementation plan for the **Seagrass Monitorin
 | --- | --- | --- | --- |
 | `step-1-setup.md` | Docker Compose, project, PostGIS, migrations, healthcheck | Required | Detailed |
 | `step-2-seed-data.md` | Import, spatial validation, idempotency, report | Required | Detailed |
-| `step-3-site-api.md` | Site CRUD, bbox GeoJSON, Swagger | Required | Implementation underway; Swagger verification pending |
+| `step-3-site-api.md` | Site CRUD, bbox GeoJSON, Swagger | Required | Implemented and verified |
 | `step-4-survey-api.md` | Survey CRUD, distance rule, status | Required | Planned |
 | `step-5-auth-concurrency.md` | JWT, RBAC, optimistic locking | Required | Planned |
 | `step-6-map-ui.md` | MapLibre map, synchronized list and filters | Required | Planned |
