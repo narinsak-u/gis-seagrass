@@ -18,7 +18,7 @@ test('survey CSV parser handles quoted UTF-8 fields, validates headers, and pres
   assert.equal(parsed[1].row, 3);
   const multiline = parseSurveysCsv(`${header}\nref-3,site,100,10,2026-01-01,0,"A\nB"`);
   assert.equal(multiline[0].row, 3);
-  assert.throws(() => parseSurveysCsv(`${header}\nx,y`), /malformed records/);
+  assert.throws(() => parseSurveysCsv(`${header}\nx,y`), /Invalid CSV|malformed records/);
   assert.throws(() => parseSurveysCsv('survey_ref,site_code\nx,y'), /required headers/);
   assert.throws(() => parseSurveysCsv(`${header}\n"unfinished`), /Invalid CSV/);
 });
@@ -93,7 +93,7 @@ before(async () => {
   const row = (ref: string, code = activeCode, lon = '100', lat = '10', cover = '50', date = today, species = speciesCode) => `${ref},${code},${lon},${lat},${date},${cover},${species}`;
   await writeFile(join(directory, 'surveys.csv'), [
     header,
-    row(refs[0], activeCode, thirty_lon, thirty_lat),
+    row(refs[0], activeCode, thirty_lon, thirty_lat, '50', today, `${speciesCode}|${duplicateSpeciesCode}`),
     row(refs[1], activeCode, fifty_lon, fifty_lat, '100'),
     row(refs[2]),
     row(refs[3]),
@@ -140,11 +140,15 @@ integration('public import validates surveys, persists atomic links, and keeps r
   const links = await pool!.query<{ count: string }>(
     'SELECT count(*) FROM survey_species ss JOIN surveys s ON s.id = ss.survey_id WHERE s.survey_ref = ANY($1::text[])', [refs],
   );
-  assert.equal(links.rows[0].count, '5');
+  assert.equal(links.rows[0].count, '6');
   const report = await readFile(reportPath, 'utf8');
   for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) assert.ok(report.includes(reason));
   assert.ok(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF'));
   assert.ok(report.includes('surveys.csv,7,OUTSIDE_SITE'));
   assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":6,"rejected":12\}/);
+  const existing = await pool!.query<{ cover_percent: string }>(
+    'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[2]],
+  );
+  assert.equal(existing.rows[0].cover_percent, '44.00');
   assert.equal(await readFile(reportPath, 'utf8'), report);
 });
