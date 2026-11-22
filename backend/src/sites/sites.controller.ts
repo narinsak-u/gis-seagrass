@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
 import { Pool } from 'pg';
 
 interface SiteSummary {
@@ -13,6 +13,18 @@ interface SiteList {
   items: SiteSummary[];
   total: number;
   page: number;
+}
+
+interface SiteFeature {
+  type: 'Feature';
+  geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
+  properties: SiteSummary & {
+    latest_survey: null | {
+      survey_ref: string | null;
+      surveyed_on: string;
+      cover_percent: number;
+    };
+  };
 }
 
 const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
@@ -77,6 +89,55 @@ export class SitesController {
       })),
       total: Number(count.rows[0]?.total ?? 0),
       page,
+    };
+  }
+
+  @Get(':code')
+  async detail(@Param('code') code: string): Promise<SiteFeature> {
+    const result = await this.pool.query<{
+      code: string;
+      name: string;
+      province_code: string;
+      area_rai: string;
+      version: number;
+      geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
+      survey_ref: string | null;
+      surveyed_on: string | null;
+      cover_percent: string | null;
+    }>(
+      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              ST_AsGeoJSON(s.geom)::jsonb AS geometry,
+              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT survey_ref, surveyed_on::text, cover_percent
+             FROM surveys
+            WHERE site_id = s.id
+            ORDER BY surveyed_on DESC, id DESC
+            LIMIT 1
+         ) latest ON true
+        WHERE s.code = $1 AND s.deleted_at IS NULL`,
+      [code],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+    }
+    return {
+      type: 'Feature',
+      geometry: row.geometry,
+      properties: {
+        code: row.code,
+        name: row.name,
+        province_code: row.province_code,
+        area_rai: Number(row.area_rai),
+        version: row.version,
+        latest_survey: row.surveyed_on === null ? null : {
+          survey_ref: row.survey_ref,
+          surveyed_on: row.surveyed_on,
+          cover_percent: Number(row.cover_percent),
+        },
+      },
     };
   }
 }

@@ -94,6 +94,61 @@ integration('GET /sites returns exact numeric summaries without geometry, sorted
   assert.equal(((await json(`/sites?pageSize=100&q=${siteToken}`)).body.items as unknown[]).length, 3);
 });
 
+integration('GET /sites/:code returns GeoJSON detail and a null latest Survey when none exists', async () => {
+  const { response, body } = await json(`/sites/${siteCodes[1]}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(body, {
+    type: 'Feature',
+    geometry: {
+      type: 'MultiPolygon',
+      coordinates: [[[[100.3, 10.1], [100.4, 10.1], [100.4, 10.2], [100.3, 10.2], [100.3, 10.1]]]],
+    },
+    properties: {
+      code: siteCodes[1],
+      name: 'alpha lagoon',
+      province_code: provinceCodes[0],
+      area_rai: 2,
+      version: 1,
+      latest_survey: null,
+    },
+  });
+});
+
+integration('GET /sites/:code selects latest Survey by date then identity and preserves null references', async () => {
+  const refs = [`${siteToken}-OLD`, `${siteToken}-TIE`];
+  try {
+    await pool!.query(
+      `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
+       SELECT id, $2, ST_SetSRID(ST_MakePoint(100.35,10.15),4326), DATE '2025-01-01', 11
+         FROM sites WHERE code = $1
+       UNION ALL
+       SELECT id, $3, ST_SetSRID(ST_MakePoint(100.35,10.15),4326), DATE '2025-02-03', 44
+         FROM sites WHERE code = $1
+       UNION ALL
+       SELECT id, NULL, ST_SetSRID(ST_MakePoint(100.35,10.15),4326), DATE '2025-02-03', 37
+         FROM sites WHERE code = $1`,
+      [siteCodes[0], ...refs],
+    );
+    const { response, body } = await json(`/sites/${siteCodes[0]}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual((body.properties as Record<string, unknown>).latest_survey, {
+      survey_ref: null,
+      surveyed_on: '2025-02-03',
+      cover_percent: 37,
+    });
+  } finally {
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[]) OR (survey_ref IS NULL AND site_id = (SELECT id FROM sites WHERE code = $2))', [refs, siteCodes[0]]);
+  }
+});
+
+integration('GET /sites/:code hides missing and soft-deleted Sites with SITE_NOT_FOUND', async () => {
+  for (const code of [`MISSING-${siteToken}`, siteCodes[3]]) {
+    const { response, body } = await json(`/sites/${code}`);
+    assert.equal(response.status, 404);
+    assert.deepEqual(body.error, { code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+  }
+});
+
 integration('GET /sites combines active status, province filter, and case-insensitive substring search', async () => {
   const query = new URLSearchParams({ status: 'active', province: provinceCodes[0], q: 'LAGOO' });
   const { response, body } = await json(`/sites?${query}`);
