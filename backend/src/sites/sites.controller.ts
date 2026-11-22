@@ -1,8 +1,9 @@
 import { Pool, type PoolClient } from 'pg';
 
-import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, UnprocessableEntityException, NotFoundException, Query, UseGuards } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
+import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
 import type { PublicSiteSummary, SiteStatus, SiteSummary } from './site.types';
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
@@ -153,12 +154,18 @@ export class SitesController {
   }
 
   @Delete(':code')
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Soft-deletes Sites without linked Surveys and records the admin as updater.' })
   @ApiResponse({ status: 204, description: 'Site soft-deleted' })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 409, description: 'SITE_HAS_SURVEYS', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   @HttpCode(204)
-  async remove(@Param('code') code: string): Promise<void> {
+  async remove(@Param('code') code: string, @Req() request: AuthenticatedRequest): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -171,7 +178,10 @@ export class SitesController {
       if (surveys.rowCount) {
         throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
       }
-      await client.query('UPDATE sites SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [locked.rows[0].id]);
+      await client.query(
+        'UPDATE sites SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [locked.rows[0].id, request.user.id],
+      );
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
