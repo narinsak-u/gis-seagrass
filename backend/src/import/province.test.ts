@@ -131,8 +131,7 @@ integration('concurrent public imports serialize, preserve identities, and produ
     await writeFile(join(directory, 'species.json'), JSON.stringify([]));
     await writeFile(join(directory, 'seagrass_sites.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
     await writeFile(join(directory, 'surveys.csv'), 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species\n');
-    const run = () => {
-      const { promise, resolve, reject } = Promise.withResolvers<{ stdout: string; stderr: string }>();
+    const run = () => new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn('npm', ['run', 'import'], {
         cwd: join(__dirname, '../..'),
         env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
@@ -143,8 +142,7 @@ integration('concurrent public imports serialize, preserve identities, and produ
       child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
       child.once('error', reject);
       child.once('close', (status) => status === 0 ? resolve({ stdout, stderr }) : reject(new Error(stderr || stdout)));
-      return promise;
-    };
+    });
     const [first, second] = await Promise.all([run(), run()]);
     const summaries = [first.stdout, second.stdout].map((stdout) => {
       const match = stdout.match(/"provinces":\{"inserted":(\d+),"skipped_existing":(\d+),"rejected":(\d+)\}/);

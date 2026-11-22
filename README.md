@@ -16,6 +16,7 @@ To run the same importer manually:
 docker compose exec api npm run import
 (cd backend && npm run import)
 ```
+For a host-shell import, set `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` to the reachable database; Compose's `.env` is not loaded by the local npm process.
 
 The importer serializes runs with a PostgreSQL advisory lock and skips existing identities without overwriting records. It reports inserted, skipped-existing, and rejected counts per source. The host report is `reports/import_report.csv`; its `file,row,reason` rows identify source positions (GeoJSON features start at 1; survey positions include the CSV header). Each run writes evidence for that run's rejected rows.
 
@@ -28,7 +29,7 @@ docker compose down
 docker compose up --build --wait -d
 ```
 
-Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. The source files are mounted read-only. These results cover this local Compose dataset, not production scale or concurrent CRUD editing.
+Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. The source files are mounted read-only. Step 2 implements seed import only; Site/Survey CRUD, authentication, and map remain out of scope. The import lock does not define concurrent CRUD behavior or production scaling.
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 
