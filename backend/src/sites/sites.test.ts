@@ -113,14 +113,84 @@ async function createSite(feature: unknown): Promise<{ response: Response; body:
   return { response, body: await response.json() as Record<string, unknown> };
 }
 
-async function patchSite(code: string, body: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+async function patchSite(code: string, body: unknown, token: string | null = accessToken('admin')): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token !== null) headers.authorization = `Bearer ${token}`;
   const response = await fetch(`${origin}/sites/${code}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   return { response, body: await response.json() as Record<string, unknown> };
 }
+
+integration('PATCH /sites requires admin before validation or Site lookup', async () => {
+  for (const [code, body, token, status, error] of [
+    [siteCodes[0], {}, null, 401, 'UNAUTHORIZED'],
+    [siteCodes[0], {}, 'not-a-token', 401, 'UNAUTHORIZED'],
+    [siteCodes[0], {}, accessToken('viewer'), 403, 'FORBIDDEN'],
+    [siteCodes[0], { version: 1, geometry: polygon(100.1, 10.1, 100.2, 10.2) }, accessToken('editor'), 403, 'FORBIDDEN'],
+    [`missing-${siteToken}`, {}, accessToken('editor'), 403, 'FORBIDDEN'],
+  ] as const) {
+    const result = await patchSite(code, body, token);
+    assert.equal(result.response.status, status);
+    assert.equal((result.body.error as Record<string, unknown>).code, error);
+  }
+});
+
+integration('PATCH /sites serializes same-version edits and records admin audit fields', async () => {
+  const code = `PATCH-RACE-${postToken}`;
+  const created = await createSite(siteFeature(code, polygon(100.15, 10.15, 100.25, 10.25)));
+  assert.equal(created.response.status, 201);
+  const ref = `patch-race-survey-${siteToken}`;
+  surveyRefs.push(ref);
+  const site = await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [code]);
+  await pool!.query(
+    `INSERT INTO surveys (site_id,survey_ref,geom,surveyed_on,cover_percent)
+     VALUES ($1,$2,ST_SetSRID(ST_MakePoint(100.2,10.2),4326),CURRENT_DATE,40)`,
+    [site.rows[0].id, ref],
+  );
+  const before = await pool!.query<{ created_by: string | null; updated_by: string | null }>(
+    'SELECT created_by, updated_by FROM sites WHERE code = $1', [code],
+  );
+  const [first, second] = await Promise.all([
+    patchSite(code, { version: 1, name: 'First edit' }),
+    patchSite(code, { version: 1, name: 'Second edit' }),
+  ]);
+  assert.deepEqual([first.response.status, second.response.status].sort(), [200, 409]);
+  const success = first.response.status === 200 ? first : second;
+  const conflict = first.response.status === 409 ? first : second;
+  assert.equal((conflict.body.error as Record<string, unknown>).code, 'VERSION_CONFLICT');
+  const current = (conflict.body.error as { details: { current: unknown } }).details.current;
+  const currentFeature = current as { properties: Record<string, unknown> };
+  assert.deepEqual(current, success.body);
+  assert.equal('siteStatus' in currentFeature.properties, false);
+  assert.equal(success.response.status, 200);
+  const stored = await pool!.query<{ version: number; name: string; created_by: string | null; updated_by: string | null; updated_at: Date }>(
+    'SELECT version, name, created_by, updated_by, updated_at FROM sites WHERE code = $1', [code],
+  );
+  assert.equal(stored.rows[0].version, 2);
+  const successProperties = success.body.properties as Record<string, unknown>;
+  assert.equal(stored.rows[0].name, successProperties.name);
+  assert.equal(stored.rows[0].created_by, before.rows[0].created_by);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(stored.rows[0].updated_at);
+  const combinedEdit = await patchSite(code, { version: 2, name: 'Combined edit', geometry: polygon(100.16, 10.16, 100.26, 10.26) });
+  assert.equal(combinedEdit.response.status, 200);
+  const spatialInvariant = await pool!.query<{ within: boolean }>(
+    'SELECT ST_DWithin(s.geom::geography, v.geom::geography, 50) AS within FROM sites s JOIN surveys v ON v.site_id = s.id WHERE s.code = $1 AND v.survey_ref = $2',
+    [code, ref],
+  );
+  assert.equal(spatialInvariant.rows[0].within, true);
+  const forged = await patchSite(code, { version: 3, created_by: users.viewer, updated_by: users.viewer });
+  assert.equal(forged.response.status, 400);
+  assert.equal((forged.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const combined = await pool!.query<{ version: number; updated_by: string | null }>(
+    'SELECT version, updated_by FROM sites WHERE code = $1', [code],
+  );
+  assert.equal(combined.rows[0].version, 3);
+  assert.equal(combined.rows[0].updated_by, users.admin);
+});
 
 async function deleteSite(code: string): Promise<Response> {
   return fetch(`${origin}/sites/${code}`, { method: 'DELETE' });

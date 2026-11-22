@@ -68,7 +68,12 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.deepEqual(createSchema.properties?.properties?.required, ['code', 'name']);
   assert.deepEqual(createSchema.properties?.geometry?.required, ['type', 'coordinates']);
   assert.deepEqual(patchSchema.required, ['version']);
-  assert.ok(patchSchema.properties?.version && patchSchema.properties.name && patchSchema.properties.geometry);
+  assert.ok(update.responses?.['401'] && update.responses['403']);
+  assert.ok(update.security?.some((scheme) => 'access-token' in scheme));
+  const conflictSchema = update.responses?.['409']?.content?.['application/json']?.schema;
+  const versionConflict = conflictSchema?.anyOf?.[1]?.properties?.error?.properties?.details;
+  assert.ok(versionConflict?.properties?.current);
+  assert.equal(versionConflict.properties.current.type, 'object');
 
   const detailSchema = detail.responses?.['200']?.content?.['application/json']?.schema;
   assert.ok(detailSchema);
@@ -102,11 +107,15 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
     const failures = Object.entries(responses).filter(([status]) => Number(status) >= 400);
     assert.ok(failures.length, 'missing failure response');
     for (const [status, response] of failures) {
-      assert.equal(
-        response.content?.['application/json']?.schema?.$ref,
-        '#/components/schemas/ApiErrorEnvelope',
-        `failure response ${status} must use the shared error schema`,
-      );
+      if (operation === update && status === '409') {
+        assert.ok(response.content?.['application/json']?.schema?.anyOf);
+      } else {
+        assert.equal(
+          response.content?.['application/json']?.schema?.$ref,
+          '#/components/schemas/ApiErrorEnvelope',
+          `failure response ${status} must use the shared error schema`,
+        );
+      }
     }
   }
 
@@ -126,13 +135,13 @@ interface OpenApiOperation {
   parameters?: Array<{ name: string }>;
   requestBody?: { content?: Record<string, { schema?: OpenApiSchema }> };
   responses?: Record<string, OpenApiResponse>;
+  security?: Array<Record<string, string[]>>;
 }
 interface OpenApiResponse {
   content?: Record<string, { schema?: OpenApiSchema }>;
 }
 
 interface OpenApiSchema {
-
   $ref?: string;
   type?: string;
   nullable?: boolean;
@@ -140,4 +149,5 @@ interface OpenApiSchema {
   enum?: string[];
   properties?: Record<string, OpenApiSchema>;
   items?: OpenApiSchema;
+  anyOf?: OpenApiSchema[];
 }

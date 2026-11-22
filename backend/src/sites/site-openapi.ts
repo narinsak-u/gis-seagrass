@@ -55,6 +55,26 @@ export const SITE_FEATURE_SCHEMA = {
     properties: siteSummary,
   },
 } satisfies SchemaObject;
+export const SITE_PATCH_ERROR_SCHEMA = {
+  anyOf: [
+    SITE_ERROR_SCHEMA,
+    {
+      type: 'object',
+      required: ['error'],
+      properties: {
+        error: {
+          type: 'object',
+          required: ['code', 'message', 'details'],
+          properties: {
+            code: { type: 'string', enum: ['VERSION_CONFLICT'] },
+            message: { type: 'string' },
+            details: { type: 'object', required: ['current'], properties: { current: SITE_FEATURE_SCHEMA } },
+          },
+        },
+      },
+    },
+  ],
+} satisfies SchemaObject;
 const publicSiteFeatureSchema = {
   ...SITE_FEATURE_SCHEMA,
   properties: {
