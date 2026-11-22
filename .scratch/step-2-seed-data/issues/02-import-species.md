@@ -4,10 +4,10 @@
 
 **Blocked by:** 01: Import provinces on startup.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The importer processes species after provinces from the supplied JSON array; only records with nonempty code, Thai name, and scientific name enter the existing species table.
-- [ ] The first valid occurrence of a source code wins; later source duplicates appear in the rejection report. Existing database codes are skipped without overwrite.
-- [ ] Malformed whole-file JSON or an unreadable file fails import and API startup, while invalid individual records are reported without preventing valid species import.
-- [ ] The command prints actual inserted, skipped-existing, and rejected counts for species; the host report records one-based source positions with escaped reasons, including on rerun.
-- [ ] Parser and import-backed tests prove validation, duplicate handling, report positions, and idempotency through observable output and stored species.
+- [x] The importer processes species after provinces from the supplied JSON array; only records with nonempty code, Thai name, and scientific name enter the existing species table.
+- [x] The first valid occurrence of a source code wins; later source duplicates appear in the rejection report. Existing database codes are skipped without overwrite.
+- [x] Malformed whole-file JSON or an unreadable file fails import and API startup, while invalid individual records are reported without preventing valid species import.
+- [x] The command prints actual inserted, skipped-existing, and rejected counts for species; the host report records one-based source positions with escaped reasons, including on rerun.
+- [x] Parser and import-backed tests prove validation, duplicate handling, report positions, and idempotency through observable output and stored species.
