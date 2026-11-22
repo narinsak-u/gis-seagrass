@@ -61,6 +61,9 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   const listStatus = listItem?.properties?.siteStatus;
   assert.deepEqual(listStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
   assert.deepEqual(featureStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
+  assert.ok(create.security?.some((scheme) => 'access-token' in scheme));
+  assert.ok(create.responses?.['401']);
+  assert.ok(create.responses?.['403']);
   const createSchema = create.requestBody?.content?.['application/json']?.schema;
   const patchSchema = update.requestBody?.content?.['application/json']?.schema;
   assert.ok(createSchema && patchSchema);
@@ -126,6 +129,7 @@ interface OpenApiOperation {
   parameters?: Array<{ name: string }>;
   requestBody?: { content?: Record<string, { schema?: OpenApiSchema }> };
   responses?: Record<string, OpenApiResponse>;
+  security?: Array<Record<string, string[]>>;
 }
 interface OpenApiResponse {
   content?: Record<string, { schema?: OpenApiSchema }>;
