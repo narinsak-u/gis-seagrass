@@ -4,7 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
 } from '@nestjs/common';
-import { isRecord } from '../import/guards';
+import { isRecord } from '../domain/guards';
 
 interface HttpResponse {
   status(code: number): this;

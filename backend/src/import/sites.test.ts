@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import { runMigrations } from '../database/migrate';
-import { importSiteFeatures, parseSiteFeature } from './sites';
+import { importSiteFeatures } from './sites';
+import { parseSiteFeature } from '../sites/site-feature';
 
 test('Site parser requires nonempty identity and finite in-range lon/lat polygon coordinates', () => {
   const feature = (coordinates: unknown) => ({

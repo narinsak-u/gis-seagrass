@@ -165,6 +165,50 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
   assert.equal(stored.rows[0].province_code, provinceCodes[0]);
   assert.equal(properties.area_rai, Number(stored.rows[0].area_rai));
 });
+integration('POST and PATCH preserve narrow valid Site geometry in storage and GeoJSON responses', async () => {
+  const narrow = (west: number) => ({
+    type: 'Polygon',
+    coordinates: [[[west, 10.15], [west + 0.0000000003, 10.15], [west + 0.0000000003, 10.150001], [west, 10.150001], [west, 10.15]]],
+  });
+  const code = `POST-${postToken}-THIN`;
+  const checkGeometry = async (geometry: unknown) => {
+    const checked = await pool!.query<{ valid: boolean; width: number }>(
+      `SELECT ST_IsValid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)) AS valid,
+              ST_XMax(Box3D(ST_GeomFromGeoJSON($1))) - ST_XMin(Box3D(ST_GeomFromGeoJSON($1))) AS width`,
+      [JSON.stringify(geometry)],
+    );
+    assert.equal(checked.rows[0].valid, true);
+    assert.ok(checked.rows[0].width > 0);
+  };
+  const checkStored = async () => {
+    const stored = await pool!.query<{ valid: boolean; width: number }>(
+      `SELECT ST_IsValid(geom) AS valid, ST_XMax(Box3D(geom)) - ST_XMin(Box3D(geom)) AS width
+         FROM sites WHERE code = $1`,
+      [code],
+    );
+    assert.equal(stored.rows[0].valid, true);
+    assert.ok(stored.rows[0].width > 0);
+  };
+
+  const created = await createSite(siteFeature(code, narrow(100.1234567891)));
+  assert.equal(created.response.status, 201);
+  await checkGeometry(created.body.geometry);
+  await checkStored();
+
+  const patched = await patchSite(code, { version: 1, geometry: narrow(100.1234567895) });
+  assert.equal(patched.response.status, 200);
+  await checkGeometry(patched.body.geometry);
+  await checkStored();
+
+  const detail = await json(`/sites/${code}`);
+  await checkGeometry(detail.body.geometry);
+  const bbox = await json('/sites.geojson?bbox=100,10,101,11');
+  const features = bbox.body.features as Array<Record<string, unknown>>;
+  const feature = features.find((item) => (item.properties as Record<string, unknown>).code === code);
+  assert.ok(feature);
+  await checkGeometry(feature.geometry);
+});
+
 
 integration('POST /sites accepts MultiPolygon, chooses greatest overlap and allows Site overlap', async () => {
   const { response, body } = await createSite(siteFeature(`MULTI-${postToken}`, {

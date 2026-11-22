@@ -180,13 +180,17 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN NULL;
     END;
 
-    INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
-    VALUES (duplicate_site_code, 'Schema test soft-deleted duplicate', province_code,
-            ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
-    UPDATE sites SET deleted_at = now_at WHERE code = duplicate_site_code;
-    INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
-    VALUES (duplicate_site_code, 'Schema test reused code', province_code,
-            ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+    BEGIN
+        INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
+        VALUES (duplicate_site_code, 'Schema test soft-deleted duplicate', province_code,
+                ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+        UPDATE sites SET deleted_at = now_at WHERE code = duplicate_site_code;
+        INSERT INTO sites (code, name, province_code, geom, area_rai, created_at, updated_at)
+        VALUES (duplicate_site_code, 'Schema test reused code', province_code,
+                ST_GeomFromText('MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))', 4326), 1, now_at, now_at);
+        RAISE EXCEPTION 'Soft-deleted site code was reused';
+    EXCEPTION WHEN unique_violation THEN NULL;
+    END;
 
     BEGIN
         INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, created_at, updated_at)

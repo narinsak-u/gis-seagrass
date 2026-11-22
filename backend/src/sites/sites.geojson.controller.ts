@@ -1,15 +1,8 @@
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
-import { Pool } from 'pg';
+import type { SiteSummary } from './site.types';
 
-interface SiteSummary {
-  code: string;
-  name: string;
-  province_code: string;
-  area_rai: number;
-  version: number;
-}
 
 interface SiteFeature {
   type: 'Feature';
@@ -58,7 +51,7 @@ export class SitesGeoJsonController {
       geometry: SiteFeature['geometry'];
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom)::jsonb AS geometry
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry
          FROM sites s
         WHERE s.deleted_at IS NULL
           AND ST_Intersects(s.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))${provinceFilter}

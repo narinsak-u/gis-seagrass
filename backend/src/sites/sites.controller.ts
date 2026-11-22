@@ -1,18 +1,12 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 
 import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
-import { isRecord } from '../import/guards';
-import { parseSiteFeature, SiteValidationError } from '../import/sites';
+import { isRecord } from '../domain/guards';
+import { parseSiteFeature, SiteValidationError } from './site-feature';
+import type { SiteSummary } from './site.types';
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
 
-interface SiteSummary {
-  code: string;
-  name: string;
-  province_code: string;
-  area_rai: number;
-  version: number;
-}
 
 interface SiteList {
   items: SiteSummary[];
@@ -57,42 +51,12 @@ export class SitesController {
     try {
       await client.query('BEGIN');
       const source = JSON.stringify(site.geometry);
-      const validity = await client.query<{ valid: boolean; empty: boolean }>(
-        `SELECT ST_IsValid(geom) AS valid, ST_IsEmpty(geom) AS empty
-           FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) input`,
-        [source],
-      );
-      if (!validity.rows[0].valid || validity.rows[0].empty) {
-        throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
-      }
-      const result = await client.query<{
-        province_code: string | null;
-        area_rai: string;
-        geometry: CreatedSiteFeature['geometry'];
-      }>(
-        `WITH candidate AS (
-           SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
-         ), coverage AS (
-           SELECT p.code,
-                  ST_Area(ST_Intersection(c.geom, p.geom)::geography) AS overlap_area
-             FROM candidate c
-             JOIN provinces p ON ST_Intersects(c.geom, p.geom)
-         )
-         SELECT (SELECT code FROM coverage WHERE overlap_area > 0 ORDER BY overlap_area DESC, code ASC LIMIT 1) AS province_code,
-                ROUND((ST_Area(ST_Multi(c.geom)::geography) / 1600)::numeric, 2)::text AS area_rai,
-                ST_AsGeoJSON(ST_Multi(c.geom))::jsonb AS geometry
-           FROM candidate c`,
-        [source],
-      );
-      const derived = result.rows[0];
-      if (derived.province_code === null) {
-        throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
-      }
+      const derived = await deriveSiteSpatial(client, source);
       const inserted = await client.query<{ version: number; geometry: CreatedSiteFeature['geometry'] }>(
         `INSERT INTO sites (code, name, province_code, geom, area_rai)
-         VALUES ($1, $2, $3, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326), $5)
-         RETURNING version, ST_AsGeoJSON(geom)::jsonb AS geometry`,
-        [site.code, site.name, derived.province_code, JSON.stringify(derived.geometry), derived.area_rai],
+         VALUES ($1, $2, $3, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5)
+         RETURNING version, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
+        [site.code, site.name, derived.province_code, source, derived.area_rai],
       );
       await client.query('COMMIT');
       return {
@@ -138,36 +102,10 @@ export class SitesController {
       if (locked.rows[0].version !== patch.version) {
         throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: {} });
       }
-      let derived: { province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] } | undefined;
+      let derived: { province_code: string; area_rai: string; source: string } | undefined;
       if (patch.geometry) {
         const source = JSON.stringify(patch.geometry);
-        const validity = await client.query<{ valid: boolean; empty: boolean }>(
-          `SELECT ST_IsValid(geom) AS valid, ST_IsEmpty(geom) AS empty
-             FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) input`,
-          [source],
-        );
-        if (!validity.rows[0].valid || validity.rows[0].empty) {
-          throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
-        }
-        const result = await client.query<{
-          province_code: string | null; area_rai: string; geometry: CreatedSiteFeature['geometry'];
-        }>(
-          `WITH candidate AS (
-             SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
-           ), coverage AS (
-             SELECT p.code, ST_Area(ST_Intersection(c.geom, p.geom)::geography) AS overlap_area
-               FROM candidate c JOIN provinces p ON ST_Intersects(c.geom, p.geom)
-           )
-           SELECT (SELECT code FROM coverage WHERE overlap_area > 0 ORDER BY overlap_area DESC, code ASC LIMIT 1) AS province_code,
-                  ROUND((ST_Area(ST_Multi(c.geom)::geography) / 1600)::numeric, 2)::text AS area_rai,
-                  ST_AsGeoJSON(ST_Multi(c.geom))::jsonb AS geometry
-             FROM candidate c`,
-          [source],
-        );
-        const spatial = result.rows[0];
-        if (spatial.province_code === null) {
-          throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
-        }
+        const spatial = await deriveSiteSpatial(client, source);
         const outside = await client.query(
           `SELECT 1 FROM surveys
             WHERE site_id = $1
@@ -178,19 +116,19 @@ export class SitesController {
         if (outside.rowCount) {
           throw new ConflictException({ code: 'SURVEYS_OUTSIDE', message: 'Geometry would strand linked Surveys', details: {} });
         }
-        derived = { ...spatial, province_code: spatial.province_code };
+        derived = { ...spatial, source };
       }
       const updated = derived
         ? await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
           `UPDATE sites SET name = COALESCE($2, name), province_code = $3, area_rai = $4,
-                  geom = ST_SetSRID(ST_GeomFromGeoJSON($5), 4326), version = version + 1
-            WHERE id = $1 RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom)::jsonb AS geometry`,
-          [locked.rows[0].id, patch.name ?? null, derived.province_code, derived.area_rai, JSON.stringify(derived.geometry)],
+                  geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)), version = version + 1
+            WHERE id = $1 RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
+          [locked.rows[0].id, patch.name ?? null, derived.province_code, derived.area_rai, derived.source],
         )
         : await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
           `UPDATE sites SET name = $2, version = version + 1
             WHERE id = $1
-            RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom)::jsonb AS geometry`,
+            RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
           [locked.rows[0].id, patch.name],
         );
       const row = updated.rows[0];
@@ -327,7 +265,7 @@ export class SitesController {
       cover_percent: string | null;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom)::jsonb AS geometry,
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
               latest.survey_ref, latest.surveyed_on, latest.cover_percent::text
          FROM sites s
          LEFT JOIN LATERAL (
@@ -410,4 +348,37 @@ function validateSitePatch(body: unknown): { version: number; name?: string; geo
     }
   }
   return { version: body.version as number, name: body.name as string };
+}
+async function deriveSiteSpatial(client: PoolClient, source: string): Promise<{ province_code: string; area_rai: string }> {
+  const result = await client.query<{
+    valid: boolean;
+    empty: boolean;
+    province_code: string | null;
+    area_rai: string | null;
+  }>(
+    `WITH candidate AS MATERIALIZED (
+       SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
+     ), validation AS MATERIALIZED (
+       SELECT geom, ST_IsValid(geom) AS valid, ST_IsEmpty(geom) AS empty FROM candidate
+     ), valid_candidate AS MATERIALIZED (
+       SELECT geom FROM validation WHERE valid AND NOT empty
+     ), coverage AS MATERIALIZED (
+       SELECT p.code, ST_Area(ST_Intersection(c.geom, p.geom)::geography) AS overlap_area
+         FROM valid_candidate c
+         JOIN provinces p ON ST_Intersects(c.geom, p.geom)
+     )
+     SELECT validation.valid, validation.empty,
+            (SELECT code FROM coverage WHERE overlap_area > 0 ORDER BY overlap_area DESC, code ASC LIMIT 1) AS province_code,
+            (SELECT ROUND((ST_Area(ST_Multi(geom)::geography) / 1600)::numeric, 2)::text FROM valid_candidate) AS area_rai
+       FROM validation`,
+    [source],
+  );
+  const spatial = result.rows[0];
+  if (!spatial.valid || spatial.empty) {
+    throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
+  }
+  if (spatial.province_code === null) {
+    throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
+  }
+  return { province_code: spatial.province_code, area_rai: spatial.area_rai! };
 }
