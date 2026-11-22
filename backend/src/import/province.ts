@@ -1,3 +1,4 @@
+import { isRecord } from './guards';
 import { validCoordinates } from './geometry';
 
 export interface ProvinceRecord {
@@ -39,7 +40,4 @@ export function parseProvinceFeature(feature: unknown): ProvinceRecord {
   }
   return { code, nameTh, geometry: { type: geometry.type, coordinates: geometry.coordinates } };
 }
-
-
-
 

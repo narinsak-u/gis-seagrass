@@ -1,3 +1,4 @@
+import { isRecord } from './guards';
 import type { PoolClient } from 'pg';
 
 export interface SpeciesRecord {
@@ -70,6 +71,3 @@ export async function importSpecies(client: PoolClient, records: unknown[]): Pro
   return result;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}

@@ -123,15 +123,15 @@ Potential reason codes (report codes are implementation choices, not mandatory H
 
 ## Definition of done
 
-- [ ] Single import command documented and runnable from `backend/` locally or in the API container.
-- [ ] Compose runs migration and import before serving API.
-- [ ] Four source files imported in mandated order; invalid rows rejected without repair.
-- [ ] Spatial validation uses PostGIS and geographic units; area stored in rai.
-- [ ] Source duplicates handled deterministically; existing rows skipped.
-- [ ] `import_report.csv` generated on host with accurate file/row/reason.
-- [ ] Repeat import and service restart leave counts and values unchanged.
-- [ ] Unit and DB-backed integration tests pass.
-- [ ] Root README explains import, report, reruns and limitation/decisions.
+- [x] Single import command documented and runnable from `backend/` locally or in the API container.
+- [x] Compose runs migration and import before serving API.
+- [x] Four source files imported in mandated order; invalid rows rejected without repair.
+- [x] Spatial validation uses PostGIS and geographic units; area stored in rai.
+- [x] Source duplicates handled deterministically; existing rows skipped.
+- [x] `import_report.csv` generated on host with accurate file/row/reason.
+- [x] Repeat import and service restart leave counts and values unchanged.
+- [x] Unit and DB-backed integration tests pass.
+- [x] Root README explains import, report, reruns and limitation/decisions.
 
 ## Git instructions for this Step
 

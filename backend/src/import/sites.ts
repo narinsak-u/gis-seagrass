@@ -1,3 +1,4 @@
+import { isRecord } from './guards';
 import { validCoordinates } from './geometry';
 import type { PoolClient } from 'pg';
 
@@ -121,6 +122,3 @@ function reject(result: SiteImportResult, row: number, reason: string): void {
   result.summary.rejected++;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}

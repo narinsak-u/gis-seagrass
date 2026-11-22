@@ -151,5 +151,9 @@ integration('public import validates surveys, persists atomic links, and keeps r
     'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[2]],
   );
   assert.equal(existing.rows[0].cover_percent, '44.00');
+  const validExisting = await pool!.query<{ cover_percent: string }>(
+    'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[17]],
+  );
+  assert.equal(validExisting.rows[0].cover_percent, '33.00');
   assert.equal(await readFile(reportPath, 'utf8'), report);
 });
