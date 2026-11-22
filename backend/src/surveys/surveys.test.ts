@@ -191,11 +191,13 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   const list = document.paths['/sites/{code}/surveys'].get;
   assert.ok(post && patch && remove && list);
   assert.deepEqual(document.components?.securitySchemes?.['access-token'], { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' });
+  assert.deepEqual(post.security, [{ 'access-token': [] }]);
+  assert.match(post.description ?? '', /admin/);
   assert.deepEqual(patch.security, [{ 'access-token': [] }]);
   assert.match(patch.description ?? '', /admin/);
   for (const [operation, statuses] of [
     [list, ['200', '400', '401', '403', '404', '500']],
-    [post, ['201', '400', '404', '422', '500']],
+    [post, ['201', '400', '401', '403', '404', '422', '500']],
     [patch, ['200', '400', '401', '403', '404', '422', '500']],
     [remove, ['204', '400', '404', '500']],
   ] as const) {
@@ -436,8 +438,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     const address = clockApp.getHttpServer().address();
     assert.ok(address && typeof address === 'object');
     const clockOrigin = `http://127.0.0.1:${address.port}`;
-    const send = async (path: string, method: string, body: unknown) => fetch(`${clockOrigin}${path}`, {
-      method, headers: { 'content-type': 'application/json', ...(method === 'PATCH' ? { authorization: `Bearer ${accessToken('admin')}` } : {}) }, body: JSON.stringify(body),
+    const send = async (path: string, method: string, body: unknown, token: string | null = accessToken('admin')) => fetch(`${clockOrigin}${path}`, {
+      method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body),
     });
     const yesterday = await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-01' }));
     assert.equal(yesterday.status, 201);
