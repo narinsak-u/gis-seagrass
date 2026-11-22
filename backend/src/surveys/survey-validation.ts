@@ -21,11 +21,11 @@ export function parseSurveyInput(body: unknown, create: boolean): SurveyInput {
   const record = body as Record<string, unknown>;
   if (Object.keys(record).some((key) => !editableKeys.includes(key)) || (!create && Object.keys(record).length === 0)) invalid();
   const input: SurveyInput = {};
-  if (create ? typeof record.lon !== 'number' : record.lon !== undefined) {
+  if (create || record.lon !== undefined) {
     if (typeof record.lon !== 'number' || !Number.isFinite(record.lon) || record.lon < -180 || record.lon > 180) invalid();
     input.lon = record.lon;
   }
-  if (create ? typeof record.lat !== 'number' : record.lat !== undefined) {
+  if (create || record.lat !== undefined) {
     if (typeof record.lat !== 'number' || !Number.isFinite(record.lat) || record.lat < -90 || record.lat > 90) invalid();
     input.lat = record.lat;
   }
