@@ -79,6 +79,7 @@ export class SurveysController {
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
   async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+    const id = parseSurveyId(rawId);
     const input = parseSurveyInput(body, false, request.rawBody);
     const client = await this.pool.connect();
     try {
