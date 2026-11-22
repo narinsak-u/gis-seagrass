@@ -101,13 +101,13 @@ function accessToken(role: keyof typeof users): string {
   return signAccessToken(users[role]);
 }
 
-async function createSite(feature: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+async function createSite(feature: unknown, role?: keyof typeof users | null): Promise<{ response: Response; body: Record<string, unknown> }> {
   const properties = feature && typeof feature === 'object' && 'properties' in feature ? feature.properties : undefined;
   const code = properties && typeof properties === 'object' && 'code' in properties ? properties.code : undefined;
   if (typeof code === 'string') createdSiteCodes.push(code);
   const response = await fetch(`${origin}/sites`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(role === null ? {} : { authorization: `Bearer ${accessToken(role ?? 'admin')}` }) },
     body: JSON.stringify(feature),
   });
   return { response, body: await response.json() as Record<string, unknown> };
@@ -192,8 +192,11 @@ integration('PATCH /sites serializes same-version edits and records admin audit 
   assert.equal(combined.rows[0].updated_by, users.admin);
 });
 
-async function deleteSite(code: string): Promise<Response> {
-  return fetch(`${origin}/sites/${code}`, { method: 'DELETE' });
+async function deleteSite(code: string, role: keyof typeof users | null = 'admin'): Promise<Response> {
+  return fetch(`${origin}/sites/${code}`, {
+    method: 'DELETE',
+    headers: role === null ? {} : { authorization: `Bearer ${accessToken(role)}` },
+  });
 }
 
 async function waitForBlockedQuery(query: string): Promise<void> {
@@ -224,7 +227,32 @@ const siteFeature = (code: string, geometry: unknown, extra: Record<string, unkn
   properties: { code, name: `New ${code}`, ...extra },
 });
 
-integration('POST /sites stores Polygon as MultiPolygon and returns server-derived values', async () => {
+integration('POST /sites requires admin before validating parseable bodies', async () => {
+  const invalid = { type: 'NotFeature' };
+  for (const role of [null, 'viewer', 'editor'] as const) {
+    const { response, body } = await createSite(invalid, role);
+    assert.equal(response.status, role === null ? 401 : 403);
+    assert.equal((body.error as Record<string, unknown>).code, role === null ? 'UNAUTHORIZED' : 'FORBIDDEN');
+  }
+  const invalidTokenResponse = await fetch(`${origin}/sites`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer invalid' },
+    body: JSON.stringify(invalid),
+  });
+  assert.equal(invalidTokenResponse.status, 401);
+  assert.equal(((await invalidTokenResponse.json() as Record<string, any>).error).code, 'UNAUTHORIZED');
+
+  await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['viewer', users.admin]);
+  try {
+    const { response, body } = await createSite(invalid, 'admin');
+    assert.equal(response.status, 403);
+    assert.equal((body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  } finally {
+    await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['admin', users.admin]);
+  }
+});
+
+integration('POST /sites stores the authenticated creator and updater', async () => {
   const feature = siteFeature(`POST-${postToken}`, polygon(100.15, 10.15, 100.25, 10.25));
   const { response, body } = await createSite(feature);
   assert.equal(response.status, 201);
@@ -240,15 +268,29 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
     version: 1,
   });
   assert.equal(typeof properties.area_rai, 'number');
-  const stored = await pool!.query<{ area_rai: string; geometrytype: string; province_code: string }>(
-    `SELECT area_rai::text, ST_GeometryType(geom) AS geometrytype, province_code
+  const stored = await pool!.query<{ area_rai: string; geometrytype: string; province_code: string; created_by: string; updated_by: string; updated_at: Date }>(
+    `SELECT area_rai::text, ST_GeometryType(geom) AS geometrytype, province_code, created_by::text, updated_by::text, updated_at
        FROM sites WHERE code = $1`,
     [`POST-${postToken}`],
   );
   assert.equal(stored.rows[0].geometrytype, 'ST_MultiPolygon');
   assert.equal(stored.rows[0].province_code, provinceCodes[0]);
   assert.equal(properties.area_rai, Number(stored.rows[0].area_rai));
+  assert.equal(stored.rows[0].created_by, users.admin);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(Math.abs(Date.now() - stored.rows[0].updated_at.getTime()) < 10_000);
 });
+
+integration('POST /sites rejects client-supplied audit fields', async () => {
+  const feature = siteFeature(`POST-${postToken}-FORGED`, polygon(100.15, 10.15, 100.25, 10.25), {
+    created_by: users.viewer, updated_by: users.viewer, updated_at: '2000-01-01T00:00:00.000Z',
+  });
+  const { response, body } = await createSite(feature);
+  assert.equal(response.status, 400);
+  assert.equal((body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`POST-${postToken}-FORGED`])).rowCount, 0);
+});
+
 integration('POST and PATCH preserve narrow valid Site geometry in storage and GeoJSON responses', async () => {
   const narrow = (west: number) => ({
     type: 'Polygon',
@@ -647,15 +689,35 @@ integration('PATCH and Survey import serialize both lock orders without strandin
   }
 });
 
-integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code', async () => {
+integration('DELETE /sites requires admin before looking up a Site', async () => {
+  for (const [role, status, code] of [
+    [null, 401, `MISSING-${siteToken}`],
+    ['viewer', 403, `MISSING-${siteToken}`],
+    ['editor', 403, siteCodes[0]],
+  ] as const) {
+    const response = await deleteSite(code, role);
+    assert.equal(response.status, status);
+    assert.equal(((await response.json() as Record<string, unknown>).error as Record<string, unknown>).code,
+      status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN');
+  }
+});
+
+integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code and audit actors', async () => {
   const code = `DELETE-${siteToken}`;
   const created = await createSite(siteFeature(code, polygon(100.6, 10.1, 100.7, 10.2)));
   assert.equal(created.response.status, 201);
+  await pool!.query('UPDATE sites SET created_by = $2, updated_by = $2, updated_at = TIMESTAMPTZ \'2025-01-01\' WHERE code = $1',
+    [code, users.viewer]);
   const deleted = await deleteSite(code);
   assert.equal(deleted.status, 204);
   assert.equal(await deleted.text(), '');
-  const retained = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [code]);
+  const retained = await pool!.query<{ deleted_at: Date | null; created_by: string; updated_by: string; updated_at: Date }>(
+    'SELECT deleted_at, created_by, updated_by, updated_at FROM sites WHERE code = $1', [code],
+  );
   assert.ok(retained.rows[0].deleted_at);
+  assert.equal(retained.rows[0].created_by, users.viewer);
+  assert.equal(retained.rows[0].updated_by, users.admin);
+  assert.ok(retained.rows[0].updated_at > new Date('2025-01-01'));
   for (const response of [await deleteSite(code), await deleteSite(`MISSING-${siteToken}`)]) {
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json() as Record<string, unknown>).error, {
