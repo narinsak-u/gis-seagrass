@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "migrate": "node dist/database/migrate.js",
     "import": "node dist/import/province.js",
-    "test": "npm run build && node --test dist/import/*.test.js",
+    "test": "npm run build && node --test --test-concurrency=1 dist/import/*.test.js",
     "start:prod": "node dist/main.js"
   },
   "dependencies": {
