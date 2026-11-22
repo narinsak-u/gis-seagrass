@@ -57,6 +57,8 @@ Success returns `access_token`, `token_type: "Bearer"`, and `expires_in: 900`. L
 
 The API provides Site list/search, GeoJSON bbox reads, detail, create, versioned update, and soft delete. Reads omit soft-deleted Sites. Site boundaries may overlap; create and geometry updates require positive-area Province overlap. Geometry updates cannot leave linked Surveys more than 50 meters from the Site. API errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`.
 
+Every public Site list item, GeoJSON feature property, and Site detail feature property includes `siteStatus`: `very_good`, `good`, `fair`, `poor`, or `no_data`. It is derived from the mean cover of all Surveys on the Site's latest observation date; earlier Surveys do not affect it. Sites without Surveys return `no_data`. The value is computed from current Survey data and updates after Survey creation, update, or deletion. Site reads remain public and add no status filter; POST and PATCH response shapes are unchanged.
+
 Start the stack as above, then try these read-only requests:
 
 ```sh

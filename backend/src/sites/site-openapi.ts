@@ -36,7 +36,11 @@ export const SITE_LIST_SCHEMA = {
   type: 'object',
   required: ['items', 'total', 'page'],
   properties: {
-    items: { type: 'array', items: siteSummary },
+    items: { type: 'array', items: {
+      ...siteSummary,
+      required: [...siteSummary.required, 'siteStatus'],
+      properties: { ...siteSummary.properties, siteStatus: { type: 'string', enum: ['very_good', 'good', 'fair', 'poor', 'no_data'] } },
+    } },
     total: { type: 'integer' },
     page: { type: 'integer' },
   },
@@ -51,6 +55,18 @@ export const SITE_FEATURE_SCHEMA = {
     properties: siteSummary,
   },
 } satisfies SchemaObject;
+const publicSiteFeatureSchema = {
+  ...SITE_FEATURE_SCHEMA,
+  properties: {
+    ...SITE_FEATURE_SCHEMA.properties,
+    properties: {
+      ...siteSummary,
+      required: [...siteSummary.required, 'siteStatus'],
+      properties: { ...siteSummary.properties, siteStatus: { type: 'string', enum: ['very_good', 'good', 'fair', 'poor', 'no_data'] } },
+    },
+  },
+} satisfies SchemaObject;
+
 
 export const SITE_DETAIL_SCHEMA = {
   type: 'object',
@@ -60,9 +76,10 @@ export const SITE_DETAIL_SCHEMA = {
     geometry,
     properties: {
       type: 'object',
-      required: ['code', 'name', 'province_code', 'area_rai', 'version', 'latest_survey'],
+      required: ['code', 'name', 'province_code', 'area_rai', 'version', 'siteStatus', 'latest_survey'],
       properties: {
         ...siteSummary.properties,
+        siteStatus: { type: 'string', enum: ['very_good', 'good', 'fair', 'poor', 'no_data'] },
         latest_survey: {
           type: 'object',
           nullable: true,
@@ -83,7 +100,7 @@ export const SITE_FEATURE_COLLECTION_SCHEMA = {
   required: ['type', 'features'],
   properties: {
     type: { type: 'string', enum: ['FeatureCollection'] },
-    features: { type: 'array', items: SITE_FEATURE_SCHEMA },
+    features: { type: 'array', items: publicSiteFeatureSchema },
   },
 } satisfies SchemaObject;
 

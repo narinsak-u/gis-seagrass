@@ -4,12 +4,12 @@ import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger'
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
-import type { SiteSummary } from './site.types';
+import type { PublicSiteSummary, SiteSummary } from './site.types';
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
 
 
 interface SiteList {
-  items: SiteSummary[];
+  items: PublicSiteSummary[];
   total: number;
   page: number;
 }
@@ -17,7 +17,7 @@ interface SiteList {
 interface SiteFeature {
   type: 'Feature';
   geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-  properties: SiteSummary & {
+  properties: PublicSiteSummary & {
     latest_survey: null | {
       survey_ref: string | null;
       surveyed_on: string;
@@ -228,10 +228,21 @@ export class SitesController {
       province_code: string;
       area_rai: string;
       version: number;
+      site_status: string;
     }>(
-      `SELECT code, name, province_code, area_rai::text, version
-         FROM sites WHERE ${where}
-        ORDER BY code ASC
+      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              COALESCE(status.site_status, 'no_data') AS site_status
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT CASE WHEN count(*) = 0 THEN 'no_data'
+                  WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
+                  WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
+        WHERE ${where}
+        ORDER BY s.code ASC
         LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, pageSize, offset],
     );
@@ -242,6 +253,7 @@ export class SitesController {
         province_code: row.province_code,
         area_rai: Number(row.area_rai),
         version: row.version,
+        siteStatus: row.site_status,
       })),
       total: Number(count.rows[0]?.total ?? 0),
       page,
@@ -263,10 +275,12 @@ export class SitesController {
       survey_ref: string | null;
       surveyed_on: string | null;
       cover_percent: string | null;
+      site_status: string | null;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
               ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
-              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text
+              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text,
+              status.site_status
          FROM sites s
          LEFT JOIN LATERAL (
            SELECT survey_ref, surveyed_on::text, cover_percent
@@ -275,6 +289,14 @@ export class SitesController {
             ORDER BY surveyed_on DESC, id DESC
             LIMIT 1
          ) latest ON true
+         LEFT JOIN LATERAL (
+           SELECT CASE WHEN count(*) = 0 THEN 'no_data'
+                  WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
+                  WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
         WHERE s.code = $1 AND s.deleted_at IS NULL`,
       [code],
     );
@@ -291,6 +313,7 @@ export class SitesController {
         province_code: row.province_code,
         area_rai: Number(row.area_rai),
         version: row.version,
+        siteStatus: row.site_status ?? 'no_data',
         latest_survey: row.surveyed_on === null ? null : {
           survey_ref: row.survey_ref,
           surveyed_on: row.surveyed_on,

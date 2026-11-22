@@ -274,7 +274,8 @@ integration('GET /sites returns exact numeric summaries without geometry, sorted
   const items = body.items as Array<Record<string, unknown>>;
   assert.deepEqual(items.map((item) => item.code), [...siteCodes.slice(0, 3)].sort());
   for (const item of items) {
-    assert.deepEqual(Object.keys(item).sort(), ['area_rai', 'code', 'name', 'province_code', 'version']);
+    assert.deepEqual(Object.keys(item).sort(), ['area_rai', 'code', 'name', 'province_code', 'siteStatus', 'version']);
+    assert.equal(item.siteStatus, 'no_data');
     assert.equal(typeof item.area_rai, 'number');
     assert.equal(typeof item.version, 'number');
   }
@@ -301,6 +302,7 @@ integration('GET /sites/:code returns GeoJSON detail and a null latest Survey wh
       province_code: provinceCodes[0],
       area_rai: 2,
       version: 1,
+      siteStatus: 'no_data',
       latest_survey: null,
     },
   });
@@ -330,6 +332,41 @@ integration('GET /sites/:code selects latest Survey by date then identity and pr
     });
   } finally {
     await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[]) OR (survey_ref IS NULL AND site_id = (SELECT id FROM sites WHERE code = $2))', [refs, siteCodes[0]]);
+  }
+});
+
+integration('public Site status averages latest-date Surveys and recomputes after mutations', async () => {
+  const refs = [`${siteToken}-STATUS-OLD`, `${siteToken}-STATUS-A`, `${siteToken}-STATUS-B`];
+  const siteId = (await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [siteCodes[0]])).rows[0].id;
+  try {
+    await pool!.query(
+      `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-01-01', 1),
+              ($1, $3, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-02-03', 70),
+              ($1, $4, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-02-03', 80)`,
+      [siteId, ...refs],
+    );
+    const expectStatus = async (expected: string) => {
+      const [list, detail, map] = await Promise.all([
+        json(`/sites?q=${siteCodes[0]}`),
+        json(`/sites/${siteCodes[0]}`),
+        json('/sites.geojson?bbox=100,10,100.3,10.3'),
+      ]);
+      assert.equal(((list.body.items as Array<Record<string, unknown>>)[0]).siteStatus, expected);
+      assert.equal(((detail.body.properties as Record<string, unknown>)).siteStatus, expected);
+      const feature = (map.body.features as Array<Record<string, unknown>>)
+        .find((item) => (item.properties as Record<string, unknown>).code === siteCodes[0]);
+      assert.equal((feature?.properties as Record<string, unknown>).siteStatus, expected);
+    };
+    await expectStatus('very_good');
+    await pool!.query('UPDATE surveys SET cover_percent = 30 WHERE survey_ref = $1', [refs[2]]);
+    await expectStatus('good');
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [[refs[1], refs[2]]]);
+    await expectStatus('poor');
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = $1', [refs[0]]);
+    await expectStatus('no_data');
+  } finally {
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [refs]);
   }
 });
 
