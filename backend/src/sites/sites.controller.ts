@@ -1,3 +1,5 @@
+import { Pool } from 'pg';
+
 import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../import/guards';

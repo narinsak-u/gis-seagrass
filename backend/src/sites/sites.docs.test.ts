@@ -53,8 +53,30 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.ok(list && create && bbox && detail && update && remove);
   assert.deepEqual(new Set(list.parameters?.map(({ name }) => name)), new Set(['status', 'province', 'q', 'page', 'pageSize']));
   assert.deepEqual(new Set(bbox.parameters?.map(({ name }) => name)), new Set(['bbox', 'province', 'status']));
-  assert.ok(create.requestBody?.content?.['application/json']?.schema);
-  assert.ok(update.requestBody?.content?.['application/json']?.schema);
+  const createSchema = create.requestBody?.content?.['application/json']?.schema;
+  const patchSchema = update.requestBody?.content?.['application/json']?.schema;
+  assert.ok(createSchema && patchSchema);
+  assert.deepEqual(createSchema.required, ['type', 'geometry', 'properties']);
+  assert.deepEqual(createSchema.properties?.properties?.required, ['code', 'name']);
+  assert.deepEqual(createSchema.properties?.geometry?.required, ['type', 'coordinates']);
+  assert.deepEqual(patchSchema.required, ['version']);
+  assert.ok(patchSchema.properties?.version && patchSchema.properties.name && patchSchema.properties.geometry);
+
+  const detailSchema = detail.responses?.['200']?.content?.['application/json']?.schema;
+  assert.ok(detailSchema);
+  assert.equal(detailSchema.type, 'object');
+  assert.deepEqual(detailSchema.required, ['type', 'geometry', 'properties']);
+  assert.equal(detailSchema.properties?.type?.enum?.includes('Feature'), true);
+  assert.ok(detailSchema.properties?.geometry);
+  assert.deepEqual(
+    detailSchema.properties?.properties?.required,
+    ['code', 'name', 'province_code', 'area_rai', 'version', 'latest_survey'],
+  );
+  const latestSurvey = detailSchema.properties?.properties?.properties?.latest_survey;
+  assert.ok(latestSurvey);
+  assert.equal(latestSurvey.nullable, true);
+  assert.deepEqual(latestSurvey.required, ['survey_ref', 'surveyed_on', 'cover_percent']);
+  assert.ok(latestSurvey.properties?.survey_ref && latestSurvey.properties.surveyed_on && latestSurvey.properties.cover_percent);
 
   const operations = [
     { operation: list, success: '200' },
@@ -97,10 +119,16 @@ interface OpenApiOperation {
   responses?: Record<string, OpenApiResponse>;
 }
 interface OpenApiResponse {
-  content?: Record<string, { schema?: { $ref?: string } }>;
+  content?: Record<string, { schema?: OpenApiSchema }>;
 }
 
 interface OpenApiSchema {
+
+  $ref?: string;
+  type?: string;
+  nullable?: boolean;
+  required?: string[];
+  enum?: string[];
   properties?: Record<string, OpenApiSchema>;
 }
 

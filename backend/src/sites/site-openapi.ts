@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, type SchemaObject } from '@nestjs/swagger';
 
 export class ApiErrorEnvelope {
   @ApiProperty({ type: 'object', required: ['code', 'message', 'details'], properties: {
@@ -9,7 +9,7 @@ export class ApiErrorEnvelope {
   error!: { code: string; message: string; details: Record<string, unknown> };
 }
 
-export const SITE_ERROR_SCHEMA = { $ref: '#/components/schemas/ApiErrorEnvelope' } as const;
+export const SITE_ERROR_SCHEMA = { $ref: '#/components/schemas/ApiErrorEnvelope' } satisfies SchemaObject;
 
 const siteSummary = {
   type: 'object',
@@ -21,7 +21,7 @@ const siteSummary = {
     area_rai: { type: 'number' },
     version: { type: 'integer' },
   },
-} as const;
+} satisfies SchemaObject;
 
 const geometry = {
   type: 'object',
@@ -30,7 +30,7 @@ const geometry = {
     type: { type: 'string', enum: ['MultiPolygon'] },
     coordinates: { type: 'array', items: { type: 'array', items: { type: 'array', items: { type: 'array', items: { type: 'number' } } } } },
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_LIST_SCHEMA = {
   type: 'object',
@@ -40,7 +40,7 @@ export const SITE_LIST_SCHEMA = {
     total: { type: 'integer' },
     page: { type: 'integer' },
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_FEATURE_SCHEMA = {
   type: 'object',
@@ -50,28 +50,33 @@ export const SITE_FEATURE_SCHEMA = {
     geometry,
     properties: siteSummary,
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_DETAIL_SCHEMA = {
-  ...SITE_FEATURE_SCHEMA,
+  type: 'object',
+  required: ['type', 'geometry', 'properties'],
   properties: {
-    ...siteSummary,
-    required: [...siteSummary.required, 'latest_survey'],
+    type: { type: 'string', enum: ['Feature'] },
+    geometry,
     properties: {
-      ...siteSummary.properties,
-      latest_survey: {
-        type: 'object',
-        nullable: true,
-        required: ['survey_ref', 'surveyed_on', 'cover_percent'],
-        properties: {
-          survey_ref: { type: 'string', nullable: true },
-          surveyed_on: { type: 'string', format: 'date' },
-          cover_percent: { type: 'number' },
+      type: 'object',
+      required: ['code', 'name', 'province_code', 'area_rai', 'version', 'latest_survey'],
+      properties: {
+        ...siteSummary.properties,
+        latest_survey: {
+          type: 'object',
+          nullable: true,
+          required: ['survey_ref', 'surveyed_on', 'cover_percent'],
+          properties: {
+            survey_ref: { type: 'string', nullable: true },
+            surveyed_on: { type: 'string', format: 'date' },
+            cover_percent: { type: 'number' },
+          },
         },
       },
     },
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_FEATURE_COLLECTION_SCHEMA = {
   type: 'object',
@@ -80,7 +85,7 @@ export const SITE_FEATURE_COLLECTION_SCHEMA = {
     type: { type: 'string', enum: ['FeatureCollection'] },
     features: { type: 'array', items: SITE_FEATURE_SCHEMA },
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_CREATE_BODY_SCHEMA = {
   type: 'object',
@@ -101,7 +106,7 @@ export const SITE_CREATE_BODY_SCHEMA = {
       properties: { code: { type: 'string' }, name: { type: 'string' } },
     },
   },
-} as const;
+} satisfies SchemaObject;
 
 export const SITE_PATCH_BODY_SCHEMA = {
   type: 'object',
@@ -111,4 +116,4 @@ export const SITE_PATCH_BODY_SCHEMA = {
     name: { type: 'string' },
     geometry: SITE_CREATE_BODY_SCHEMA.properties.geometry,
   },
-} as const;
+} satisfies SchemaObject;
