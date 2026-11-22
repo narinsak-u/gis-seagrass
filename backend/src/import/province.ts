@@ -3,9 +3,11 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { PoolClient } from 'pg';
 import { createPool } from '../database/pool';
+import { importSiteFeatures, parseSiteCollection } from './sites';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };
+  sites: { inserted: number; skipped_existing: number; rejected: number };
 }
 
 export interface ProvinceRecord {
@@ -93,11 +95,15 @@ async function replaceReport(path: string, rows: Array<[string, number, string]>
 }
 
 export async function runImport(): Promise<ImportSummary> {
-  const inputPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'provinces.geojson');
+  const inputDir = resolve(process.env.SEED_DATA_DIR ?? 'seed-data');
+  const provinceFeatures = parseProvinceCollection(await readFile(resolve(inputDir, 'provinces.geojson'), 'utf8'));
+  const siteFeatures = parseSiteCollection(await readFile(resolve(inputDir, 'seagrass_sites.geojson'), 'utf8'));
   const reportPath = resolve(process.env.IMPORT_REPORT_PATH ?? '../reports/import_report.csv');
-  const features = parseProvinceCollection(await readFile(inputPath, 'utf8'));
   const pool = createPool();
-  const summary: ImportSummary = { provinces: { inserted: 0, skipped_existing: 0, rejected: 0 } };
+  const summary: ImportSummary = {
+    provinces: { inserted: 0, skipped_existing: 0, rejected: 0 },
+    sites: { inserted: 0, skipped_existing: 0, rejected: 0 },
+  };
   const report: Array<[string, number, string]> = [];
   const seen = new Set<string>();
   let client: PoolClient | undefined;
@@ -106,7 +112,7 @@ export async function runImport(): Promise<ImportSummary> {
     client = await pool.connect();
     await client.query('SELECT pg_advisory_lock($1)', [192837465]);
     locked = true;
-    for (const [index, feature] of features.entries()) {
+    for (const [index, feature] of provinceFeatures.entries()) {
       let province: ProvinceRecord;
       try {
         province = parseProvinceFeature(feature);
@@ -141,6 +147,11 @@ export async function runImport(): Promise<ImportSummary> {
       );
       if (result.rowCount) summary.provinces.inserted++;
       else summary.provinces.skipped_existing++;
+    }
+    const siteResult = await importSiteFeatures(client, siteFeatures);
+    summary.sites = siteResult.summary;
+    for (const rejection of siteResult.rejections) {
+      report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
     }
     await replaceReport(reportPath, report);
     console.info('Import summary:', JSON.stringify(summary));
