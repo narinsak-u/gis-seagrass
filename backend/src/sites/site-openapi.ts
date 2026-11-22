@@ -60,18 +60,14 @@ export const SITE_DETAIL_SCHEMA = {
     properties: {
       ...siteSummary.properties,
       latest_survey: {
-        oneOf: [
-          { type: 'null' },
-          {
-            type: 'object',
-            required: ['survey_ref', 'surveyed_on', 'cover_percent'],
-            properties: {
-              survey_ref: { type: 'string', nullable: true },
-              surveyed_on: { type: 'string', format: 'date' },
-              cover_percent: { type: 'number' },
-            },
-          },
-        ],
+        type: 'object',
+        nullable: true,
+        required: ['survey_ref', 'surveyed_on', 'cover_percent'],
+        properties: {
+          survey_ref: { type: 'string', nullable: true },
+          surveyed_on: { type: 'string', format: 'date' },
+          cover_percent: { type: 'number' },
+        },
       },
     },
   },
