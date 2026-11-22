@@ -169,6 +169,8 @@ integration('concurrent public imports serialize, preserve identities, and produ
     const afterRerun = await run();
     assert.match(afterRerun.stdout, /"provinces":\{"inserted":0,"skipped_existing":1,"rejected":2\}/);
     assert.equal(await readFile(reportPath, 'utf8'), report);
+    const persisted = await pool!.query('SELECT 1 FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
+    assert.equal(persisted.rowCount, 1);
   } finally {
     await pool!.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
     await rm(directory, { recursive: true, force: true });
