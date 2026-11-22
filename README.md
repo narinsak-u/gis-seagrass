@@ -2,13 +2,16 @@
 
 ## Development stack and seed import
 
-Start the `db`, `api`, and `web` services:
+Copy example configuration, then start the `db`, `api`, and `web` services:
 
 ```sh
+cp .env.example .env
 docker compose up --build --wait -d
 ```
 
-Compose waits for database readiness. API startup applies migrations, imports the four files in `backend/seed-data/`, then listens. Open the web app at <http://localhost:3001>; API health is at <http://localhost:3000/health>.
+Set a private `JWT_SECRET` of at least 32 characters in `.env` for deployments; the example value is for local development only. Compose enables development-account seeding explicitly.
+
+API startup applies migrations, imports the four files in `backend/seed-data/`, seeds only missing development accounts, then listens. Open the web app at <http://localhost:3001>; API health is at <http://localhost:3000/health>.
 
 To run the same importer manually:
 
@@ -29,7 +32,26 @@ docker compose down
 docker compose up --build --wait -d
 ```
 
-Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3; authentication and the map remain out of scope. Site codes remain reserved after soft deletion, Sites with Surveys cannot be deleted, and geometry edits preserve the 50-meter Survey distance rule. Writes are unauthenticated in this development step; do not expose the API to untrusted users.
+`docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3. Authentication remains required for deployment; development accounts are enabled only by the development Compose configuration.
+## Login and development accounts
+
+The local Compose stack seeds these accounts only when `SEED_DEVELOPMENT_ACCOUNTS=true`. Startup inserts missing accounts and never resets existing credentials, roles, or active flags:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| viewer | `dev-viewer@example.test` | `dev-viewer-password` |
+| editor | `dev-editor@example.test` | `dev-editor-password` |
+| admin | `dev-admin@example.test` | `dev-admin-password` |
+
+Use these credentials only on a local development stack. Do not enable account seeding or use the example signing secret in deployments. `JWT_SECRET` is required before API startup and must be set privately outside development.
+
+```sh
+curl -X POST 'http://localhost:3000/auth/login' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}'
+```
+
+Success returns `access_token`, `token_type: "Bearer"`, and `expires_in: 900`. Login errors use the shared `{ "error": { "code": "...", "message": "...", "details": {} } }` envelope.
 
 ## Step 3 Site API
 
@@ -67,7 +89,7 @@ curl -X PATCH 'http://localhost:3000/surveys/123' \
 curl -X DELETE 'http://localhost:3000/surveys/123'
 ```
 
-The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the four routes. Survey writes remain unauthenticated until Step 5.
+The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the routes. Survey writes require an admin Bearer token.
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 

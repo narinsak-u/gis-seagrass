@@ -22,6 +22,7 @@ let importSpeciesCode = '';
 let postToken = '';
 
 before(async () => {
+  process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
