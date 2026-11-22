@@ -28,8 +28,8 @@ Use a **simple repository with two independent applications**, not a monorepo/wo
 gis-seagrass/
 ├── frontend/              # Next.js, own package.json and lockfile
 ├── backend/               # NestJS, own package.json and lockfile
+│   └── seed-data/         # Original source files; do not modify
 ├── specs/                 # Step-by-step implementation specifications
-├── seed-data/             # Original source files; do not modify
 ├── docker-compose.yml
 ├── .env.example
 ├── README.md
