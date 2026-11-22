@@ -5,9 +5,10 @@ import { ApiErrorFilter } from './errors/error.filter';
 import { createPool } from './database/pool';
 import { HealthController } from './health/health.controller';
 import { SitesController } from './sites/sites.controller';
+import { SitesGeoJsonController } from './sites/sites.geojson.controller';
 
 @Module({
-  controllers: [HealthController, SitesController],
+  controllers: [HealthController, SitesController, SitesGeoJsonController],
   providers: [
     { provide: Pool, useFactory: createPool },
     { provide: APP_FILTER, useClass: ApiErrorFilter },
