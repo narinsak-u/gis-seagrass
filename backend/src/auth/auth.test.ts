@@ -104,9 +104,12 @@ integration('development accounts seed only when enabled and preserve existing a
   await seedDevelopmentAccounts(pool!, true);
   const first = await pool!.query('SELECT email, password_hash, role, is_active FROM users WHERE email LIKE $1 ORDER BY email', [`${generatedEmailPrefix}-%@example.test`]);
   assert.equal(first.rowCount, 3);
-  assert.equal(first.rows.some((row) => row.email === accountEmail && row.role === 'viewer'), true);
-  const seededLogin = await login({ email: accountEmail, password: 'dev-viewer-password' });
-  assert.equal(seededLogin.response.status, 200);
+  for (const role of ['viewer', 'editor', 'admin'] as const) {
+    const email = `${generatedEmailPrefix}-${role}@example.test`;
+    assert.equal(first.rows.some((row) => row.email === email && row.role === role), true);
+    const seededLogin = await login({ email, password: `dev-${role}-password` });
+    assert.equal(seededLogin.response.status, 200);
+  }
   await pool!.query('UPDATE users SET role = $1, is_active = false WHERE email = $2', ['admin', accountEmail]);
   await pool!.query('UPDATE users SET password_hash = $1 WHERE email = $2', ['retained-hash', accountEmail]);
   await seedDevelopmentAccounts(pool!, true);

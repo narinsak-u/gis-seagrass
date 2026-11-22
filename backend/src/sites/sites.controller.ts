@@ -284,6 +284,7 @@ export class SitesController {
          FROM sites s
          LEFT JOIN LATERAL (
            SELECT ${SITE_STATUS_CASE_SQL} AS site_status
+             FROM surveys
             WHERE site_id = s.id
               AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
          ) status ON true

@@ -776,10 +776,9 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
           surveyed_on: date.rows[0].today, cover_percent: '40', species: importSpeciesCode,
         },
       };
-      const importPromise = importSurveys(importer, [record]);
-      const deletionPromise = importFirst ? undefined : deleteSite(code);
-      await waitForBlockedQuery('FROM sites WHERE code = $1');
       if (importFirst) {
+        const importPromise = importSurveys(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await coordinator.query('COMMIT');
@@ -789,10 +788,13 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
         assert.equal(deleted.status, 409);
         assert.equal(((await deleted.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
       } else {
+        const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
+        const importPromise = importSurveys(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         await coordinator.query('COMMIT');
         committed = true;
-        const [deleted, imported] = await Promise.all([deletionPromise!, importPromise]);
+        const [deleted, imported] = await Promise.all([deletion, importPromise]);
         assert.equal(deleted.status, 204);
         assert.equal(imported.summary.inserted, 0);
         assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['SITE_NOT_FOUND']);
