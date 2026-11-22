@@ -1,8 +1,9 @@
 import { createHmac, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { BadRequestException, Body, Controller, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
-import { ApiBody, ApiResponse } from '@nestjs/swagger';
+import { ApiBody, ApiResponse, type SchemaObject } from '@nestjs/swagger';
 import { isRecord } from '../domain/guards';
+import type { Pool } from 'pg';
 
 const scrypt = promisify(scryptCallback);
 const TOKEN_LIFETIME_SECONDS = 900;
@@ -17,7 +18,7 @@ export interface AccessTokenClaims {
   iat: number;
   exp: number;
 }
-const LOGIN_ERROR_SCHEMA = {
+const LOGIN_ERROR_SCHEMA: SchemaObject = {
   type: 'object',
   required: ['error'],
   properties: {
@@ -27,7 +28,7 @@ const LOGIN_ERROR_SCHEMA = {
       properties: { code: { type: 'string' }, message: { type: 'string' }, details: { type: 'object' } },
     },
   },
-} as const;
+};
 export function requireJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret || Buffer.byteLength(secret, 'utf8') < 32) throw new Error('JWT_SECRET must be configured with at least 32 characters');
