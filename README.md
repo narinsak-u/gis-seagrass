@@ -63,6 +63,35 @@ IMPORT_TEST_DATABASE_URL=postgresql://seagrass_test:seagrass_test_only@127.0.0.1
 The container has no persistent volume. Stop it after tests; `--rm` removes its database. `.env.example` records the test URL separately from Compose development settings.
 
 
+## Disposable Compose verification
+
+`docker-compose.verify.yml` isolates verification from development: use a unique Compose project and named database volume, loopback-only ports `55433`, `38081`, and `38082`, and a temporary host report directory. The override uses separate database credentials and keeps seed files read-only.
+
+Run from the repository root. Choose unused ports if these defaults are occupied:
+
+```sh
+export VERIFY_PROJECT="gis-seagrass-step2-$(date +%s)"
+export VERIFY_DB_VOLUME="${VERIFY_PROJECT}-db"
+export VERIFY_REPORT_DIR="$(mktemp -d)"
+export VERIFY_DB_PORT=55433 VERIFY_API_PORT=38081 VERIFY_WEB_PORT=38082
+dc() { docker compose --project-name "$VERIFY_PROJECT" -f docker-compose.yml -f docker-compose.verify.yml "$@"; }
+
+dc config
+dc up --build --wait -d
+curl --fail http://127.0.0.1:$VERIFY_API_PORT/health
+cat "$VERIFY_REPORT_DIR/import_report.csv"
+before="$(dc exec -T db psql -U seagrass_verify -d seagrass_verify -Atc 'SELECT count(*) FROM surveys')"
+dc down
+dc up --build --wait -d
+after="$(dc exec -T db psql -U seagrass_verify -d seagrass_verify -Atc 'SELECT count(*) FROM surveys')"
+test "$before" = "$after"
+dc down --volumes --remove-orphans
+rm -rf "$VERIFY_REPORT_DIR"
+```
+
+The unique project, explicit volume name, and temporary report directory keep development resources untouched. `down --volumes` is safe here only because it targets this disposable project and its unique volume; never use it for the development project.
+
+
 ## Database checks
 
 Rerun ordered Drizzle migrations while Compose is up:

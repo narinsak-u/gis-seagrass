@@ -1,0 +1,32 @@
+services:
+  db:
+    environment:
+      POSTGRES_USER: seagrass_verify
+      POSTGRES_PASSWORD: seagrass_verify_only
+      POSTGRES_DB: seagrass_verify
+    ports: !override
+      - "127.0.0.1:${VERIFY_DB_PORT:-55433}:5432"
+
+  api:
+    environment:
+      PGUSER: seagrass_verify
+      PGPASSWORD: seagrass_verify_only
+      PGDATABASE: seagrass_verify
+      IMPORT_REPORT_PATH: /app/reports/import_report.csv
+    volumes: !override
+      - ./backend/seed-data:/app/seed-data:ro
+      - type: bind
+        source: ${VERIFY_REPORT_DIR:?Set VERIFY_REPORT_DIR to a disposable directory}
+        target: /app/reports
+        bind:
+          create_host_path: false
+    ports: !override
+      - "127.0.0.1:${VERIFY_API_PORT:-38081}:3000"
+
+  web:
+    ports: !override
+      - "127.0.0.1:${VERIFY_WEB_PORT:-38082}:3000"
+
+volumes:
+  seagrass-db-data:
+    name: ${VERIFY_DB_VOLUME:?Set VERIFY_DB_VOLUME to a unique disposable volume name}
