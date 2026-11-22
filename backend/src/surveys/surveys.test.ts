@@ -264,14 +264,14 @@ integration('POST uses PostGIS geography meters inclusively at site boundary, 30
   await resetSurveys();
   const point = await pool!.query<{ lon: number; lat: number }>(
     `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,$1,pi()/2)::geometry AS p
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,$1::double precision,pi()/2)::geometry AS p
      ) q`, [30],
   );
   const at30 = await create(await validSurvey(point.rows[0]));
   assert.equal(at30.response.status, 201);
   const at50Point = await pool!.query<{ lon: number; lat: number }>(
     `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,50,pi()/2)::geometry AS p
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,50::double precision,pi()/2)::geometry AS p
      ) q`,
   );
   const at50 = await create(await validSurvey(at50Point.rows[0]));
@@ -286,7 +286,7 @@ integration('POST rejects 200-meter points with OUTSIDE_SITE', async () => {
   await resetSurveys();
   const point = await pool!.query<{ lon: number; lat: number }>(
     `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,200,pi()/2)::geometry AS p
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,200::double precision,pi()/2)::geometry AS p
      ) q`,
   );
   const outside = await create(await validSurvey(point.rows[0]));
@@ -381,7 +381,7 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
   assert.equal(savedNote.rows[0].note, null);
   const newPosition = await pool!.query<{ lon: number; lat: number }>(
     `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,20,pi()/2)::geometry AS p
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,20::double precision,pi()/2)::geometry AS p
      ) q`,
   );
   const loneCoordinate = await request(`/surveys/${initial.body.id}`, 'PATCH', { lon: newPosition.rows[0].lon });
