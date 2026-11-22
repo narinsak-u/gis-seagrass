@@ -134,17 +134,17 @@ integration('public import validates surveys, persists atomic links, and keeps r
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result.stdout;
   };
-  assert.match(run(), /"surveys":\{"inserted":4,"skipped_existing":1,"rejected":12\}/);
+  assert.match(run(), /"surveys":\{"inserted":5,"skipped_existing":1,"rejected":12\}/);
   const saved = await pool!.query<{ survey_ref: string }>('SELECT survey_ref FROM surveys WHERE survey_ref = ANY($1::text[]) ORDER BY survey_ref', [refs]);
-  assert.deepEqual(saved.rows.map(({ survey_ref }) => survey_ref).sort(), [refs[0], refs[1], refs[2], refs[8], refs[13]].sort());
+  assert.deepEqual(saved.rows.map(({ survey_ref }) => survey_ref).sort(), [refs[0], refs[1], refs[2], refs[3], refs[8], refs[13]].sort());
   const links = await pool!.query<{ count: string }>(
     'SELECT count(*) FROM survey_species ss JOIN surveys s ON s.id = ss.survey_id WHERE s.survey_ref = ANY($1::text[])', [refs],
   );
-  assert.equal(links.rows[0].count, '4');
+  assert.equal(links.rows[0].count, '5');
   const report = await readFile(reportPath, 'utf8');
   for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) assert.ok(report.includes(reason));
   assert.ok(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF'));
   assert.ok(report.includes('surveys.csv,7,OUTSIDE_SITE'));
-  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":5,"rejected":12\}/);
+  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":6,"rejected":12\}/);
   assert.equal(await readFile(reportPath, 'utf8'), report);
 });
