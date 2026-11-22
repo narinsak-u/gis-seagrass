@@ -1,6 +1,6 @@
 # Step 4 — Survey API
 
-**Project phase:** Step 4 — Survey API. **Prerequisite:** Steps 1–3 completed and committed. **Commit prefix:** `step-4:`. **Status:** Ready for implementation.
+**Project phase:** Step 4 — Survey API. **Prerequisite:** Steps 1–3 completed and committed. **Commit prefix:** `step-4:`. **Status:** Implemented and verified; 48/48 isolated backend/PostGIS tests passed, rollback-only schema check passed, and Swagger UI was browser-verified.
 
 ## Objective
 
@@ -96,15 +96,15 @@ All Surveys sharing the latest date contribute to the mean; do not select only t
 
 ## Definition of done
 
-- [ ] Site status uses the mean cover of all Surveys on the latest date and the approved thresholds, including `no_data` for Sites without Surveys.
-- [ ] Every listed route responds with the specified success status and shape.
-- [ ] Every agreed failure case responds with the specified HTTP status and error code in the shared envelope.
-- [ ] Survey fields, species links, Bangkok date, and 50-meter geography validation match the contract.
-- [ ] Site status reflects create and update mutations in their responses and reflects deletion on the next calculation.
-- [ ] Concurrent Survey and Site writes preserve the spatial and active-Site invariants.
-- [ ] `/docs` documents the implemented Survey API.
-- [ ] Automated checks pass; verified criteria are checked and gaps remain unchecked.
-- [ ] Root README describes only verified API features.
+- [x] Site status uses the mean cover of all Surveys on the latest date and the approved thresholds, including `no_data` for Sites without Surveys.
+- [x] Every listed route responds with the specified success status and shape.
+- [x] Every agreed failure case responds with the specified HTTP status and error code in the shared envelope.
+- [x] Survey fields, species links, Bangkok date, and 50-meter geography validation match the contract.
+- [x] Site status reflects create and update mutations in their responses and reflects deletion on the next calculation.
+- [x] Concurrent Survey and Site writes preserve the spatial and active-Site invariants.
+- [x] `/docs` documents the implemented Survey API.
+- [x] Automated checks pass; verified criteria are checked and gaps remain unchecked.
+- [x] Root README describes only verified API features.
 
 ## Git instructions for this Step
 
