@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Import provinces on startup.
 
-**Status:** resolved
+Status: resolved
 
 - [x] The importer processes species after provinces from the supplied JSON array; only records with nonempty code, Thai name, and scientific name enter the existing species table.
 - [x] The first valid occurrence of a source code wins; later source duplicates appear in the rejection report. Existing database codes are skipped without overwrite.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Import provinces on startup.
 
-**Status:** resolved
+Status: resolved
 
 - [x] Sites require code, name, valid nonempty WGS84 Polygon/MultiPolygon geometry; PostGIS rejects malformed or self-intersecting shapes without swaps or repairs.
 - [x] Each accepted Site has a province with strictly positive geographic overlap, chosen by largest overlap area and province code on ties; touch-only shapes are rejected.

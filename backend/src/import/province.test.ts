@@ -55,6 +55,7 @@ before(async () => {
       feature(codes[0], [[102, 10], [103, 10], [103, 11], [102, 11], [102, 10]]),
       feature(codes[1], [[104, 10], [105, 10], [105, 11], [104, 11], [104, 10]]),
       feature(codes[2], [[106, 10], [108, 12], [106, 12], [108, 10], [106, 10]]),
+      feature(codes[2], [[106, 10], [107, 10], [107, 11], [106, 11], [106, 10]]),
     ],
   }));
   await writeFile(join(directory, 'species.json'), JSON.stringify([]));
@@ -65,7 +66,6 @@ before(async () => {
     [codes[1], 'Existing', 'MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))'],
   );
 });
-
 after(async () => {
   if (pool) {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
@@ -73,7 +73,6 @@ after(async () => {
   }
   if (directory) await rm(directory, { recursive: true, force: true });
 });
-
 integration('public import command persists valid MultiPolygon, skips existing codes, and reports source errors again', async () => {
   const run = () => {
     const result = spawnSync('npm', ['run', 'import'], {
@@ -84,20 +83,21 @@ integration('public import command persists valid MultiPolygon, skips existing c
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result.stdout;
   };
-  assert.match(run(), /"inserted":1,"skipped_existing":1,"rejected":2/);
+  assert.match(run(), /"inserted":2,"skipped_existing":1,"rejected":2/);
 
   const first = await pool!.query<{ code: string; name_th: string; geometrytype: string }>(
     "SELECT code, name_th, ST_GeometryType(geom) AS geometrytype FROM provinces WHERE code = ANY($1::varchar[]) ORDER BY code",
     [codes],
   );
-  assert.equal(first.rows.length, 2);
+  assert.equal(first.rows.length, 3);
   assert.ok(first.rows.some((row) => row.code === codes[0] && row.name_th === `ชื่อ ${codes[0]}` && row.geometrytype === 'ST_MultiPolygon'));
   assert.ok(first.rows.some((row) => row.code === codes[1] && row.name_th === 'Existing' && row.geometrytype === 'ST_MultiPolygon'));
+  assert.ok(first.rows.some((row) => row.code === codes[2] && row.name_th === `ชื่อ ${codes[2]}` && row.geometrytype === 'ST_MultiPolygon'));
   const report = await readFile(reportPath, 'utf8');
   assert.match(report, /^file,row,reason\r?\n/);
   assert.match(report, /provinces\.geojson,2,DUPLICATE_CODE/);
   assert.match(report, /provinces\.geojson,4,INVALID_GEOMETRY/);
-  assert.match(run(), /"inserted":0,"skipped_existing":2,"rejected":2/);
+  assert.match(run(), /"inserted":0,"skipped_existing":3,"rejected":2/);
   const secondReport = await readFile(reportPath, 'utf8');
   assert.match(secondReport, /provinces\.geojson,2,DUPLICATE_CODE/);
   assert.match(secondReport, /provinces\.geojson,4,INVALID_GEOMETRY/);

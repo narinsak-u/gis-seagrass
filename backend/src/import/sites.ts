@@ -1,3 +1,4 @@
+import { validCoordinates } from './geometry';
 import type { PoolClient } from 'pg';
 
 export interface SiteRecord {
@@ -45,26 +46,6 @@ export function parseSiteFeature(feature: unknown): SiteRecord {
   return { code, name, geometry: { type: geometry.type, coordinates: geometry.coordinates } };
 }
 
-function validCoordinates(type: 'Polygon' | 'MultiPolygon', coordinates: unknown): boolean {
-  const polygons = type === 'Polygon' ? [coordinates] : coordinates;
-  if (!Array.isArray(polygons) || polygons.length === 0) return false;
-  for (const polygon of polygons) {
-    if (!Array.isArray(polygon) || polygon.length === 0) return false;
-    for (const ring of polygon) {
-      if (!Array.isArray(ring) || ring.length < 4) return false;
-      for (const position of ring) {
-        if (!Array.isArray(position) || position.length !== 2) return false;
-        const [longitude, latitude] = position;
-        if (typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
-          || typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) return false;
-      }
-      const first = ring[0] as number[];
-      const last = ring[ring.length - 1] as number[];
-      if (first[0] !== last[0] || first[1] !== last[1]) return false;
-    }
-  }
-  return true;
-}
 
 export async function importSiteFeatures(client: PoolClient, features: unknown[]): Promise<SiteImportResult> {
   const result: SiteImportResult = {
@@ -96,6 +77,12 @@ export async function importSiteFeatures(client: PoolClient, features: unknown[]
       reject(result, index + 1, 'INVALID_GEOMETRY');
       continue;
     }
+    seen.add(site.code);
+    const existing = await client.query('SELECT 1 FROM sites WHERE code = $1 LIMIT 1', [site.code]);
+    if (existing.rowCount) {
+      result.summary.skipped_existing++;
+      continue;
+    }
     const province = await client.query<{ code: string }>(
       `WITH site AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom),
        province_areas AS (
@@ -114,12 +101,6 @@ export async function importSiteFeatures(client: PoolClient, features: unknown[]
       continue;
     }
 
-    seen.add(site.code);
-    const existing = await client.query('SELECT 1 FROM sites WHERE code = $1 LIMIT 1', [site.code]);
-    if (existing.rowCount) {
-      result.summary.skipped_existing++;
-      continue;
-    }
     const inserted = await client.query(
       `WITH source AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($4), 4326) AS geom)
        INSERT INTO sites (code, name, province_code, geom, area_rai, version, created_by, updated_by)

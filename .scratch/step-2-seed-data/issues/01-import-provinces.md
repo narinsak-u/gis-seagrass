@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** resolved
+Status: resolved
 
 - [x] The four supplied sources are committed unchanged; the API reads them through a read-only mount, and only the existing three services run.
 - [x] One documented backend command reads the province FeatureCollection, validates required fields, WGS84 coordinates, nonempty PostGIS geometry, and Polygon/MultiPolygon representation without repairing invalid shapes.

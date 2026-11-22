@@ -82,7 +82,7 @@ integration('Site import validates PostGIS shapes, assigns largest positive geog
     site(siteCodes[3], polygon(100.2, 10.2, 100.8, 10.8), 'Invalid bowtie'),
     site(siteCodes[4], polygon(100.2, 10.2, 100.8, 10.8)),
     site(siteCodes[4], polygon(100.4, 10.2, 100.9, 10.8), 'Later duplicate'),
-    site(siteCodes[5], polygon(100.2, 10.2, 100.8, 10.8), 'Must not restore'),
+    site(siteCodes[5], polygon(102.2, 10.2, 102.8, 10.8), 'Must not restore'),
   ];
   features[3] = site(siteCodes[3], {
     type: 'Polygon',

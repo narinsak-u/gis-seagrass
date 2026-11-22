@@ -4,7 +4,7 @@
 
 **Blocked by:** 04: Import surveys and species links.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] Concurrent import runs serialize through an exclusive PostgreSQL advisory lock, while database uniqueness constraints protect persisted identities; failures remain visible rather than silently hidden.
 - [ ] A full import reports inserted, skipped-existing, and rejected totals per source. A second run preserves all table counts and representative values while reporting the same source-internal errors.

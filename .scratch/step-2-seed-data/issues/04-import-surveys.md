@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Import species; 03: Import Sites with province assignment.
 
-**Status:** resolved
+Status: resolved
 
 - [x] A real UTF-8 CSV parser handles quoting, required headers, and physical/record positions with the header counted as line one. The first survey reference in the source wins; later duplicates are reported.
 - [x] Surveys refer only to persisted active Sites; a missing or Soft-deleted site gives `SITE_NOT_FOUND`. Finite WGS84 point coordinates and PostGIS geography distance within 50 meters inclusive are required.
