@@ -393,8 +393,8 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
   });
   assert.equal(roundedPatch.status, 400);
   assert.equal(((await roundedPatch.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
-  const unchangedCover = await pool!.query<{ cover_percent: number }>('SELECT cover_percent FROM surveys WHERE id = $1', [initial.body.id]);
-  assert.equal(unchangedCover.rows[0].cover_percent, initial.body.cover_percent);
+  const unchangedCover = await pool!.query<{ cover_percent: string }>('SELECT cover_percent FROM surveys WHERE id = $1', [initial.body.id]);
+  assert.equal(unchangedCover.rows[0].cover_percent, '40.00');
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
     const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' });
     assert.equal(invalid.response.status, 400);
