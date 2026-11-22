@@ -174,3 +174,12 @@ integration('concurrent public imports serialize, preserve identities, and produ
     await rm(directory, { recursive: true, force: true });
   }
 });
+integration('public import fails visibly when PostgreSQL is unavailable', () => {
+  const result = spawnSync('npm', ['run', 'import'], {
+    cwd: join(__dirname, '../..'),
+    encoding: 'utf8',
+    env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath, PGHOST: '127.0.0.1', PGPORT: '1' },
+  });
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /ECONNREFUSED/);
+});
