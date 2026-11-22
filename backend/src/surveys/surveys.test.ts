@@ -257,6 +257,13 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   });
   assert.equal(nonFinite.status, 400);
   assert.equal(((await nonFinite.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const roundedLiteral = await fetch(`${origin}/sites/${siteCode}/surveys`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: `{"lon":100.15,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":1.0000000000000001,"species":[]}`,
+  });
+  assert.equal(roundedLiteral.status, 400);
+  assert.equal(((await roundedLiteral.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
 });
 
@@ -352,6 +359,15 @@ integration('POST and PATCH derive status from all latest-date Surveys and thres
 integration('PATCH validates IDs and partial edits; replaces species only when supplied and clears note on null', async () => {
   await resetSurveys();
   const initial = await create(await validSurvey({ species: [...speciesCodes], note: 'keep me' }));
+  const roundedPatch = await fetch(`${origin}/surveys/${initial.body.id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: '{"cover_percent":1.0000000000000001}',
+  });
+  assert.equal(roundedPatch.status, 400);
+  assert.equal(((await roundedPatch.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const unchangedCover = await pool!.query<{ cover_percent: number }>('SELECT cover_percent FROM surveys WHERE id = $1', [initial.body.id]);
+  assert.equal(unchangedCover.rows[0].cover_percent, initial.body.cover_percent);
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
     const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' });
     assert.equal(invalid.response.status, 400);
