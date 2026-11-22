@@ -1,12 +1,13 @@
-import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UnprocessableEntityException } from '@nestjs/common';
-import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UnprocessableEntityException, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Pool, type PoolClient } from 'pg';
 import { ApiErrorEnvelope } from '../sites/site-openapi';
 import { parseSurveyId, parseSurveyInput, parseSurveyPage, validateSurveyDateAgainstToday } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
+import { AuthGuard, Roles } from '../auth/auth.guard';
 
 interface SurveyJson {
-  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null;
+  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null; created_by: string | null;
 }
 
 @ApiExtraModels(ApiErrorEnvelope)
@@ -16,10 +17,16 @@ export class SurveysController {
   constructor(private readonly pool: Pool) {}
 
   @Get('sites/:code/surveys')
+  @UseGuards(AuthGuard)
+  @Roles('viewer', 'editor', 'admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active viewer, editor, or admin. Each item includes its creator user ID, or null for imported Surveys.' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
   @ApiResponse({ status: 200, schema: SURVEY_LIST_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   async list(@Param('code') code: string, @Query() query: Record<string, unknown>) {
     if (Object.keys(query).some((key) => !['page', 'pageSize'].includes(key))) throw new BadRequestException();
@@ -31,7 +38,7 @@ export class SurveysController {
     const count = await this.pool.query<{ total: string }>('SELECT count(*)::text AS total FROM surveys WHERE site_id = $1', [site.rows[0].id]);
     const rows = await this.pool.query<SurveyJson>(
       `SELECT s.id::text, ST_X(s.geom)::float8 AS lon, ST_Y(s.geom)::float8 AS lat,
-              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note,
+              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note, s.created_by::text,
               COALESCE(array_agg(ss.species_code ORDER BY ss.species_code) FILTER (WHERE ss.species_code IS NOT NULL), ARRAY[]::text[]) AS species
          FROM surveys s LEFT JOIN survey_species ss ON ss.survey_id = s.id
         WHERE s.site_id = $1 GROUP BY s.id ORDER BY s.surveyed_on DESC, s.id DESC

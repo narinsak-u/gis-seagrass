@@ -9,12 +9,14 @@ import { SitesController } from './sites/sites.controller';
 import { SitesGeoJsonController } from './sites/sites.geojson.controller';
 
 import { SurveysController } from './surveys/surveys.controller';
+import { AuthGuard } from './auth/auth.guard';
 
 @Module({
   controllers: [AuthController, HealthController, SitesController, SitesGeoJsonController, SurveysController],
   providers: [
     { provide: Pool, useFactory: createPool },
     { provide: APP_FILTER, useClass: ApiErrorFilter },
+    AuthGuard,
   ],
 })
 export class AppModule {}

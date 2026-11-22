@@ -77,18 +77,28 @@ Run unit and isolated PostGIS integration tests:
 
 ## Step 4 Survey API
 
-Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. List responses use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
+Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. Listing Surveys requires a Viewer, Editor, or Admin Bearer token; list items include nullable `created_by` as the creator's user ID. Imported Surveys may have no creator. Lists use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
 
-Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion.
+Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion. Missing, malformed, expired, invalid, or inactive-user tokens return `401 UNAUTHORIZED`; a valid user without an allowed role returns `403 FORBIDDEN`. Both use the shared error envelope. User roles are resolved on every protected request; passwords and signing secrets are never returned.
 
 ```sh
-curl 'http://localhost:3000/sites/TRG-001/surveys?page=1&pageSize=20'
+TOKEN="$(curl -s -X POST 'http://localhost:3000/auth/login' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}' | jq -r .access_token)"
+curl 'http://localhost:3000/sites/TRG-001/surveys?page=1&pageSize=20' \
+  -H "Authorization: Bearer $TOKEN"
+ADMIN_TOKEN="$(curl -s -X POST 'http://localhost:3000/auth/login' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev-admin@example.test","password":"dev-admin-password"}' | jq -r .access_token)"
 curl -X POST 'http://localhost:3000/sites/TRG-001/surveys' \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"lon":99.538168,"lat":7.330521,"surveyed_on":"2025-03-08","cover_percent":62.2,"species":["TH","CR","EA"],"note":null}'
 curl -X PATCH 'http://localhost:3000/surveys/123' \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' -d '{"cover_percent":50}'
-curl -X DELETE 'http://localhost:3000/surveys/123'
+curl -X DELETE 'http://localhost:3000/surveys/123' \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the routes. Survey writes require an admin Bearer token.
