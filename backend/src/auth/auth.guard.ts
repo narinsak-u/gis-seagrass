@@ -1,12 +1,11 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Request } from 'express';
 import { Pool } from 'pg';
 import { verifyAccessToken, type AccessTokenClaims } from './auth.controller';
 
 export type ActorRole = 'viewer' | 'editor' | 'admin';
 export interface AuthenticatedActor { id: string; role: ActorRole }
-export interface AuthenticatedRequest extends Request { user: AuthenticatedActor }
+export interface AuthenticatedRequest { user: AuthenticatedActor; headers: { authorization?: string } }
 
 const REQUIRED_ROLES = 'required-roles';
 

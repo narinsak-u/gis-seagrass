@@ -274,16 +274,16 @@ integration('GET /sites/:code/surveys authenticates active current users before 
   }
   const invalidQuery = await request(`/sites/MISSING-${siteCode}/surveys?page=0`);
   assert.equal(invalidQuery.response.status, 401);
-  const { promise, resolve, reject } = Promise.withResolvers<{ status: number | undefined; body: string }>();
-  const req = httpRequest(new URL(path, origin), { method: 'GET', headers: { 'content-type': 'application/json' } }, (response) => {
-    let body = '';
-    response.setEncoding('utf8');
-    response.on('data', (chunk: string) => { body += chunk; });
-    response.on('end', () => resolve({ status: response.statusCode, body }));
+  const malformed = await new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+    const req = httpRequest(new URL(path, origin), { method: 'GET', headers: { 'content-type': 'application/json', 'content-length': '1' } }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+    });
+    req.on('error', reject);
+    req.end('{');
   });
-  req.on('error', reject);
-  req.end('{');
-  const malformed = await promise;
   assert.equal(malformed.status, 400);
   assert.deepEqual(JSON.parse(malformed.body).error, { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });
   const invalidSignature = `${accessToken('viewer').slice(0, -1)}x`;
