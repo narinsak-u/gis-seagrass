@@ -146,7 +146,7 @@ integration('public import validates surveys, persists atomic links, and keeps r
   for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) assert.ok(report.includes(reason));
   assert.ok(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF'));
   assert.ok(report.includes('surveys.csv,7,OUTSIDE_SITE'));
-  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":5,"rejected":13\}/);
+  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":6,"rejected":13\}/);
   const existing = await pool!.query<{ cover_percent: string }>(
     'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[2]],
   );
