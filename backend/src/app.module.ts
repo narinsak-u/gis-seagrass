@@ -7,8 +7,10 @@ import { HealthController } from './health/health.controller';
 import { SitesController } from './sites/sites.controller';
 import { SitesGeoJsonController } from './sites/sites.geojson.controller';
 
+import { SurveysController } from './surveys/surveys.controller';
+
 @Module({
-  controllers: [HealthController, SitesController, SitesGeoJsonController],
+  controllers: [HealthController, SitesController, SitesGeoJsonController, SurveysController],
   providers: [
     { provide: Pool, useFactory: createPool },
     { provide: APP_FILTER, useClass: ApiErrorFilter },
