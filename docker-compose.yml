@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${DB_USER:-seagrass}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-seagrass_dev_only}
+      POSTGRES_DB: ${DB_NAME:-seagrass}
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${DB_PORT:-5432}:5432"
+    volumes:
+      - seagrass-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      PGUSER: ${DB_USER:-seagrass}
+      PGPASSWORD: ${DB_PASSWORD:-seagrass_dev_only}
+      PGDATABASE: ${DB_NAME:-seagrass}
+      PGHOST: db
+      PGPORT: 5432
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${API_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/health', r => { r.resume(); process.exitCode = r.statusCode === 200 ? 0 : 1 }).on('error', () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-3001}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/', r => { r.resume(); process.exitCode = r.statusCode === 200 ? 0 : 1 }).on('error', () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+volumes:
+  seagrass-db-data:
