@@ -145,6 +145,6 @@ test('access token verification rejects altered signatures and expired tokens', 
   assert.throws(() => verifyAccessToken(`${header}.${payload}.${alteredSignature}`), /Invalid access token/);
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   const content = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: randomUUID(), iat: 1, exp: 2 })}`;
-  const signature = createHmac('sha256', testSecret).update(content).digest('base64url');
-  assert.throws(() => verifyAccessToken(`${content}.${signature}`), /Invalid access token/);
+  const expiredSignature = createHmac('sha256', testSecret).update(content).digest('base64url');
+  assert.throws(() => verifyAccessToken(`${content}.${expiredSignature}`), /Invalid access token/);
 });
