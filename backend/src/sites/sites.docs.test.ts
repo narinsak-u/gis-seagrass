@@ -71,6 +71,8 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.deepEqual(createSchema.properties?.properties?.required, ['code', 'name']);
   assert.deepEqual(createSchema.properties?.geometry?.required, ['type', 'coordinates']);
   assert.deepEqual(patchSchema.required, ['version']);
+  assert.match(update.description ?? '', /active admin/i);
+  assert.match(update.description ?? '', /editor.*(?:name|geometry).*(?:denied|forbidden|cannot)/i);
   assert.ok(update.responses?.['401'] && update.responses['403']);
   assert.ok(update.security?.some((scheme) => 'access-token' in scheme));
   const conflictSchema = update.responses?.['409']?.content?.['application/json']?.schema;
@@ -138,6 +140,7 @@ interface OpenApiDocument {
 }
 
 interface OpenApiOperation {
+  description?: string;
   parameters?: Array<{ name: string }>;
   requestBody?: { content?: Record<string, { schema?: OpenApiSchema }> };
   responses?: Record<string, OpenApiResponse>;

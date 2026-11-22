@@ -7,6 +7,7 @@ import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard'
 import { parseSiteFeature, SiteValidationError } from './site-feature';
 import type { PublicSiteSummary, SiteStatus, SiteSummary } from './site.types';
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
+import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
 
 
 interface SiteList {
@@ -34,6 +35,26 @@ interface CreatedSiteFeature {
 }
 
 const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
+
+const SITE_DETAIL_QUERY = `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
+              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text,
+              status.site_status
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT survey_ref, surveyed_on::text, cover_percent
+             FROM surveys
+            WHERE site_id = s.id
+            ORDER BY surveyed_on DESC, id DESC
+            LIMIT 1
+         ) latest ON true
+         LEFT JOIN LATERAL (
+           SELECT ${SITE_STATUS_CASE_SQL} AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
+        WHERE s.code = $1 AND s.deleted_at IS NULL`;
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
 export class SitesController {
@@ -92,6 +113,7 @@ export class SitesController {
   @UseGuards(AuthGuard)
   @Roles('admin')
   @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Editor name and geometry changes are forbidden.' })
   @ApiBody({ schema: SITE_PATCH_BODY_SCHEMA })
   @ApiResponse({ status: 200, description: 'Updated Site GeoJSON Feature', schema: SITE_FEATURE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR or INVALID_GEOMETRY', schema: SITE_ERROR_SCHEMA })
@@ -261,10 +283,7 @@ export class SitesController {
               COALESCE(status.site_status, 'no_data') AS site_status
          FROM sites s
          LEFT JOIN LATERAL (
-           SELECT CASE WHEN count(*) = 0 THEN 'no_data'
-                  WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
-                  WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS site_status
-             FROM surveys
+           SELECT ${SITE_STATUS_CASE_SQL} AS site_status
             WHERE site_id = s.id
               AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
          ) status ON true
@@ -304,27 +323,7 @@ export class SitesController {
       cover_percent: string | null;
       site_status: SiteStatus | null;
     }>(
-      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
-              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text,
-              status.site_status
-         FROM sites s
-         LEFT JOIN LATERAL (
-           SELECT survey_ref, surveyed_on::text, cover_percent
-             FROM surveys
-            WHERE site_id = s.id
-            ORDER BY surveyed_on DESC, id DESC
-            LIMIT 1
-         ) latest ON true
-         LEFT JOIN LATERAL (
-           SELECT CASE WHEN count(*) = 0 THEN 'no_data'
-                  WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
-                  WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS site_status
-             FROM surveys
-            WHERE site_id = s.id
-              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
-         ) status ON true
-        WHERE s.code = $1 AND s.deleted_at IS NULL`,
+      SITE_DETAIL_QUERY,
       [code],
     );
     const row = result.rows[0];

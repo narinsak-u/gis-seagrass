@@ -5,10 +5,14 @@ import { ApiErrorEnvelope } from '../sites/site-openapi';
 import { parseSurveyId, parseSurveyInput, parseSurveyPage, validateSurveyDateAgainstToday } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
+import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
 
 interface SurveyJson {
   id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null; created_by: string | null;
 }
+
+const SURVEY_STATUS_QUERY = `SELECT ${SITE_STATUS_CASE_SQL} AS status
+       FROM surveys WHERE site_id = $1 AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = $1)`;
 
 @ApiExtraModels(ApiErrorEnvelope)
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
@@ -198,11 +202,6 @@ async function responseSurvey(client: PoolClient, id: string, siteId: string): P
        FROM surveys s LEFT JOIN survey_species ss ON ss.survey_id = s.id
       WHERE s.id = $1 GROUP BY s.id`, [id],
   );
-  const status = await client.query<{ status: string }>(
-    `SELECT CASE WHEN count(*) = 0 THEN 'no_data'
-            WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
-            WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS status
-       FROM surveys WHERE site_id = $1 AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = $1)`, [siteId],
-  );
+  const status = await client.query<{ status: string }>(SURVEY_STATUS_QUERY, [siteId]);
   return { ...result.rows[0], siteStatus: status.rows[0].status };
 }
