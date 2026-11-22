@@ -126,7 +126,7 @@ after(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-integration('public import validates surveys, persists atomic links, and keeps reruns stable', async () => {
+integration('public import preserves existing surveys when source revisions are invalid', async () => {
   const run = () => {
     const result = spawnSync('npm', ['run', 'import'], {
       cwd: join(__dirname, '../..'), encoding: 'utf8',
@@ -135,7 +135,7 @@ integration('public import validates surveys, persists atomic links, and keeps r
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result.stdout;
   };
-  assert.match(run(), /"surveys":\{"inserted":5,"skipped_existing":1,"rejected":13\}/);
+  assert.match(run(), /"surveys":\{"inserted":5,"skipped_existing":2,"rejected":12\}/);
   const saved = await pool!.query<{ survey_ref: string }>('SELECT survey_ref FROM surveys WHERE survey_ref = ANY($1::text[]) ORDER BY survey_ref', [refs]);
   assert.deepEqual(saved.rows.map(({ survey_ref }) => survey_ref).sort(), [refs[0], refs[1], refs[2], refs[3], refs[8], refs[13], refs[17]].sort());
   const links = await pool!.query<{ count: string }>(
@@ -144,9 +144,10 @@ integration('public import validates surveys, persists atomic links, and keeps r
   assert.equal(links.rows[0].count, '6');
   const report = await readFile(reportPath, 'utf8');
   for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) assert.ok(report.includes(reason));
+  assert.ok(!report.includes('surveys.csv,4,UNKNOWN_SPECIES'));
   assert.ok(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF'));
   assert.ok(report.includes('surveys.csv,7,OUTSIDE_SITE'));
-  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":6,"rejected":13\}/);
+  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":7,"rejected":12\}/);
   const existing = await pool!.query<{ cover_percent: string }>(
     'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[2]],
   );

@@ -48,6 +48,12 @@ export function parseSiteFeature(feature: unknown): SiteRecord {
 }
 
 
+function sourceSiteCode(feature: unknown): string | undefined {
+  if (!isRecord(feature) || !isRecord(feature.properties)) return undefined;
+  const code = feature.properties.code;
+  return typeof code === 'string' && code.trim() && !code.includes('\0') ? code : undefined;
+}
+
 export async function importSiteFeatures(client: PoolClient, features: unknown[]): Promise<SiteImportResult> {
   const result: SiteImportResult = {
     summary: { inserted: 0, skipped_existing: 0, rejected: 0 },
@@ -55,15 +61,25 @@ export async function importSiteFeatures(client: PoolClient, features: unknown[]
   };
   const seen = new Set<string>();
   for (const [index, feature] of features.entries()) {
+    const code = sourceSiteCode(feature);
+    if (code && seen.has(code)) {
+      reject(result, index + 1, 'DUPLICATE_CODE');
+      continue;
+    }
+    if (code) {
+      const existing = await client.query('SELECT 1 FROM sites WHERE code = $1 LIMIT 1', [code]);
+      if (existing.rowCount) {
+        seen.add(code);
+        result.summary.skipped_existing++;
+        continue;
+      }
+    }
+
     let site: SiteRecord;
     try {
       site = parseSiteFeature(feature);
     } catch (error) {
       reject(result, index + 1, error instanceof SiteValidationError ? error.message : 'INVALID_FEATURE');
-      continue;
-    }
-    if (seen.has(site.code)) {
-      reject(result, index + 1, 'DUPLICATE_CODE');
       continue;
     }
 
@@ -79,11 +95,6 @@ export async function importSiteFeatures(client: PoolClient, features: unknown[]
       continue;
     }
     seen.add(site.code);
-    const existing = await client.query('SELECT 1 FROM sites WHERE code = $1 LIMIT 1', [site.code]);
-    if (existing.rowCount) {
-      result.summary.skipped_existing++;
-      continue;
-    }
     const province = await client.query<{ code: string }>(
       `WITH site AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom),
        province_areas AS (

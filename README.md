@@ -40,6 +40,29 @@ Compose defaults are development-only: database user `seagrass`, password `seagr
 (cd frontend && npm ci && npm run build)
 ```
 
+## Backend tests
+
+`cd backend && npm test` runs unit tests; database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` is set. Use a separate disposable PostGIS container, never the development database:
+
+```sh
+docker run --rm --name seagrass-step2-test \
+  -e POSTGRES_USER=seagrass_test \
+  -e POSTGRES_PASSWORD=seagrass_test_only \
+  -e POSTGRES_DB=seagrass_test \
+  -p 127.0.0.1:55432:5432 \
+  postgis/postgis:16-3.4
+```
+
+Keep the container running, then run in another terminal:
+
+```sh
+cd backend
+IMPORT_TEST_DATABASE_URL=postgresql://seagrass_test:seagrass_test_only@127.0.0.1:55432/seagrass_test npm test
+```
+
+The container has no persistent volume. Stop it after tests; `--rm` removes its database. `.env.example` records the test URL separately from Compose development settings.
+
+
 ## Database checks
 
 Rerun ordered Drizzle migrations while Compose is up:

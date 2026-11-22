@@ -74,7 +74,7 @@ after(async () => {
   }
 });
 
-integration('Site import validates PostGIS shapes, assigns largest positive geographic overlap, reserves codes, and is idempotent', async () => {
+integration('Site import validates shapes, reserves existing codes, and preserves existing values on changed source data', async () => {
   const features = [
     site(siteCodes[0], polygon(100.25, 10.25, 101.6, 10.75)),
     site(siteCodes[1], { type: 'MultiPolygon', coordinates: [polygon(100.5, 10.25, 101.5, 10.75).coordinates] }),
@@ -82,7 +82,7 @@ integration('Site import validates PostGIS shapes, assigns largest positive geog
     site(siteCodes[3], polygon(100.2, 10.2, 100.8, 10.8), 'Invalid bowtie'),
     site(siteCodes[4], polygon(100.2, 10.2, 100.8, 10.8)),
     site(siteCodes[4], polygon(100.4, 10.2, 100.9, 10.8), 'Later duplicate'),
-    site(siteCodes[5], polygon(102.2, 10.2, 102.8, 10.8), 'Must not restore'),
+    site(siteCodes[5], { type: 'Polygon', coordinates: [[[181, 10], [182, 10], [182, 11], [181, 11], [181, 10]]] }, 'Invalid revision must not restore'),
   ];
   features[3] = site(siteCodes[3], {
     type: 'Polygon',

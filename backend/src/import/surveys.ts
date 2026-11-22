@@ -41,6 +41,8 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     if (!ref.trim() || ref.includes('\0')) { reject(row, 'INVALID_SURVEY_REF'); continue; }
     if (seen.has(ref)) { reject(row, 'DUPLICATE_SURVEY_REF'); continue; }
     seen.add(ref);
+    const existing = await client.query('SELECT 1 FROM surveys WHERE survey_ref = $1', [ref]);
+    if (existing.rowCount) { result.summary.skipped_existing++; continue; }
     const siteCode = values.site_code;
     const lon = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(values.lon.trim()) ? Number(values.lon) : NaN;
     const lat = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(values.lat.trim()) ? Number(values.lat) : NaN;
@@ -68,9 +70,6 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     if (!site.rows[0].within) { reject(row, 'OUTSIDE_SITE'); continue; }
     const today = await client.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
     if (date > today.rows[0].today) { reject(row, 'FUTURE_DATE'); continue; }
-    const existing = await client.query('SELECT 1 FROM surveys WHERE survey_ref = $1', [ref]);
-    if (existing.rowCount) { result.summary.skipped_existing++; continue; }
-
     await client.query('BEGIN');
     try {
       const survey = await client.query<{ id: string }>(
