@@ -10,6 +10,12 @@ The database enforces required fields, foreign keys, allowed user roles, positiv
 
 Step 2 import treats every existing Site code as reserved, including codes on Soft-deleted sites. It skips those source records without overwriting or restoring historical Sites. Restoring a Site requires an explicit action outside Step 2; surveys cannot import against Soft-deleted Sites.
 
+## Step 3 Site API policy (agreed, not implemented)
+
+Site codes remain reserved after soft deletion; Step 3 must replace active-only uniqueness with permanent database uniqueness and return `DUPLICATE_CODE` for reuse. The API exposes only active Sites, even when `status` is supplied. A Site with any linked Surveys cannot be soft-deleted.
+
+Sites may overlap, matching the importer. Geometry updates must keep every linked Survey inside or within 50 meters of the Site geometry (`ST_DWithin` on geography), matching the import rule rather than requiring strict containment. Step 3 enforces atomic PATCH version checks; Step 5 adds authentication and role-based authorization.
+
 ## Migration ordering
 
 Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
