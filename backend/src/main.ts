@@ -8,7 +8,7 @@ import { setupSwagger } from './swagger';
 async function bootstrap(): Promise<void> {
   await runMigrations();
   await runImport();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   setupSwagger(app);
   await app.listen(Number(process.env.PORT ?? 3000), '0.0.0.0');
 }
