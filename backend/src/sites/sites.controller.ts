@@ -1,7 +1,8 @@
+import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../import/guards';
 import { parseSiteFeature, SiteValidationError } from '../import/sites';
-import { Pool } from 'pg';
+import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
 
 interface SiteSummary {
   code: string;
@@ -36,11 +37,18 @@ interface CreatedSiteFeature {
 }
 
 const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
+@ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
 export class SitesController {
   constructor(private readonly pool: Pool) {}
 
   @Post()
+  @ApiBody({ schema: SITE_CREATE_BODY_SCHEMA })
+  @ApiResponse({ status: 201, description: 'Created Site GeoJSON Feature', schema: SITE_FEATURE_SCHEMA })
+  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR or INVALID_GEOMETRY', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 409, description: 'DUPLICATE_CODE', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async create(@Body() body: unknown): Promise<CreatedSiteFeature> {
     const site = validateCreateFeature(body);
     const client = await this.pool.connect();
@@ -108,6 +116,13 @@ export class SitesController {
   }
 
   @Patch(':code')
+  @ApiBody({ schema: SITE_PATCH_BODY_SCHEMA })
+  @ApiResponse({ status: 200, description: 'Updated Site GeoJSON Feature', schema: SITE_FEATURE_SCHEMA })
+  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR or INVALID_GEOMETRY', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 409, description: 'VERSION_CONFLICT or SURVEYS_OUTSIDE', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async update(@Param('code') code: string, @Body() body: unknown): Promise<CreatedSiteFeature> {
     const patch = validateSitePatch(body);
     const client = await this.pool.connect();
@@ -198,6 +213,10 @@ export class SitesController {
   }
 
   @Delete(':code')
+  @ApiResponse({ status: 204, description: 'Site soft-deleted' })
+  @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 409, description: 'SITE_HAS_SURVEYS', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   @HttpCode(204)
   async remove(@Param('code') code: string): Promise<void> {
     const client = await this.pool.connect();
@@ -222,6 +241,14 @@ export class SitesController {
     }
   }
   @Get()
+  @ApiQuery({ name: 'status', required: false, enum: ['active'], description: 'Active Sites only' })
+  @ApiQuery({ name: 'province', required: false, type: String })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Positive page number; defaults to 1' })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: '1–100; defaults to 20' })
+  @ApiResponse({ status: 200, description: 'Paginated Site summaries', schema: SITE_LIST_SCHEMA })
+  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async list(@Query() query: Record<string, unknown>): Promise<SiteList> {
     if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.includes(key))) throw new BadRequestException();
     if (query.status !== undefined && query.status !== 'active') throw new BadRequestException();
@@ -282,6 +309,9 @@ export class SitesController {
   }
 
   @Get(':code')
+  @ApiResponse({ status: 200, description: 'Site GeoJSON Feature with latest Survey summary', schema: SITE_DETAIL_SCHEMA })
+  @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async detail(@Param('code') code: string): Promise<SiteFeature> {
     const result = await this.pool.query<{
       code: string;

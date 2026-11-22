@@ -1,4 +1,6 @@
+import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
 import { Pool } from 'pg';
 
 interface SiteSummary {
@@ -22,11 +24,18 @@ interface SiteFeatureCollection {
 
 const ALLOWED_QUERY_KEYS = ['bbox', 'province', 'status'];
 
+@ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites.geojson')
 export class SitesGeoJsonController {
   constructor(private readonly pool: Pool) {}
 
   @Get()
+  @ApiQuery({ name: 'bbox', required: true, type: String, description: 'minLon,minLat,maxLon,maxLat in WGS84' })
+  @ApiQuery({ name: 'province', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, enum: ['active'], description: 'Active Sites only' })
+  @ApiResponse({ status: 200, description: 'GeoJSON FeatureCollection of intersecting Sites', schema: SITE_FEATURE_COLLECTION_SCHEMA })
+  @ApiResponse({ status: 400, description: 'INVALID_BBOX or VALIDATION_ERROR', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async list(@Query() query: Record<string, unknown>): Promise<SiteFeatureCollection> {
     if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.includes(key))) throw new BadRequestException();
     if (query.status !== undefined && query.status !== 'active') throw new BadRequestException();
