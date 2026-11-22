@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
-import { Pool } from 'pg';
+import { NestFactory } from '@nestjs/core';
 import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
 import { runMigrations } from '../database/migrate';
