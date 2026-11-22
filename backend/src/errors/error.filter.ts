@@ -17,7 +17,7 @@ export class ApiErrorFilter implements ExceptionFilter {
     const response = host.switchToHttp().getResponse<Response>();
     const status = exception instanceof HttpException
       ? exception.getStatus()
-      : isRecord(exception) && typeof exception.status === 'number' ? exception.status : 500;
+      : isRecord(exception) && exception.status === 400 ? 400 : 500;
 
     let body: Record<string, unknown> = {};
     if (exception instanceof HttpException) {
