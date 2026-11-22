@@ -5,11 +5,13 @@ import type { PoolClient } from 'pg';
 import { createPool } from '../database/pool';
 import { importSiteFeatures, parseSiteCollection } from './sites';
 import { importSpecies, parseSpeciesArray } from './species';
+import { importSurveys, parseSurveysCsv } from './surveys';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };
   species: { inserted: number; skipped_existing: number; rejected: number };
   sites: { inserted: number; skipped_existing: number; rejected: number };
+  surveys: { inserted: number; skipped_existing: number; rejected: number };
 }
 
 export interface ProvinceRecord {
@@ -100,12 +102,14 @@ export async function runImport(): Promise<ImportSummary> {
   const inputDir = resolve(process.env.SEED_DATA_DIR ?? 'seed-data');
   const provinceFeatures = parseProvinceCollection(await readFile(resolve(inputDir, 'provinces.geojson'), 'utf8'));
   const siteFeatures = parseSiteCollection(await readFile(resolve(inputDir, 'seagrass_sites.geojson'), 'utf8'));
+  const surveyRecords = parseSurveysCsv(await readFile(resolve(inputDir, 'surveys.csv'), 'utf8'));
   const reportPath = resolve(process.env.IMPORT_REPORT_PATH ?? '../reports/import_report.csv');
   const pool = createPool();
   const summary: ImportSummary = {
     provinces: { inserted: 0, skipped_existing: 0, rejected: 0 },
     species: { inserted: 0, skipped_existing: 0, rejected: 0 },
     sites: { inserted: 0, skipped_existing: 0, rejected: 0 },
+    surveys: { inserted: 0, skipped_existing: 0, rejected: 0 },
   };
   const report: Array<[string, number, string]> = [];
   const seen = new Set<string>();
@@ -164,6 +168,9 @@ export async function runImport(): Promise<ImportSummary> {
     for (const rejection of siteResult.rejections) {
       report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
     }
+    const surveys = await importSurveys(client, surveyRecords);
+    summary.surveys = surveys.summary;
+    report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
     await replaceReport(reportPath, report);
     console.info('Import summary:', JSON.stringify(summary));
     return summary;
