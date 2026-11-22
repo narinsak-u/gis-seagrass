@@ -98,12 +98,12 @@ export async function importSiteFeatures(client: PoolClient, features: unknown[]
     }
     const province = await client.query<{ code: string }>(
       `WITH site AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom),
-       overlaps AS (
+       province_areas AS (
          SELECT p.code, ST_Area(ST_Intersection(s.geom, p.geom)::geography) AS area
            FROM provinces AS p CROSS JOIN site AS s
           WHERE ST_Intersects(s.geom, p.geom)
        )
-       SELECT code FROM overlaps
+       SELECT code FROM province_areas
         WHERE area > 0
         ORDER BY area DESC, code ASC
         LIMIT 1`,
