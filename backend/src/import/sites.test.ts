@@ -11,7 +11,7 @@ test('Site parser requires nonempty identity and finite in-range lon/lat polygon
     properties: { code: 'SITE-1', name: 'Site 1' },
     geometry: { type: 'Polygon', coordinates },
   });
-  assert.throws(() => parseSiteFeature(feature([[[100, 10], [101, 10], [101, 11], [100, 10]]])), /INVALID_GEOMETRY/);
+  assert.throws(() => parseSiteFeature({ type: 'Feature', properties: { code: 'SITE-1', name: 'Site 1' }, geometry: { type: 'LineString', coordinates: [[100, 10], [101, 11]] } }), /INVALID_GEOMETRY/);
   assert.throws(() => parseSiteFeature(feature([[[181, 10], [182, 10], [182, 11], [181, 10]]])), /INVALID_COORDINATES/);
   assert.throws(() => parseSiteFeature({ ...feature([[[100, 10], [101, 10], [101, 11], [100, 10]]]), properties: { code: '', name: 'Site' } }), /INVALID_PROPERTIES/);
 });
