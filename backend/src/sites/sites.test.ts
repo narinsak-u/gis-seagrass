@@ -108,6 +108,10 @@ async function patchSite(code: string, body: unknown): Promise<{ response: Respo
   return { response, body: await response.json() as Record<string, unknown> };
 }
 
+async function deleteSite(code: string): Promise<Response> {
+  return fetch(`${origin}/sites/${code}`, { method: 'DELETE' });
+}
+
 async function waitForBlockedQuery(query: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
@@ -469,6 +473,102 @@ integration('PATCH and Survey import serialize both lock orders without strandin
         assert.equal(edited.response.status, 200);
         assert.equal(imported.summary.inserted, 0);
         assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['OUTSIDE_SITE']);
+      }
+    } finally {
+      if (!committed) await coordinator.query('ROLLBACK');
+      importer.release();
+      coordinator.release();
+    }
+  }
+});
+
+integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code', async () => {
+  const code = `DELETE-${siteToken}`;
+  const created = await createSite(siteFeature(code, polygon(100.6, 10.1, 100.7, 10.2)));
+  assert.equal(created.response.status, 201);
+  const deleted = await deleteSite(code);
+  assert.equal(deleted.status, 204);
+  assert.equal(await deleted.text(), '');
+  const retained = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [code]);
+  assert.ok(retained.rows[0].deleted_at);
+  for (const response of [await deleteSite(code), await deleteSite(`MISSING-${siteToken}`)]) {
+    assert.equal(response.status, 404);
+    assert.deepEqual((await response.json() as Record<string, unknown>).error, {
+      code: 'SITE_NOT_FOUND', message: 'Site not found', details: {},
+    });
+  }
+  const recreation = await createSite(siteFeature(code, polygon(100.6, 10.1, 100.7, 10.2)));
+  assert.equal(recreation.response.status, 409);
+  assert.equal((recreation.body.error as Record<string, unknown>).code, 'DUPLICATE_CODE');
+  assert.equal(((await json(`/sites?q=${code}`)).body.items as unknown[]).length, 0);
+  assert.equal((await json(`/sites/${code}`)).response.status, 404);
+  const bbox = await json('/sites.geojson?bbox=100,10,101,11');
+  assert.equal(bbox.response.status, 200);
+  assert.equal((bbox.body.features as Array<Record<string, unknown>>).some(
+    (feature) => (feature.properties as Record<string, unknown>).code === code,
+  ), false);
+});
+
+integration('DELETE /sites rejects Sites with linked Surveys', async () => {
+  const code = siteCodes[0];
+  const ref = `delete-conflict-${siteToken}`;
+  surveyRefs.push(ref);
+  await pool!.query(
+    `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
+     SELECT id, $2, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-01-01', 20
+       FROM sites WHERE code = $1`,
+    [code, ref],
+  );
+  const response = await deleteSite(code);
+  assert.equal(response.status, 409);
+  assert.deepEqual((await response.json() as Record<string, unknown>).error, {
+    code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {},
+  });
+  assert.equal((await pool!.query('SELECT deleted_at FROM sites WHERE code = $1', [code])).rows[0].deleted_at, null);
+});
+
+integration('DELETE /sites and Survey import serialize both lock orders', async () => {
+  for (const importFirst of [true, false]) {
+    const suffix = importFirst ? 'IMPORT-FIRST' : 'DELETE-FIRST';
+    const code = `DELETE-RACE-${suffix}-${siteToken}`;
+    const ref = `delete-race-${suffix}-${siteToken}`;
+    surveyRefs.push(ref);
+    const created = await createSite(siteFeature(code, polygon(100.1, 10.1, 100.2, 10.2)));
+    assert.equal(created.response.status, 201);
+    const coordinator = await pool!.connect();
+    const importer = await pool!.connect();
+    let committed = false;
+    try {
+      await coordinator.query('BEGIN');
+      await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [code]);
+      const date = await pool!.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
+      const record: ParsedSurvey = {
+        row: 2,
+        values: {
+          survey_ref: ref, site_code: code, lon: '100.15', lat: '10.15',
+          surveyed_on: date.rows[0].today, cover_percent: '40', species: importSpeciesCode,
+        },
+      };
+      const importPromise = importSurveys(importer, [record]);
+      const deletionPromise = importFirst ? undefined : deleteSite(code);
+      await waitForBlockedQuery('FROM sites WHERE code = $1');
+      if (importFirst) {
+        const deletion = deleteSite(code);
+        await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
+        await coordinator.query('COMMIT');
+        committed = true;
+        const [imported, deleted] = await Promise.all([importPromise, deletion]);
+        assert.equal(imported.summary.inserted, 1);
+        assert.equal(deleted.status, 409);
+        assert.equal(((await deleted.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
+      } else {
+        await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
+        await coordinator.query('COMMIT');
+        committed = true;
+        const [deleted, imported] = await Promise.all([deletionPromise!, importPromise]);
+        assert.equal(deleted.status, 204);
+        assert.equal(imported.summary.inserted, 0);
+        assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['SITE_NOT_FOUND']);
       }
     } finally {
       if (!committed) await coordinator.query('ROLLBACK');

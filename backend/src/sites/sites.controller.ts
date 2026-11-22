@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../import/guards';
 import { parseSiteFeature, SiteValidationError } from '../import/sites';
 import { Pool } from 'pg';
@@ -189,6 +189,30 @@ export class SitesController {
           version: row.version,
         },
       };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  @Delete(':code')
+  async remove(@Param('code') code: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query<{ id: string }>(
+        'SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE',
+        [code],
+      );
+      if (!locked.rowCount) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      const surveys = await client.query('SELECT 1 FROM surveys WHERE site_id = $1 LIMIT 1', [locked.rows[0].id]);
+      if (surveys.rowCount) {
+        throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
+      }
+      await client.query('UPDATE sites SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [locked.rows[0].id]);
+      await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
