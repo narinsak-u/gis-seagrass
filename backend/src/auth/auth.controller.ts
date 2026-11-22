@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { BadRequestException, Body, Controller, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
 import { ApiBody, ApiResponse, type SchemaObject } from '@nestjs/swagger';
 import { isRecord } from '../domain/guards';
-import type { Pool } from 'pg';
+import { Pool } from 'pg';
 
 const scrypt = promisify(scryptCallback);
 const TOKEN_LIFETIME_SECONDS = 900;

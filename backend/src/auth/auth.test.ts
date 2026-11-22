@@ -126,7 +126,7 @@ integration('Swagger documents login request, success, and error envelopes', asy
 });
 
 test('API process refuses startup without JWT_SECRET before accessing the database', () => {
-  const { status, stderr, stdout } = spawnSync(process.execPath, [join(__dirname, '../../main.js')], {
+  const { status, stderr, stdout } = spawnSync(process.execPath, [join(__dirname, '../main.js')], {
     cwd: join(__dirname, '../..'),
     encoding: 'utf8',
     env: { ...process.env, JWT_SECRET: '' },
