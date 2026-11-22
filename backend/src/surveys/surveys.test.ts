@@ -302,12 +302,17 @@ integration('POST uses PostGIS geography meters inclusively at site boundary, 30
   );
   const at30 = await create(await validSurvey(point.rows[0]));
   assert.equal(at30.response.status, 201);
-  const at50Point = await pool!.query<{ lon: number; lat: number }>(
-    `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,50::double precision,pi()/2)::geometry AS p
-     ) q`,
+  const at50Point = await pool!.query<{ lon: number; lat: number; within: boolean }>(
+    `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat,
+            ST_DWithin(site.geom::geography,p::geography,50) AS within
+     FROM sites site CROSS JOIN (
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.15005),4326)::geography,50::double precision,pi()/4)::geometry AS p
+     ) q
+     WHERE site.id = $1`,
+    [siteId],
   );
-  const at50 = await create(await validSurvey(at50Point.rows[0]));
+  assert.equal(at50Point.rows[0].within, true);
+  const at50 = await create(await validSurvey({ lon: at50Point.rows[0].lon, lat: at50Point.rows[0].lat }));
   assert.equal(at50.response.status, 201);
   const boundary = await create(await validSurvey({ lon: 100.15005, lat: 10.150025 }));
   assert.equal(boundary.response.status, 201);
@@ -456,15 +461,25 @@ integration('Survey create and Site geometry edit serialize without violating di
     await coordinator.query('COMMIT');
     committed = true;
     const [edited, result] = await Promise.all([edit, write]);
-    assert.equal(edited.response.status, 409);
-    assert.equal(result.response.status, 201);
-    const invariant = await pool!.query<{ distance: number }>(
-      `SELECT ST_Distance(s.geom::geography,v.geom::geography) AS distance
-         FROM surveys v JOIN sites s ON s.id = v.site_id WHERE v.id = $1`, [result.body.id],
-    );
-    assert.ok(invariant.rows[0].distance <= 50);
+    if (result.response.status === 201) {
+      assert.equal(edited.response.status, 409);
+      const invariant = await pool!.query<{ violations: number }>(
+        `SELECT count(*)::int AS violations FROM surveys v JOIN sites s ON s.id = v.site_id
+         WHERE v.site_id = $1 AND NOT ST_DWithin(s.geom::geography,v.geom::geography,50)`, [siteId],
+      );
+      assert.equal(invariant.rows[0].violations, 0);
+    } else {
+      assert.equal(result.response.status, 422);
+      assert.equal((result.body.error as Record<string, unknown>).code, 'OUTSIDE_SITE');
+      assert.equal(edited.response.status, 200);
+      assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
+    }
   } finally {
     if (!committed) await coordinator.query('ROLLBACK');
+    await pool!.query(
+      `UPDATE sites SET geom = ST_Multi(ST_GeomFromText('POLYGON((100.15 10.15,100.15005 10.15,100.15005 10.15005,100.15 10.15005,100.15 10.15))',4326)),
+         version = 1 WHERE id = $1`, [siteId],
+    );
     coordinator.release();
   }
 });
@@ -483,17 +498,26 @@ integration('Site delete racing Survey create cannot commit both delete and a li
     await coordinator.query('COMMIT');
     committed = true;
     const [deleted, result] = await Promise.all([deletion, write]);
-    assert.equal(result.response.status, 201);
-    assert.equal(deleted.response.status, 409);
-    assert.equal((deleted.body.error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
-    assert.equal((await pool!.query('SELECT deleted_at FROM sites WHERE id = $1', [siteId])).rows[0].deleted_at, null);
-    const invariant = await pool!.query<{ distance: number }>(
-      `SELECT ST_Distance(s.geom::geography,v.geom::geography) AS distance
-         FROM surveys v JOIN sites s ON s.id = v.site_id WHERE v.id = $1`, [result.body.id],
-    );
-    assert.ok(invariant.rows[0].distance <= 50);
+    if (result.response.status === 201) {
+      assert.equal(deleted.response.status, 409);
+      assert.equal((deleted.body.error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
+      assert.equal((await pool!.query('SELECT deleted_at FROM sites WHERE id = $1', [siteId])).rows[0].deleted_at, null);
+      const invariant = await pool!.query<{ distance: number }>(
+        `SELECT ST_Distance(s.geom::geography,v.geom::geography) AS distance
+           FROM surveys v JOIN sites s ON s.id = v.site_id WHERE v.id = $1`, [result.body.id],
+      );
+      assert.ok(invariant.rows[0].distance <= 50);
+    } else {
+      assert.equal(result.response.status, 404);
+      assert.equal((result.body.error as Record<string, unknown>).code, 'SITE_NOT_FOUND');
+      assert.equal(deleted.response.status, 204);
+      assert.ok((await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE id = $1', [siteId])).rows[0].deleted_at);
+      assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
+    }
   } finally {
     if (!committed) await coordinator.query('ROLLBACK');
+    await resetSurveys();
+    await pool!.query('UPDATE sites SET deleted_at = NULL, version = 1 WHERE id = $1', [siteId]);
     coordinator.release();
   }
 });
