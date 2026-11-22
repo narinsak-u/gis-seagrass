@@ -49,7 +49,7 @@ before(async () => {
       ($1,'Alpha meadow',$2,ST_Multi(ST_GeomFromText('POLYGON((100.1 10.1,100.2 10.1,100.2 10.2,100.1 10.2,100.1 10.1))',4326)),1,NULL),
       ($3,'Boundary reef',$2,ST_Multi(ST_GeomFromText('POLYGON((100.3 10.1,100.4 10.1,100.4 10.2,100.3 10.2,100.3 10.1))',4326)),2,NULL),
       ($5,'East meadow',$4,ST_Multi(ST_GeomFromText('POLYGON((101.1 10.1,101.2 10.1,101.2 10.2,101.1 10.2,101.1 10.1))',4326)),3,NULL),
-      ($6,'Retired meadow',$2,ST_Multi(ST_GeomFromText('POLYGON((100.15 10.1,100.16 10.1,100.16 10.2,100.15 10.2,100.15 10.1))',4326)),4,now())`,
+      ($6,'Retired meadow',$2,ST_Multi(ST_GeomFromText('POLYGON((100.7 10.1,100.8 10.1,100.8 10.2,100.7 10.2,100.7 10.1))',4326)),4,now())`,
     [siteCodes[0], provinceCodes[0], siteCodes[1], provinceCodes[1], siteCodes[2], siteCodes[3]],
   );
   app = await NestFactory.create(AppModule, { logger: false });
@@ -108,7 +108,7 @@ integration('GET /sites.geojson includes interior contact and excludes noninters
   );
   const nonintersecting = await json('?bbox=100.5,10.1,100.6,10.2');
   assert.deepEqual(nonintersecting.body.features, []);
-  const retired = await json('?bbox=100.15,10.1,100.16,10.2');
+  const retired = await json('?bbox=100.7,10.1,100.8,10.2');
   assert.deepEqual(retired.body.features, []);
 });
 

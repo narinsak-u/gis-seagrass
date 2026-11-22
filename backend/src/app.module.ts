@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { ApiErrorFilter } from './errors/error.filter';
 import { createPool } from './database/pool';
 import { HealthController } from './health/health.controller';
+import { SitesController } from './sites/sites.controller';
 import { SitesGeoJsonController } from './sites/sites.geojson.controller';
 
 @Module({
