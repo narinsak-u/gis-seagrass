@@ -9,7 +9,7 @@ export class ApiErrorEnvelope {
   error!: { code: string; message: string; details: Record<string, unknown> };
 }
 
-export const SITE_ERROR_SCHEMA = { $ref: '#/components/schemas/ApiErrorEnvelope' } satisfies SchemaObject;
+export const SITE_ERROR_SCHEMA = { $ref: '#/components/schemas/ApiErrorEnvelope' } as const;
 
 const siteSummary = {
   type: 'object',
