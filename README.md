@@ -29,7 +29,27 @@ docker compose down
 docker compose up --build --wait -d
 ```
 
-Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. The source files are mounted read-only. Step 2 implements seed import only; Site/Survey CRUD, authentication, and map remain out of scope. The import lock does not define concurrent CRUD behavior or production scaling.
+Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3; authentication and the map remain out of scope. Site codes remain reserved after soft deletion, Sites with Surveys cannot be deleted, and geometry edits preserve the 50-meter Survey distance rule. Writes are unauthenticated in this development step; do not expose the API to untrusted users.
+
+## Step 3 Site API
+
+The API provides Site list/search, GeoJSON bbox reads, detail, create, versioned update, and soft delete. Reads omit soft-deleted Sites. Site boundaries may overlap; create and geometry updates require positive-area Province overlap. Geometry updates cannot leave linked Surveys more than 50 meters from the Site. API errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`.
+
+Start the stack as above, then try these read-only requests:
+
+```sh
+curl 'http://localhost:3000/sites?page=1&pageSize=2'
+curl 'http://localhost:3000/sites.geojson?bbox=99,7,100,8'
+curl 'http://localhost:3000/sites/TRG-001'
+```
+
+Run unit and isolated PostGIS integration tests:
+
+```sh
+(cd backend && npm test)
+```
+
+`npm test` builds the backend and runs its tests. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database; use the container and test command below to run them. The current isolated PostGIS suite has 35 passing tests. Swagger runtime/browser verification remains pending.
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 

@@ -10,11 +10,13 @@ The database enforces required fields, foreign keys, allowed user roles, positiv
 
 Step 2 import treats every existing Site code as reserved, including codes on Soft-deleted sites. It skips those source records without overwriting or restoring historical Sites. Restoring a Site requires an explicit action outside Step 2; surveys cannot import against Soft-deleted Sites.
 
-## Step 3 Site API policy (agreed, not implemented)
+## Step 3 Site API policy
 
-Site codes remain reserved after soft deletion; Step 3 must replace active-only uniqueness with permanent database uniqueness and return `DUPLICATE_CODE` for reuse. The API exposes only active Sites, even when `status` is supplied. A Site with any linked Surveys cannot be soft-deleted.
+Site codes remain permanently reserved after soft deletion; the database enforces uniqueness across historical and active rows. API reads include active Sites only, including when the optional status filter is present. A Site with any linked Surveys cannot be soft-deleted.
 
-Sites may overlap, matching the importer. Geometry updates must keep every linked Survey inside or within 50 meters of the Site geometry (`ST_DWithin` on geography), matching the import rule rather than requiring strict containment. Step 3 enforces atomic PATCH version checks; Step 5 adds authentication and role-based authorization.
+Sites may overlap; no overlap ban is enforced. Create and geometry updates require positive-area Province coverage. Geometry updates recompute Province and area, and preserve every linked Survey within 50 meters using `ST_DWithin` on geography. Survey insertion and Site edit/delete serialize per Site, including importer writes. PATCH checks and increments version atomically.
+
+Step 3 write routes have no authentication or authorization. Step 5 owns JWT and role-based authorization.
 
 ## Migration ordering
 
