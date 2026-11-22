@@ -51,6 +51,24 @@ Run unit and isolated PostGIS integration tests:
 
 `npm test` builds the backend and runs its tests. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database; use the container and test command below to run them. The isolated Step 3 PostGIS suite has 37 passing tests. Swagger UI was browser-verified at <http://localhost:3000/docs>; OpenAPI JSON at <http://localhost:3000/docs-json> returned HTTP 200. The read requests above were verified against the running API.
 
+## Step 4 Survey API
+
+Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. List responses use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
+
+Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 with at most two decimal places. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion.
+
+```sh
+curl 'http://localhost:3000/sites/TRG-001/surveys?page=1&pageSize=20'
+curl -X POST 'http://localhost:3000/sites/TRG-001/surveys' \
+  -H 'Content-Type: application/json' \
+  -d '{"lon":99.538168,"lat":7.330521,"surveyed_on":"2025-03-08","cover_percent":62.2,"species":["TH","CR","EA"],"note":null}'
+curl -X PATCH 'http://localhost:3000/surveys/123' \
+  -H 'Content-Type: application/json' -d '{"cover_percent":50}'
+curl -X DELETE 'http://localhost:3000/surveys/123'
+```
+
+The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the four routes. Survey writes remain unauthenticated until Step 5.
+
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 
 ## Build applications independently

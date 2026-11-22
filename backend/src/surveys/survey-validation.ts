@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { isStrictCalendarDate } from '../domain/guards';
 
 const editableKeys = ['lon', 'lat', 'surveyed_on', 'cover_percent', 'species', 'note'];
 const ID_MAX = 9223372036854775807n;
@@ -16,7 +17,8 @@ function invalid(): never {
   throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Invalid request', details: {} });
 }
 
-export function parseSurveyInput(body: unknown, create: boolean): SurveyInput {
+export function parseSurveyInput(body: unknown, create: boolean, rawBody?: Buffer): SurveyInput {
+  if (rawBody) rejectRoundedCoverLiteral(rawBody);
   if (body === null || typeof body !== 'object' || Array.isArray(body)) invalid();
   const record = body as Record<string, unknown>;
   if (Object.keys(record).some((key) => !editableKeys.includes(key)) || (!create && Object.keys(record).length === 0)) invalid();
@@ -31,9 +33,7 @@ export function parseSurveyInput(body: unknown, create: boolean): SurveyInput {
   }
   if ((input.lon === undefined) !== (input.lat === undefined)) invalid();
   if (create || record.surveyed_on !== undefined) {
-    if (typeof record.surveyed_on !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(record.surveyed_on) || record.surveyed_on.startsWith('0000')) invalid();
-    const date = new Date(`${record.surveyed_on}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== record.surveyed_on) invalid();
+    if (typeof record.surveyed_on !== 'string' || !isStrictCalendarDate(record.surveyed_on)) invalid();
     input.surveyed_on = record.surveyed_on;
   }
   if (create || record.cover_percent !== undefined) {
@@ -47,9 +47,27 @@ export function parseSurveyInput(body: unknown, create: boolean): SurveyInput {
   }
   if (record.note !== undefined) {
     if (record.note !== null && typeof record.note !== 'string') invalid();
+    if (typeof record.note === 'string' && record.note.includes('\0')) invalid();
     input.note = record.note as string | null;
   } else if (create) input.note = null;
   return input;
+}
+
+function rejectRoundedCoverLiteral(rawBody: Buffer): void {
+  type Context = { source: string };
+  const parse = JSON.parse as (text: string, reviver: (key: string, value: unknown, context: Context) => unknown) => unknown;
+  parse(rawBody.toString('utf8'), (key, value, context) => {
+    if (key === 'cover_percent' && typeof value === 'number' && needsCoverRounding(context.source)) invalid();
+    return value;
+  });
+}
+
+function needsCoverRounding(source: string): boolean {
+  const match = /^-?(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(source);
+  if (!match) return false;
+  const digits = match[1] + (match[2] ?? '');
+  const discarded = (match[2]?.length ?? 0) - Number(match[3] ?? 0) - 2;
+  return discarded > 0 && /[1-9]/.test(digits.slice(Math.max(0, digits.length - discarded)));
 }
 
 export function parseSurveyId(value: string): string {

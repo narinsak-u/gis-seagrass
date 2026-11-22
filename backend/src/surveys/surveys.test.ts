@@ -62,7 +62,7 @@ before(async () => {
   );
   createdSiteCodes = sites.rows.map(({ code }) => code);
   siteId = sites.rows.find(({ code }) => code === siteCode)?.id ?? '';
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule, { logger: false, rawBody: true });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -84,10 +84,14 @@ after(async () => {
 });
 
 async function request(path: string, method = 'GET', body?: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+  return requestText(path, method, body === undefined ? undefined : JSON.stringify(body));
+}
+
+async function requestText(path: string, method = 'GET', body?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
   const response = await fetch(`${origin}${path}`, {
     method,
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body,
   });
   return { response, body: response.status === 204 ? {} : await response.json() as Record<string, unknown> };
 }
@@ -120,12 +124,29 @@ async function status(): Promise<Record<string, unknown>> {
   return response.body;
 }
 
+async function waitForSiteLock(): Promise<boolean> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await pool!.query<{ blocked: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+       AND wait_event_type = 'Lock' AND query LIKE '%SELECT%sites%FOR%UPDATE%') AS blocked`,
+    );
+    if (result.rows[0].blocked) return true;
+    // PostgreSQL lock scheduling uses the real database clock.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
 integration('Swagger documents Survey operations, payloads, and error responses', async () => {
   const response = await fetch(`${origin}/docs-json`);
   assert.equal(response.status, 200);
   type Schema = {
     $ref?: string;
     required?: string[];
+    minProperties?: number;
+    anyOf?: Schema[];
+    not?: Schema;
     properties?: Record<string, Schema>;
     items?: Schema;
   };
@@ -161,6 +182,9 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   assert.deepEqual((postSchema?.required ?? []).slice().sort(), ['cover_percent', 'lat', 'lon', 'species', 'surveyed_on']);
   assert.deepEqual(Object.keys(postSchema?.properties ?? {}).sort(), ['cover_percent', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
   assert.deepEqual(Object.keys(patchSchema?.properties ?? {}).sort(), ['cover_percent', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
+  assert.equal(patchSchema?.minProperties, 1);
+  assert.deepEqual(patchSchema?.anyOf?.[0]?.required, ['lon', 'lat']);
+  assert.deepEqual(patchSchema?.anyOf?.[1]?.not?.anyOf?.map((schema) => schema.required), [['lon'], ['lat']]);
   const postResponse = responseSchema(post, '201');
   const patchResponse = responseSchema(patch, '200');
   const listResponse = responseSchema(list, '200');
@@ -264,6 +288,9 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   });
   assert.equal(roundedLiteral.status, 400);
   assert.equal(((await roundedLiteral.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const nulNote = await requestText(`/sites/${siteCode}/surveys`, 'POST', JSON.stringify({ ...base, note: 'bad\0note' }));
+  assert.equal(nulNote.response.status, 400);
+  assert.equal((nulNote.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
 });
 
@@ -435,17 +462,7 @@ integration('Survey create and Site geometry edit serialize without violating di
     await coordinator.query('BEGIN');
     await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [siteCode]);
     const write = create(await validSurvey());
-    const deadline = Date.now() + 10_000;
-    let blocked = false;
-    while (Date.now() < deadline) {
-      const result = await pool!.query<{ blocked: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-         AND wait_event_type = 'Lock' AND query LIKE '%SELECT%sites%FOR%UPDATE%') AS blocked`,
-      );
-      if (result.rows[0].blocked) { blocked = true; break; }
-      // PostgreSQL lock scheduling uses the real database clock.
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    const blocked = await waitForSiteLock();
     assert.ok(blocked, 'Survey POST should wait for the Site row lock');
     const edit = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,
@@ -485,17 +502,7 @@ integration('Site delete racing Survey create cannot commit both delete and a li
     await coordinator.query('BEGIN');
     await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [siteCode]);
     const write = create(await validSurvey());
-    const deadline = Date.now() + 10_000;
-    let blocked = false;
-    while (Date.now() < deadline) {
-      const result = await pool!.query<{ blocked: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-         AND wait_event_type = 'Lock' AND query LIKE '%SELECT%sites%FOR%UPDATE%') AS blocked`,
-      );
-      if (result.rows[0].blocked) { blocked = true; break; }
-      // PostgreSQL lock scheduling uses the real database clock.
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    const blocked = await waitForSiteLock();
     assert.ok(blocked, 'Survey POST should wait for the Site row lock');
     const deletion = request(`/sites/${siteCode}`, 'DELETE');
     await coordinator.query('COMMIT');
