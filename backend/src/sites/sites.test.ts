@@ -13,6 +13,7 @@ let app: INestApplication | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
+let siteCodes: string[] = [];
 let createdSiteCodes: string[] = [];
 let siteToken = '';
 let postToken = '';
