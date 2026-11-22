@@ -47,13 +47,19 @@ export class SurveysController {
     return { items: rows.rows, total: Number(count.rows[0].total), page };
   }
 
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin.' })
   @Post('sites/:code/surveys')
   @ApiBody({ schema: SURVEY_CREATE_BODY_SCHEMA })
   @ApiResponse({ status: 201, schema: SURVEY_WRITE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async create(@Param('code') code: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+  async create(@Param('code') code: string, @Body() body: unknown, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const input = parseSurveyInput(body, true, request.rawBody);
     const client = await this.pool.connect();
     try {
@@ -66,9 +72,9 @@ export class SurveysController {
       if (!site.rows[0].within) throw new UnprocessableEntityException({ code: 'OUTSIDE_SITE', message: 'Survey location is more than 50 meters from Site', details: {} });
       await validateDateAndSpecies(client, input.surveyed_on!, input.species!);
       const inserted = await client.query<{ id: string }>(
-        `INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, note)
-         VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4, $5, $6) RETURNING id::text`,
-        [site.rows[0].id, input.lon, input.lat, input.surveyed_on, input.cover_percent, input.note],
+        `INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, note, created_by, updated_by)
+         VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4, $5, $6, $7, $7) RETURNING id::text`,
+        [site.rows[0].id, input.lon, input.lat, input.surveyed_on, input.cover_percent, input.note, request.user.id],
       );
       await replaceSpecies(client, inserted.rows[0].id, input.species!);
       const result = await responseSurvey(client, inserted.rows[0].id, site.rows[0].id);

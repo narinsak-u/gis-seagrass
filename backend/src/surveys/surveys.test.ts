@@ -120,8 +120,8 @@ function expiredToken(): string {
   return signedToken(users.viewer, 1, 2);
 }
 
-async function create(body: unknown, code = siteCode) {
-  return request(`/sites/${code}/surveys`, 'POST', body);
+async function create(body: unknown, code = siteCode, token: string | null = accessToken('admin')) {
+  return request(`/sites/${code}/surveys`, 'POST', body, token ?? undefined);
 }
 
 async function todayAndDates(): Promise<{ today: string; yesterday: string; tomorrow: string }> {
@@ -312,6 +312,49 @@ integration('GET /sites/:code/surveys authenticates active current users before 
   assert.equal((await fetch(`${origin}/docs-json`)).status, 200);
 });
 
+integration('POST /sites/:code/surveys authenticates admins before validation and Site lookup', async () => {
+  await resetSurveys();
+  const malformed = { invalid: true };
+  for (const token of [null, 'not-a-token', expiredToken()]) {
+    for (const code of [siteCode, `MISSING-${siteCode}`, deletedSiteCode]) {
+      const denied = await create(malformed, code, token);
+      assert.equal(denied.response.status, 401);
+      assert.deepEqual(denied.body.error, { code: 'UNAUTHORIZED', message: 'Authentication required', details: {} });
+    }
+  }
+  for (const role of ['viewer', 'editor'] as const) {
+    for (const code of [siteCode, `MISSING-${siteCode}`, deletedSiteCode]) {
+      const denied = await create(malformed, code, accessToken(role));
+      assert.equal(denied.response.status, 403);
+      assert.deepEqual(denied.body.error, { code: 'FORBIDDEN', message: 'Insufficient permissions', details: {} });
+    }
+  }
+  assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
+});
+
+integration('POST records authenticated Survey actors and exposes creator to protected reads', async () => {
+  await resetSurveys();
+  const body = await validSurvey();
+  for (const key of ['created_by', 'updated_by', 'updated_at']) {
+    const forged = await create({ ...body, [key]: users.viewer });
+    assert.equal(forged.response.status, 400);
+    assert.equal((forged.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  }
+  const created = await create(body);
+  assert.equal(created.response.status, 201);
+  assert.deepEqual(Object.keys(created.body).sort(), ['cover_percent', 'id', 'lat', 'lon', 'note', 'siteStatus', 'species', 'surveyed_on']);
+  const stored = await pool!.query<{ created_by: string; updated_by: string; updated_at: Date }>(
+    'SELECT created_by::text, updated_by::text, updated_at FROM surveys WHERE id = $1', [created.body.id],
+  );
+  assert.equal(stored.rows[0].created_by, users.admin);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(stored.rows[0].updated_at instanceof Date);
+  const listed = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
+  const item = (listed.body.items as Array<Record<string, unknown>>).find(({ id }) => id === created.body.id);
+  assert.equal(item?.created_by, users.admin);
+});
+
+
 integration('POST /sites/:code/surveys enforces API shapes, site visibility, and malformed JSON envelope', async () => {
   await resetSurveys();
   const created = await create(await validSurvey({ note: 'น้ำขุ่น', species: [speciesCodes[0], speciesCodes[1], speciesCodes[0]] }));
@@ -361,19 +404,17 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   }
   const nonFinite = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: `{"lon":1e400,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":40,"species":[]}`,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
   });
   assert.equal(nonFinite.status, 400);
   assert.equal(((await nonFinite.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   const roundedLiteral = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: `{"lon":100.15,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":1.0000000000000001,"species":[]}`,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
   });
   assert.equal(roundedLiteral.status, 400);
   assert.equal(((await roundedLiteral.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
-  const nulNote = await requestText(`/sites/${siteCode}/surveys`, 'POST', JSON.stringify({ ...base, note: 'bad\0note' }));
+  const nulNote = await requestText(`/sites/${siteCode}/surveys`, 'POST', JSON.stringify({ ...base, note: 'bad\0note' }), accessToken('admin'));
   assert.equal(nulNote.response.status, 400);
   assert.equal((nulNote.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
