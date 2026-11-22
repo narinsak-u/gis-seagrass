@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../import/guards';
 import { parseSiteFeature, SiteValidationError } from '../import/sites';
 import { Pool } from 'pg';
@@ -198,6 +198,7 @@ export class SitesController {
   }
 
   @Delete(':code')
+  @HttpCode(204)
   async remove(@Param('code') code: string): Promise<void> {
     const client = await this.pool.connect();
     try {
