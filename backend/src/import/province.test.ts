@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { runMigrations } from '../database/migrate';
 import { parseProvinceCollection, parseProvinceFeature } from './province';
+
 
 test('province parser rejects malformed collections and invalid WGS84 coordinates', () => {
   assert.throws(() => parseProvinceCollection('{'), /JSON/);
@@ -101,4 +101,76 @@ integration('public import command persists valid MultiPolygon, skips existing c
   const secondReport = await readFile(reportPath, 'utf8');
   assert.match(secondReport, /provinces\.geojson,2,DUPLICATE_CODE/);
   assert.match(secondReport, /provinces\.geojson,4,INVALID_GEOMETRY/);
+});
+integration('concurrent public imports serialize, preserve identities, and produce the same rejection report', async () => {
+  const codes = ['', ''];
+  let occupied = true;
+  while (occupied || codes[0] === codes[1]) {
+    const token = randomUUID().replaceAll('-', '').toUpperCase();
+    codes[0] = token.slice(0, 2);
+    codes[1] = token.slice(2, 4);
+    const result = await pool!.query('SELECT 1 FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
+    occupied = result.rowCount !== 0;
+  }
+  const directory = await mkdtemp(join(tmpdir(), 'province-import-concurrent-'));
+  const reportPath = join(directory, 'import_report.csv');
+  const feature = (code: string, coordinates: number[][]) => ({
+    type: 'Feature',
+    properties: { code, name_th: `ชื่อ ${code}` },
+    geometry: { type: 'Polygon', coordinates: [coordinates] },
+  });
+  try {
+    await writeFile(join(directory, 'provinces.geojson'), JSON.stringify({
+      type: 'FeatureCollection',
+      features: [
+        feature(codes[0], [[100, 10], [101, 10], [101, 11], [100, 11], [100, 10]]),
+        feature(codes[0], [[102, 10], [103, 10], [103, 11], [102, 11], [102, 10]]),
+        feature(codes[1], [[106, 10], [108, 12], [106, 12], [108, 10], [106, 10]]),
+      ],
+    }));
+    await writeFile(join(directory, 'species.json'), JSON.stringify([]));
+    await writeFile(join(directory, 'seagrass_sites.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
+    await writeFile(join(directory, 'surveys.csv'), 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species\n');
+    const run = () => {
+      const { promise, resolve, reject } = Promise.withResolvers<{ stdout: string; stderr: string }>();
+      const child = spawn('npm', ['run', 'import'], {
+        cwd: join(__dirname, '../..'),
+        env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
+      child.once('error', reject);
+      child.once('close', (status) => status === 0 ? resolve({ stdout, stderr }) : reject(new Error(stderr || stdout)));
+      return promise;
+    };
+    const [first, second] = await Promise.all([run(), run()]);
+    const summaries = [first.stdout, second.stdout].map((stdout) => {
+      const match = stdout.match(/"provinces":\{"inserted":(\d+),"skipped_existing":(\d+),"rejected":(\d+)\}/);
+      assert.ok(match, stdout);
+      return match.slice(1).map(Number);
+    });
+    assert.deepEqual(summaries.sort((a, b) => a[0] - b[0]), [[0, 1, 2], [1, 0, 2]]);
+    const rows = await pool!.query<{ code: string; name_th: string; geometrytype: string }>(
+      `SELECT code, name_th, ST_GeometryType(geom) AS geometrytype
+         FROM provinces WHERE code = ANY($1::varchar[]) ORDER BY code`,
+      [codes],
+    );
+    assert.deepEqual(rows.rows, [{
+      code: codes[0],
+      name_th: `ชื่อ ${codes[0]}`,
+      geometrytype: 'ST_MultiPolygon',
+    }]);
+    const report = await readFile(reportPath, 'utf8');
+    assert.match(report, /^file,row,reason\r?\n/);
+    assert.match(report, /provinces\.geojson,2,DUPLICATE_CODE/);
+    assert.match(report, /provinces\.geojson,3,INVALID_GEOMETRY/);
+    const afterRerun = await run();
+    assert.match(afterRerun.stdout, /"provinces":\{"inserted":0,"skipped_existing":1,"rejected":2\}/);
+    assert.equal(await readFile(reportPath, 'utf8'), report);
+  } finally {
+    await pool!.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
+    await rm(directory, { recursive: true, force: true });
+  }
 });

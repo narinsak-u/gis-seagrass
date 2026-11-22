@@ -1,68 +1,56 @@
 # Seagrass Monitoring
 
-Step 1 provides a development Compose stack, versioned PostgreSQL/PostGIS schema, and live database health endpoint. It does not provide data import, site or survey CRUD, authentication, or a map.
+## Development stack and seed import
 
-## Start the development stack
-
-Docker Compose builds and starts the `db`, `api`, and `web` services:
+Start the `db`, `api`, and `web` services:
 
 ```sh
-docker compose up --build
+docker compose up --build --wait -d
 ```
 
-First startup may take several minutes while Docker downloads images and builds the applications. Compose waits for database readiness; the API applies migrations before listening. Open the web app at <http://localhost:3001>. A healthy `GET /health` at <http://localhost:3000/health> returns HTTP 200 with exactly `db` and `postgis` keys, such as:
+Compose waits for database readiness. API startup applies migrations, imports the four files in `backend/seed-data/`, then listens. Open the web app at <http://localhost:3001>; API health is at <http://localhost:3000/health>.
 
-```json
-{"db":"ok","postgis":"3.4.0"}
+To run the same importer manually:
+
+```sh
+docker compose exec api npm run import
+(cd backend && npm run import)
 ```
 
-`postgis` is read from the database at request time; the version shown above is an example. The published database port defaults to `localhost:5432`.
+The importer serializes runs with a PostgreSQL advisory lock and skips existing identities without overwriting records. It reports inserted, skipped-existing, and rejected counts per source. The host report is `reports/import_report.csv`; its `file,row,reason` rows identify source positions (GeoJSON features start at 1; survey positions include the CSV header). Each run writes evidence for that run's rejected rows.
 
-Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. To override them, copy `.env.example` to the ignored `.env` file and edit it privately. The example binds published ports to `127.0.0.1`; keep that loopback bind unless you deliberately need network access. Never commit `.env` or production secrets.
+Verified Compose startup imported the supplied sources. Startup summary: provinces `{inserted:0,skipped_existing:3,rejected:0}`, species `{0,6,0}`, sites `{0,27,3}`, surveys `{274,0,26}`. Resulting database totals were 3 provinces, 6 species, 27 Sites, 274 surveys, and 543 `survey_species` links. These are observed results, not application constants. The report identified Site feature positions 9 and 19 as `INVALID_GEOMETRY`, and position 30 as `DUPLICATE_CODE`; it also records all 26 survey rejections with positions and reasons.
+
+Re-running import skips existing records and revalidates source errors. Restart the full stack without deleting its named volume:
+
+```sh
+docker compose down
+docker compose up --build --wait -d
+```
+
+Startup repeats migrations and import before API readiness. `docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. The source files are mounted read-only. These results cover this local Compose dataset, not production scale or concurrent CRUD editing.
+
+Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 
 ## Build applications independently
-
-Backend and frontend have separate npm manifests and lockfiles:
 
 ```sh
 (cd backend && npm ci && npm run build)
 (cd frontend && npm ci && npm run build)
 ```
 
-These commands install and build each application independently from the repository root.
-
 ## Database checks
 
-The API applies ordered Drizzle SQL migrations at startup: PostGIS extension first, then schema. To safely rerun the migration runner while Compose is up:
+Rerun ordered Drizzle migrations while Compose is up:
 
 ```sh
 docker compose exec api npm run migrate
 ```
 
-Check tables, constraints, indexes, and database-enforced behavior with the rollback-only schema check:
+Run the rollback-only schema check:
 
 ```sh
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backend/test/schema.sql
 ```
 
-This check rolls back its temporary data. No application importer or CRUD endpoints exist yet.
-
-## Manual persistence and outage checks
-
-1. Insert a temporary, uniquely identified row into the database.
-2. Restart without deleting the named volume: `docker compose restart`.
-3. Query for that row to confirm it remains, then delete the temporary row.
-4. Stop the database with `docker compose stop db`. The health endpoint should stop returning HTTP 200 while its database query fails.
-5. Restore it with `docker compose start db`; wait for readiness and check health again.
-
-These are manual checks; this document does not claim they have been run.
-
-## Stop and clean up
-
-```sh
-docker compose down
-```
-
-This stops the stack and removes its containers and network while preserving the database volume.
-
-Do not use `docker compose down -v` for routine cleanup: it deletes the named database volume and all stored data. Use it only when you intentionally want to erase the development database.
+The check rolls back its temporary data. The database port defaults to `localhost:5432`; published ports bind to loopback by default.
