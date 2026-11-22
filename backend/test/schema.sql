@@ -90,10 +90,9 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_index i JOIN pg_class idx ON idx.oid = i.indexrelid
-         WHERE i.indrelid = 'public.sites'::regclass AND i.indisunique AND i.indpred IS NOT NULL
+         WHERE i.indrelid = 'public.sites'::regclass AND i.indisunique AND i.indpred IS NULL
            AND i.indnatts = 1 AND i.indkey[0] = (SELECT attnum FROM pg_attribute WHERE attrelid = i.indrelid AND attname = 'code')
-           AND pg_get_expr(i.indpred, i.indrelid) ILIKE '%deleted_at IS NULL%'
-    ) THEN RAISE EXCEPTION 'Active site-code unique index is missing'; END IF;
+    ) THEN RAISE EXCEPTION 'Permanent site-code unique index is missing'; END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_index i
          WHERE i.indrelid = 'public.surveys'::regclass AND i.indisunique AND i.indpred IS NOT NULL
