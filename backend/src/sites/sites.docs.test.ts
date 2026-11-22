@@ -98,6 +98,9 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
     { operation: update, success: '200' },
     { operation: remove, success: '204' },
   ];
+  assert.ok(remove.security?.some((requirement) => 'access-token' in requirement));
+  assert.ok(remove.responses?.['401']);
+  assert.ok(remove.responses?.['403']);
 
   for (const { operation, success } of operations) {
     const responses = operation?.responses ?? {};

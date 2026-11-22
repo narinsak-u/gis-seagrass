@@ -122,8 +122,11 @@ async function patchSite(code: string, body: unknown): Promise<{ response: Respo
   return { response, body: await response.json() as Record<string, unknown> };
 }
 
-async function deleteSite(code: string): Promise<Response> {
-  return fetch(`${origin}/sites/${code}`, { method: 'DELETE' });
+async function deleteSite(code: string, role: keyof typeof users | null = 'admin'): Promise<Response> {
+  return fetch(`${origin}/sites/${code}`, {
+    method: 'DELETE',
+    headers: role === null ? {} : { authorization: `Bearer ${accessToken(role)}` },
+  });
 }
 
 async function waitForBlockedQuery(query: string): Promise<void> {
@@ -616,15 +619,35 @@ integration('PATCH and Survey import serialize both lock orders without strandin
   }
 });
 
-integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code', async () => {
+integration('DELETE /sites requires admin before looking up a Site', async () => {
+  for (const [role, status, code] of [
+    [null, 401, `MISSING-${siteToken}`],
+    ['viewer', 403, `MISSING-${siteToken}`],
+    ['editor', 403, siteCodes[0]],
+  ] as const) {
+    const response = await deleteSite(code, role);
+    assert.equal(response.status, status);
+    assert.equal(((await response.json() as Record<string, unknown>).error as Record<string, unknown>).code,
+      status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN');
+  }
+});
+
+integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code and audit actors', async () => {
   const code = `DELETE-${siteToken}`;
   const created = await createSite(siteFeature(code, polygon(100.6, 10.1, 100.7, 10.2)));
   assert.equal(created.response.status, 201);
+  await pool!.query('UPDATE sites SET created_by = $2, updated_by = $2, updated_at = TIMESTAMPTZ \'2025-01-01\' WHERE code = $1',
+    [code, users.viewer]);
   const deleted = await deleteSite(code);
   assert.equal(deleted.status, 204);
   assert.equal(await deleted.text(), '');
-  const retained = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [code]);
+  const retained = await pool!.query<{ deleted_at: Date | null; created_by: string; updated_by: string; updated_at: Date }>(
+    'SELECT deleted_at, created_by, updated_by, updated_at FROM sites WHERE code = $1', [code],
+  );
   assert.ok(retained.rows[0].deleted_at);
+  assert.equal(retained.rows[0].created_by, users.viewer);
+  assert.equal(retained.rows[0].updated_by, users.admin);
+  assert.ok(retained.rows[0].updated_at > new Date('2025-01-01'));
   for (const response of [await deleteSite(code), await deleteSite(`MISSING-${siteToken}`)]) {
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json() as Record<string, unknown>).error, {
