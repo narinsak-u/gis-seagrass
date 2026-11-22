@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
+import { signAccessToken } from '../auth/auth.controller';
 import { runMigrations } from '../database/migrate';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
@@ -20,6 +21,7 @@ let surveyRefs: string[] = [];
 let siteToken = '';
 let importSpeciesCode = '';
 let postToken = '';
+let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
 before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
@@ -62,6 +64,13 @@ before(async () => {
       ($7,'Retired site',$2,ST_Multi(ST_GeomFromText('POLYGON((100.5 10.1,100.6 10.1,100.6 10.2,100.5 10.2,100.5 10.1))',4326)),1,now())`,
     [siteCodes[0], provinceCodes[0], siteCodes[1], provinceCodes[0], siteCodes[2], provinceCodes[1], siteCodes[3]],
   );
+  users = { viewer: randomUUID(), editor: randomUUID(), admin: randomUUID() };
+  await pool.query(
+    'INSERT INTO users (id, email, password_hash, role) VALUES ($1,$2,$3,$4),($5,$6,$7,$8),($9,$10,$11,$12)',
+    [users.viewer, `${users.viewer}@example.test`, 'unused', 'viewer',
+      users.editor, `${users.editor}@example.test`, 'unused', 'editor',
+      users.admin, `${users.admin}@example.test`, 'unused', 'admin'],
+  );
   app = await NestFactory.create(AppModule, { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -79,6 +88,7 @@ after(async () => {
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[...siteCodes, ...createdSiteCodes]]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
     await pool.end();
   }
 });
@@ -86,6 +96,9 @@ after(async () => {
 async function json(path: string): Promise<{ response: Response; body: Record<string, unknown> }> {
   const response = await fetch(`${origin}${path}`);
   return { response, body: await response.json() as Record<string, unknown> };
+}
+function accessToken(role: keyof typeof users): string {
+  return signAccessToken(users[role]);
 }
 
 async function createSite(feature: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
