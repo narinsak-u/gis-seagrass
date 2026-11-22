@@ -32,7 +32,8 @@ docker compose down
 docker compose up --build --wait -d
 ```
 
-`docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3. Authentication remains required for deployment; development accounts are enabled only by the development Compose configuration.
+`docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3. Development accounts are enabled only by the development Compose configuration.
+
 ## Login and development accounts
 
 The local Compose stack seeds these accounts only when `SEED_DEVELOPMENT_ACCOUNTS=true`. Startup inserts missing accounts and never resets existing credentials, roles, or active flags:
@@ -53,9 +54,17 @@ curl -X POST 'http://localhost:3000/auth/login' \
 
 Success returns `access_token`, `token_type: "Bearer"`, and `expires_in: 900`. Login errors use the shared `{ "error": { "code": "...", "message": "...", "details": {} } }` envelope.
 
+| Action | Anonymous | Viewer | Editor | Admin |
+| --- | --- | --- | --- | --- |
+| Site map, list, detail, and Site status | Read | Read | Read | Read |
+| Survey list | `401` | Read | Read | Read |
+| Create, update, or delete Sites and Surveys | `401` | `403` | `403` | Write |
+
+Protected routes check the current account role and active flag on each request, before looking up a Site or Survey. Missing, malformed, expired, invalid, disabled-user, or deleted-user tokens return `401 UNAUTHORIZED`; insufficient roles return `403 FORBIDDEN`. Malformed JSON returns `400 VALIDATION_ERROR` before authentication. All errors use the shared envelope.
+
 ## Step 3 Site API
 
-The API provides Site list/search, GeoJSON bbox reads, detail, create, versioned update, and soft delete. Reads omit soft-deleted Sites. Site boundaries may overlap; create and geometry updates require positive-area Province overlap. Geometry updates cannot leave linked Surveys more than 50 meters from the Site. API errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`.
+The API provides Site list/search, GeoJSON bbox reads, detail, create, versioned update, and soft delete. Reads omit soft-deleted Sites. Site boundaries may overlap; create and geometry updates require positive-area Province overlap. Geometry updates cannot leave linked Surveys more than 50 meters from the Site. API errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`. An authorized stale PATCH returns `409 VERSION_CONFLICT` with the current Site PATCH GeoJSON Feature at `error.details.current`; exactly one of two concurrent PATCH requests using the same version succeeds.
 
 Every public Site list item, GeoJSON feature property, and Site detail feature property includes `siteStatus`: `very_good`, `good`, `fair`, `poor`, or `no_data`. It is derived from the mean cover of all Surveys on the Site's latest observation date; earlier Surveys do not affect it. Sites without Surveys return `no_data`. The value is computed from current Survey data and updates after Survey creation, update, or deletion. Site reads remain public and add no status filter; POST and PATCH response shapes are unchanged.
 
@@ -77,9 +86,9 @@ Run unit and isolated PostGIS integration tests:
 
 ## Step 4 Survey API
 
-Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. Listing Surveys requires a Viewer, Editor, or Admin Bearer token; list items include nullable `created_by` as the creator's user ID. Imported Surveys may have no creator. Lists use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
+Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. List items include nullable `created_by` as the creator's user ID. Imported Surveys may have no creator. Lists use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
 
-Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion. Missing, malformed, expired, invalid, or inactive-user tokens return `401 UNAUTHORIZED`; a valid user without an allowed role returns `403 FORBIDDEN`. Both use the shared error envelope. User roles are resolved on every protected request; passwords and signing secrets are never returned.
+Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion. Site and Survey inserts store `created_by` and `updated_by` from the admin token; successful updates set `updated_by` and `updated_at`, including species-only Survey edits and Site soft deletion. Client-supplied audit fields cannot impersonate actors. Survey hard deletion leaves no retained actor record. Password hashes and signing secrets are never returned.
 
 ```sh
 TOKEN="$(curl -s -X POST 'http://localhost:3000/auth/login' \
@@ -101,7 +110,7 @@ curl -X DELETE 'http://localhost:3000/surveys/123' \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the routes. Survey writes require an admin Bearer token.
+The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the routes and bearer security.
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 
