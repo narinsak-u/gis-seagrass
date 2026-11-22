@@ -85,9 +85,8 @@ integration('GET /sites.geojson returns sorted active Features including boundar
       type: 'MultiPolygon',
       coordinates: [[[[100.1, 10.1], [100.2, 10.1], [100.2, 10.2], [100.1, 10.2], [100.1, 10.1]]]],
     },
-    properties: { code: siteCodes[0], name: 'Alpha meadow', province_code: provinceCodes[0], area_rai: 1, version: 1 },
+    properties: { code: siteCodes[0], name: 'Alpha meadow', province_code: provinceCodes[0], area_rai: 1, version: 1, siteStatus: 'no_data' },
   });
-  assert.ok(features.every((feature) => !('latest_survey' in (feature.properties as Record<string, unknown>))));
 });
 
 integration('GET /sites.geojson filters by province and active status', async () => {

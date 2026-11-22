@@ -2,13 +2,13 @@ import { Pool } from 'pg';
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
-import type { SiteSummary } from './site.types';
+import type { PublicSiteSummary } from './site.types';
 
 
 interface SiteFeature {
   type: 'Feature';
   geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-  properties: SiteSummary;
+  properties: PublicSiteSummary;
 }
 
 interface SiteFeatureCollection {
@@ -50,10 +50,19 @@ export class SitesGeoJsonController {
       area_rai: string;
       version: number;
       geometry: SiteFeature['geometry'];
+      site_status: string | null;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry, status.site_status
          FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT CASE WHEN count(*) = 0 THEN 'no_data'
+                  WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
+                  WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
         WHERE s.deleted_at IS NULL
           AND ST_Intersects(s.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))${provinceFilter}
         ORDER BY s.code ASC`,
@@ -70,6 +79,7 @@ export class SitesGeoJsonController {
           province_code: row.province_code,
           area_rai: Number(row.area_rai),
           version: row.version,
+          siteStatus: row.site_status ?? 'no_data',
         },
       })),
     };

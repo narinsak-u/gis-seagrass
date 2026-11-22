@@ -53,6 +53,13 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.ok(list && create && bbox && detail && update && remove);
   assert.deepEqual(new Set(list.parameters?.map(({ name }) => name)), new Set(['status', 'province', 'q', 'page', 'pageSize']));
   assert.deepEqual(new Set(bbox.parameters?.map(({ name }) => name)), new Set(['bbox', 'province', 'status']));
+  const listSchema = list.responses?.['200']?.content?.['application/json']?.schema;
+  const listItem = listSchema?.properties?.items?.items;
+  const featureSchema = bbox.responses?.['200']?.content?.['application/json']?.schema;
+  const featureStatus = featureSchema?.properties?.features?.items?.properties?.properties?.properties?.siteStatus;
+  const listStatus = listItem?.properties?.siteStatus;
+  assert.deepEqual(listStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
+  assert.deepEqual(featureStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
   const createSchema = create.requestBody?.content?.['application/json']?.schema;
   const patchSchema = update.requestBody?.content?.['application/json']?.schema;
   assert.ok(createSchema && patchSchema);
@@ -70,8 +77,9 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.ok(detailSchema.properties?.geometry);
   assert.deepEqual(
     detailSchema.properties?.properties?.required,
-    ['code', 'name', 'province_code', 'area_rai', 'version', 'latest_survey'],
+    ['code', 'name', 'province_code', 'area_rai', 'version', 'siteStatus', 'latest_survey'],
   );
+  assert.deepEqual(detailSchema.properties?.properties?.properties?.siteStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
   const latestSurvey = detailSchema.properties?.properties?.properties?.latest_survey;
   assert.ok(latestSurvey);
   assert.equal(latestSurvey.nullable, true);
