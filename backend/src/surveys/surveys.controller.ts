@@ -138,10 +138,16 @@ export class SurveysController {
     } finally { client.release(); }
   }
 
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin.' })
   @Delete('surveys/:id')
   @HttpCode(204)
   @ApiResponse({ status: 204, description: 'Survey deleted' })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   async remove(@Param('id') rawId: string): Promise<void> {
     const id = parseSurveyId(rawId);

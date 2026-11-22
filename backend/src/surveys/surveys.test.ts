@@ -199,7 +199,7 @@ integration('Swagger documents Survey operations, payloads, and error responses'
     [list, ['200', '400', '401', '403', '404', '500']],
     [post, ['201', '400', '401', '403', '404', '422', '500']],
     [patch, ['200', '400', '401', '403', '404', '422', '500']],
-    [remove, ['204', '400', '404', '500']],
+    [remove, ['204', '400', '401', '403', '404', '500']],
   ] as const) {
     for (const code of statuses) assert.ok(operation.responses?.[code], `Missing documented response ${code}`);
   }
@@ -527,18 +527,20 @@ integration('POST and PATCH derive status from all latest-date Surveys and thres
   const updated = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { cover_percent: 40 }, accessToken('admin'));
   assert.equal(updated.response.status, 200);
   assert.equal(updated.body.siteStatus, 'good');
-  const removed = await request(`/surveys/${secondLatest.body.id}`, 'DELETE');
+  const removed = await request(`/surveys/${secondLatest.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(removed.response.status, 204);
   assert.equal(await removed.response.text(), '');
+  const siteAfterDelete = await request(`/sites/${siteCode}`);
+  assert.equal((siteAfterDelete.body.properties as Record<string, unknown>).siteStatus, 'fair');
   const afterDelete = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { note: 'recomputed' }, accessToken('admin'));
   assert.equal(afterDelete.body.siteStatus, 'fair');
   const remaining = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { surveyed_on: yesterday }, accessToken('admin'));
   assert.equal(remaining.response.status, 200);
   assert.equal(remaining.body.siteStatus, 'good');
-  const deleteLatest = await request(`/surveys/${older.body.id}`, 'DELETE');
+  const deleteLatest = await request(`/surveys/${older.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleteLatest.response.status, 204);
   assert.equal((await status()).total, 1);
-  const deleteLast = await request(`/surveys/${firstLatest.body.id}`, 'DELETE');
+  const deleteLast = await request(`/surveys/${firstLatest.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleteLast.response.status, 204);
   await resetSurveys();
   const empty = await status();
@@ -621,16 +623,35 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
   assert.equal(moved.body.lat, newPosition.rows[0].lat);
 });
 
+integration('DELETE /surveys/:id authorizes before ID validation or lookup', async () => {
+  for (const token of [undefined, 'invalid']) {
+    const unauthenticated = await request('/surveys/not-a-number', 'DELETE', undefined, token);
+    assert.equal(unauthenticated.response.status, 401);
+    assert.equal((unauthenticated.body.error as Record<string, unknown>).code, 'UNAUTHORIZED');
+  }
+  for (const role of ['viewer', 'editor'] as const) {
+    const forbidden = await request('/surveys/not-a-number', 'DELETE', undefined, accessToken(role));
+    assert.equal(forbidden.response.status, 403);
+    assert.equal((forbidden.body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  }
+  const malformed = await request('/surveys/not-a-number', 'DELETE', undefined, accessToken('admin'));
+  assert.equal(malformed.response.status, 400);
+  assert.equal((malformed.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const missing = await request('/surveys/9223372036854775807', 'DELETE', undefined, accessToken('admin'));
+  assert.equal(missing.response.status, 404);
+  assert.equal((missing.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
+});
+
 integration('DELETE hard-deletes Survey and species links; unknown IDs use shared envelope', async () => {
   await resetSurveys();
   const created = await create(await validSurvey({ species: [...speciesCodes] }));
   const id = created.body.id as string;
-  const deleted = await request(`/surveys/${id}`, 'DELETE');
+  const deleted = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleted.response.status, 204);
   assert.equal(await deleted.response.text(), '');
   assert.equal((await pool!.query('SELECT 1 FROM surveys WHERE id = $1', [id])).rowCount, 0);
   assert.equal((await pool!.query('SELECT 1 FROM survey_species WHERE survey_id = $1', [id])).rowCount, 0);
-  const unknown = await request(`/surveys/${id}`, 'DELETE');
+  const unknown = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
 });
