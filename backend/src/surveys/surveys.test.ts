@@ -269,12 +269,17 @@ integration('POST uses PostGIS geography meters inclusively at site boundary, 30
   );
   const at30 = await create(await validSurvey(point.rows[0]));
   assert.equal(at30.response.status, 201);
-  const at50Point = await pool!.query<{ lon: number; lat: number }>(
-    `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
-       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,50::double precision,pi()/2)::geometry AS p
-     ) q`,
+  const at50Point = await pool!.query<{ lon: number; lat: number; within: boolean }>(
+    `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat,
+            ST_DWithin(site.geom::geography,p::geography,50) AS within
+     FROM sites site CROSS JOIN (
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.15005),4326)::geography,50::double precision,pi()/4)::geometry AS p
+     ) q
+     WHERE site.id = $1`,
+    [siteId],
   );
-  const at50 = await create(await validSurvey(at50Point.rows[0]));
+  assert.equal(at50Point.rows[0].within, true);
+  const at50 = await create(await validSurvey({ lon: at50Point.rows[0].lon, lat: at50Point.rows[0].lat }));
   assert.equal(at50.response.status, 201);
   const boundary = await create(await validSurvey({ lon: 100.15005, lat: 10.150025 }));
   assert.equal(boundary.response.status, 201);
