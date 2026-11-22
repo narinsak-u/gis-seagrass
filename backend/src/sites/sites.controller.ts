@@ -15,7 +15,7 @@ interface SiteList {
   page: number;
 }
 
-const ALLOWED_QUERY_KEYS = ['status', 'province', 'search', 'page', 'page_size'];
+const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
 @Controller('sites')
 export class SitesController {
   constructor(private readonly pool: Pool) {}
@@ -26,13 +26,13 @@ export class SitesController {
     if (query.status !== undefined && query.status !== 'active') throw new BadRequestException();
 
     const page = parsePositiveInteger(query.page, 1);
-    const pageSize = parsePositiveInteger(query.page_size, 20);
+    const pageSize = parsePositiveInteger(query.pageSize, 20);
     if (page === undefined || pageSize === undefined || pageSize > 100
       || page > Math.floor(Number.MAX_SAFE_INTEGER / pageSize)) {
       throw new BadRequestException();
     }
     const province = query.province;
-    const search = query.search;
+    const search = query.q;
     if ((province !== undefined && (typeof province !== 'string' || province.length !== 2))
       || (search !== undefined && typeof search !== 'string')) {
       throw new BadRequestException();

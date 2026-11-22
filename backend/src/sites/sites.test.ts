@@ -10,6 +10,7 @@ import { runMigrations } from '../database/migrate';
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
 let siteCodes: string[] = [];
@@ -73,7 +74,7 @@ async function json(path: string): Promise<{ response: Response; body: Record<st
 }
 
 integration('GET /sites returns exact numeric summaries without geometry, sorted and paginated', async () => {
-  const { response, body } = await json(`/sites?search=${siteToken}`);
+  const { response, body } = await json(`/sites?q=${siteToken}`);
   assert.equal(response.status, 200);
   assert.deepEqual(Object.keys(body).sort(), ['items', 'page', 'total']);
   assert.equal(body.total, 3);
@@ -85,22 +86,22 @@ integration('GET /sites returns exact numeric summaries without geometry, sorted
     assert.equal(typeof item.area_rai, 'number');
     assert.equal(typeof item.version, 'number');
   }
-  const page = await json(`/sites?page=2&page_size=2&search=${siteToken}`);
+  const page = await json(`/sites?page=2&pageSize=2&q=${siteToken}`);
   assert.equal(page.body.total, 3);
   assert.equal(page.body.page, 2);
   assert.deepEqual((page.body.items as Array<Record<string, unknown>>).map((item) => item.code), [[...siteCodes.slice(0, 3)].sort()[2]]);
-  assert.equal(((await json(`/sites?page=4&page_size=1&search=${siteToken}`)).body.items as unknown[]).length, 0);
-  assert.equal(((await json(`/sites?page_size=100&search=${siteToken}`)).body.items as unknown[]).length, 3);
+  assert.equal(((await json(`/sites?page=4&pageSize=1&q=${siteToken}`)).body.items as unknown[]).length, 0);
+  assert.equal(((await json(`/sites?pageSize=100&q=${siteToken}`)).body.items as unknown[]).length, 3);
 });
 
 integration('GET /sites combines active status, province filter, and case-insensitive substring search', async () => {
-  const query = new URLSearchParams({ status: 'active', province: provinceCodes[0], search: 'LAGOO' });
+  const query = new URLSearchParams({ status: 'active', province: provinceCodes[0], q: 'LAGOO' });
   const { response, body } = await json(`/sites?${query}`);
   assert.equal(response.status, 200);
   assert.deepEqual((body.items as Array<Record<string, unknown>>).map((item) => item.code), [siteCodes[1]]);
-  const codeSearch = await json(`/sites?search=${siteCodes[1].slice(0, 5).toLowerCase()}`);
+  const codeSearch = await json(`/sites?q=${siteCodes[1].slice(0, 5).toLowerCase()}`);
   assert.deepEqual((codeSearch.body.items as Array<Record<string, unknown>>).map((item) => item.code), [siteCodes[1]]);
-  for (const path of ['/sites?status=deleted', '/sites?page=0', '/sites?page_size=101', '/sites?unknown=x', '/sites?page=1.2']) {
+  for (const path of ['/sites?status=deleted', '/sites?page=0', '/sites?pageSize=101', '/sites?unknown=x', '/sites?page=1.2', '/sites?search=old', '/sites?page_size=2']) {
     const invalid = await json(path);
     assert.equal(invalid.response.status, 400);
     assert.deepEqual(invalid.body.error, { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });

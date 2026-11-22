@@ -4,8 +4,12 @@ import {
   ExceptionFilter,
   HttpException,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import { isRecord } from '../import/guards';
+
+interface HttpResponse {
+  status(code: number): this;
+  json(body: unknown): void;
+}
 
 interface ErrorEnvelope {
   error: { code: string; message: string; details: Record<string, unknown> };
@@ -14,7 +18,7 @@ interface ErrorEnvelope {
 @Catch()
 export class ApiErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<Response>();
+    const response = host.switchToHttp().getResponse<HttpResponse>();
     const status = exception instanceof HttpException
       ? exception.getStatus()
       : isRecord(exception) && exception.status === 400 ? 400 : 500;
@@ -26,10 +30,19 @@ export class ApiErrorFilter implements ExceptionFilter {
     }
 
     let error: ErrorEnvelope['error'];
-    if (status === 400) {
-      error = { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} };
-    } else if (status === 404) {
-      error = { code: 'NOT_FOUND', message: 'Not Found', details: {} };
+    if (status === 400 || status === 404) {
+      const fallback = status === 400
+        ? { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} }
+        : { code: 'NOT_FOUND', message: 'Not Found', details: {} };
+      error = typeof body.code === 'string'
+        ? {
+          code: body.code,
+          message: typeof body.message === 'string'
+            ? body.message
+            : exception instanceof HttpException ? exception.message : fallback.message,
+          details: isRecord(body.details) ? body.details : {},
+        }
+        : fallback;
     } else if (exception instanceof HttpException && status < 500) {
       error = {
         code: typeof body.code === 'string' ? body.code : 'HTTP_ERROR',
