@@ -664,7 +664,7 @@ integration('PATCH and Survey import serialize both lock orders without strandin
       if (importFirst) {
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         const patch = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
-        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await coordinator.query('COMMIT');
         committed = true;
         const [imported, edited] = await Promise.all([importPromise, patch]);
@@ -672,7 +672,7 @@ integration('PATCH and Survey import serialize both lock orders without strandin
         assert.equal(edited.response.status, 409);
         assert.equal((edited.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
       } else {
-        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         await coordinator.query('COMMIT');
         committed = true;

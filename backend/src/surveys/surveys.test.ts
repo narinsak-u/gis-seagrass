@@ -234,10 +234,13 @@ integration('Swagger documents Survey operations, payloads, and error responses'
 
 integration('GET /sites/:code/surveys paginates deterministic list shapes and rejects invalid queries', async () => {
   await resetSurveys();
-  const older = await create(await validSurvey({ surveyed_on: '2025-01-01', cover_percent: 10 }));
+  const older = await pool!.query<{ id: string }>(
+    `INSERT INTO surveys (site_id,geom,surveyed_on,cover_percent)
+     VALUES ($1, ST_SetSRID(ST_MakePoint(100.150025,10.150025),4326), '2025-01-01', 10) RETURNING id::text`,
+    [siteId],
+  );
   const firstTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 20 }));
   const secondTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 30 }));
-  assert.equal(older.body.siteStatus, 'poor');
   assert.equal(firstTie.body.siteStatus, 'poor');
   assert.equal(secondTie.body.siteStatus, 'fair');
   await pool!.query('UPDATE surveys SET created_by = $1 WHERE id = $2', [users.editor, secondTie.body.id]);
@@ -247,14 +250,14 @@ integration('GET /sites/:code/surveys paginates deterministic list shapes and re
   assert.equal(page.body.page, 1);
   assert.equal(page.body.total, 3);
   const items = page.body.items as Array<Record<string, unknown>>;
-  assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.body.id]);
+  assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.rows[0].id]);
   assert.deepEqual(Object.keys(items[0]).sort(), ['cover_percent', 'created_by', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
   assert.equal(items[0].created_by, users.editor);
   assert.equal(items[0].siteStatus, undefined);
   assert.equal(items[2].created_by, null);
   assert.deepEqual(items[0].species, [speciesCodes[0]]);
   const secondPage = await request(`/sites/${siteCode}/surveys?page=2&pageSize=2`, 'GET', undefined, accessToken('editor'));
-  assert.deepEqual((secondPage.body.items as Array<Record<string, unknown>>).map(({ id }) => id), [older.body.id]);
+  assert.deepEqual((secondPage.body.items as Array<Record<string, unknown>>).map(({ id }) => id), [older.rows[0].id]);
   const emptyPage = await request(`/sites/${siteCode}/surveys?page=4&pageSize=1`, 'GET', undefined, accessToken('admin'));
   assert.deepEqual(emptyPage.body.items, []);
   const maxPage = await request(`/sites/${siteCode}/surveys?pageSize=100`, 'GET', undefined, accessToken('viewer'));
@@ -407,12 +410,14 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   const nonFinite = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
+    body: `{"lon":1e400,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":40,"species":[]}`,
   });
   assert.equal(nonFinite.status, 400);
   assert.equal(((await nonFinite.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   const roundedLiteral = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
+    body: `{"lon":100.15,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":1.0000000000000001,"species":[]}`,
   });
   assert.equal(roundedLiteral.status, 400);
   assert.equal(((await roundedLiteral.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
@@ -574,7 +579,7 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
-    const invalid = await request(`/surveys/${id}`, 'DELETE');
+    const invalid = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
@@ -669,7 +674,7 @@ integration('Survey create and Site geometry edit serialize without violating di
     const edit = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,
       geometry: { type: 'Polygon', coordinates: [[[100.152,10.152],[100.1522,10.152],[100.1522,10.1522],[100.152,10.1522],[100.152,10.152]]] },
-    });
+    }, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [edited, result] = await Promise.all([edit, write]);
@@ -714,7 +719,7 @@ integration('Survey location PATCH and Site geometry edit cannot commit incompat
     const geometry = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,
       geometry: { type: 'Polygon', coordinates: [[[100.1496,10.15],[100.14965,10.15],[100.14965,10.15005],[100.1496,10.15005],[100.1496,10.15]]] },
-    });
+    }, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [moved, edited] = await Promise.all([location, geometry]);
@@ -751,7 +756,7 @@ integration('Site delete racing Survey create cannot commit both delete and a li
     const write = create(await validSurvey());
     const blocked = await waitForSiteLock();
     assert.ok(blocked, 'Survey POST should wait for the Site row lock');
-    const deletion = request(`/sites/${siteCode}`, 'DELETE');
+    const deletion = request(`/sites/${siteCode}`, 'DELETE', undefined, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [deleted, result] = await Promise.all([deletion, write]);
