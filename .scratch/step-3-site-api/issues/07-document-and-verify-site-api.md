@@ -14,7 +14,7 @@
 
 ## Comments
 
-- Verification: isolated PostGIS suite passed 36/36 tests. Live API startup imported 3 provinces, 27 Sites, and 274 Surveys.
+- Verification: isolated PostGIS suite passed 37/37 tests; the rollback-only schema check passed. Live API startup imported 3 provinces, 27 Sites, and 274 Surveys.
 - Browser verification: `/docs` loaded in Chromium and showed all six Site operations plus the shared error schema. Expanded `GET /sites` showed `pageSize`, `page`, `q`, `province`, and `status`.
 - Live HTTP verification: README GET examples succeeded; `/docs-json` returned HTTP 200.
 - Integration tip `3d58c34` (`fix(sites): type error schema as reference`) is present on this branch. Step 4 remains untouched.

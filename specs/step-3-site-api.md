@@ -1,6 +1,6 @@
 # Step 3 — Site API
 
-**Project phase:** Step 3 — Site API. **Prerequisite:** Steps 1 and 2 completed and committed. **Commit prefix:** `step-3:`. **Status:** Implemented and verified; 36/36 isolated PostGIS tests passed, Swagger UI was browser-verified, and live API requests succeeded.
+**Project phase:** Step 3 — Site API. **Prerequisite:** Steps 1 and 2 completed and committed. **Commit prefix:** `step-3:`. **Status:** Implemented and verified; 37/37 isolated PostGIS tests passed, the rollback-only schema check passed, Swagger UI was browser-verified, and live API requests succeeded.
 
 ## Objective
 
