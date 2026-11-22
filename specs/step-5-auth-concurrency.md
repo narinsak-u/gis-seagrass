@@ -72,15 +72,15 @@ For Site PATCH, authorization is based on the fields in the request: admin may c
 
 ## Definition of done
 
-- [ ] Login issues valid JWTs that expire within 15 minutes; invalid credentials fail without disclosing which credential was wrong.
-- [ ] Public Site list, GeoJSON, and detail reads expose the current derived `siteStatus`, including `no_data` without Surveys.
-- [ ] The authorization matrix is enforced on every Site and Survey route.
-- [ ] Authentication and role checks happen before resource lookup on protected routes.
-- [ ] Survey reads expose `created_by` to viewer, editor, and admin callers.
-- [ ] API mutations set audit fields from the authenticated user and server clock.
-- [ ] Two concurrent Site PATCH requests using one version result in one success and one `409 VERSION_CONFLICT` with the current Site GeoJSON Feature at `error.details.current`.
-- [ ] `/docs` and root README document the implemented authentication and authorization behavior and development accounts.
-- [ ] Automated tests pass; verified criteria are checked and any gaps remain unchecked.
+- [x] Login issues valid JWTs that expire within 15 minutes; invalid credentials fail without disclosing which credential was wrong.
+- [x] Public Site list, GeoJSON, and detail reads expose the current derived `siteStatus`, including `no_data` without Surveys.
+- [x] The authorization matrix is enforced on every Site and Survey route.
+- [x] Authentication and role checks happen before resource lookup on protected routes.
+- [x] Survey reads expose `created_by` to viewer, editor, and admin callers.
+- [x] API mutations set audit fields from the authenticated user and server clock.
+- [x] Two concurrent Site PATCH requests using one version result in one success and one `409 VERSION_CONFLICT` with the current Site GeoJSON Feature at `error.details.current`.
+- [x] `/docs` and root README document the implemented authentication and authorization behavior and development accounts.
+- [x] Automated tests pass; verified criteria are checked and any gaps remain unchecked.
 
 ## Git instructions for this Step
 

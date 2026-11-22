@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -94,7 +94,7 @@ Add short-lived JWT login and enforce the agreed viewer, editor, and admin permi
 
 ## Further Notes
 
-- The agreed Step 5 implementation contract remains the authoritative source for requirements S5-01 through S5-10. Steps 1–4 are prerequisites; Step 5 implementation has not started.
-- Existing Site and Survey tables already have nullable actor references and timestamps; the user table needs an active flag. Imported Surveys can legitimately lack a creator. Public Site status intentionally expands Step 3 read representations without changing the Site PATCH success response.
+- The agreed Step 5 implementation contract remains the authoritative source for requirements S5-01 through S5-10. Steps 1–4 were prerequisites; Step 5 passed 67 automated tests against isolated PostGIS, and Swagger UI rendered with the admin Site PATCH rule.
+- Existing Site and Survey tables have nullable actor references and timestamps; `users.is_active` defaults to true. Imported Surveys can legitimately lack a creator. Public Site status expands Step 3 read representations without changing the Site PATCH success response.
 - The main spec was refined through confirmed decisions on version-conflict payload placement, audit scope, active-user checks, editor permissions, public Site status, development credential gating, and JSON parsing precedence.
-- This publication contains a confirmed spec, not implementation tickets. Ticket creation and dependency ordering are separate issue-tracker work.
+- The confirmed spec and nine implementation tickets are recorded under this feature directory; ticket status tracks completion.
