@@ -164,10 +164,10 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   const list = document.paths['/sites/{code}/surveys'].get;
   assert.ok(post && patch && remove && list);
   for (const [operation, statuses] of [
-    [list, ['200', '400', '404']],
-    [post, ['201', '400', '404', '422']],
-    [patch, ['200', '400', '404', '422']],
-    [remove, ['204', '404']],
+    [list, ['200', '400', '404', '500']],
+    [post, ['201', '400', '404', '422', '500']],
+    [patch, ['200', '400', '404', '422', '500']],
+    [remove, ['204', '400', '404', '500']],
   ] as const) {
     for (const code of statuses) assert.ok(operation.responses?.[code], `Missing documented response ${code}`);
   }
@@ -177,6 +177,10 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   const requestSchema = (operation: Operation) => resolveSchema(operation.requestBody?.content?.['application/json']?.schema);
   const responseSchema = (operation: Operation, code: string) =>
     resolveSchema(operation.responses?.[code]?.content?.['application/json']?.schema);
+  for (const operation of [list, post, patch, remove]) {
+    assert.deepEqual(Object.keys(responseSchema(operation, '500')?.properties ?? {}), ['error']);
+    assert.deepEqual(Object.keys(responseSchema(operation, '500')?.properties?.error?.properties ?? {}).sort(), ['code', 'details', 'message']);
+  }
   const postSchema = requestSchema(post);
   const patchSchema = requestSchema(patch);
   assert.deepEqual((postSchema?.required ?? []).slice().sort(), ['cover_percent', 'lat', 'lon', 'species', 'surveyed_on']);
@@ -292,6 +296,42 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   assert.equal(nulNote.response.status, 400);
   assert.equal((nulNote.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
+});
+
+integration('POST and PATCH use the Bangkok calendar date across midnight', async () => {
+  await resetSurveys();
+  const previousOptions = process.env.PGOPTIONS;
+  let clockApp: INestApplication | undefined;
+  try {
+    await pool!.query('CREATE SCHEMA survey_test_clock');
+    await pool!.query('CREATE TABLE survey_test_clock.fixed_time (instant timestamptz NOT NULL)');
+    await pool!.query("INSERT INTO survey_test_clock.fixed_time VALUES ('2025-01-01 16:59:59+00')");
+    await pool!.query(`CREATE FUNCTION survey_test_clock.clock_timestamp() RETURNS timestamptz
+      LANGUAGE sql VOLATILE AS $$ SELECT instant FROM survey_test_clock.fixed_time $$`);
+    process.env.PGOPTIONS = '-c search_path=survey_test_clock,pg_catalog,public';
+    clockApp = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+    await clockApp.listen(0, '127.0.0.1');
+    const address = clockApp.getHttpServer().address();
+    assert.ok(address && typeof address === 'object');
+    const clockOrigin = `http://127.0.0.1:${address.port}`;
+    const send = async (path: string, method: string, body: unknown) => fetch(`${clockOrigin}${path}`, {
+      method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const yesterday = await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-01' }));
+    assert.equal(yesterday.status, 201);
+    const id = (await yesterday.json() as { id: string }).id;
+    assert.equal((await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-02' }))).status, 400);
+    assert.equal((await send(`/surveys/${id}`, 'PATCH', { surveyed_on: '2025-01-02' })).status, 400);
+    await pool!.query("UPDATE survey_test_clock.fixed_time SET instant = '2025-01-01 17:00:00+00'");
+    assert.equal((await send(`/surveys/${id}`, 'PATCH', { surveyed_on: '2025-01-02' })).status, 200);
+    assert.equal((await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-02' }))).status, 201);
+  } finally {
+    await clockApp?.close();
+    if (previousOptions === undefined) delete process.env.PGOPTIONS;
+    else process.env.PGOPTIONS = previousOptions;
+    await pool!.query('DROP SCHEMA IF EXISTS survey_test_clock CASCADE');
+    await resetSurveys();
+  }
 });
 
 integration('POST uses PostGIS geography meters inclusively at site boundary, 30, and 50 meters', async () => {
@@ -484,6 +524,51 @@ integration('Survey create and Site geometry edit serialize without violating di
       assert.equal(edited.response.status, 200);
       assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
     }
+  } finally {
+    if (!committed) await coordinator.query('ROLLBACK');
+    await pool!.query(
+      `UPDATE sites SET geom = ST_Multi(ST_GeomFromText('POLYGON((100.15 10.15,100.15005 10.15,100.15005 10.15005,100.15 10.15005,100.15 10.15))',4326)),
+         version = 1 WHERE id = $1`, [siteId],
+    );
+    coordinator.release();
+  }
+});
+
+integration('Survey location PATCH and Site geometry edit cannot commit incompatible positions', async () => {
+  await resetSurveys();
+  const initial = await create(await validSurvey());
+  const point = await pool!.query<{ lon: number; lat: number }>(
+    `SELECT ST_X(p)::float8 AS lon, ST_Y(p)::float8 AS lat FROM (
+       SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,40,pi()/2)::geometry AS p
+     ) q`,
+  );
+  const coordinator = await pool!.connect();
+  let committed = false;
+  try {
+    await coordinator.query('BEGIN');
+    await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [siteCode]);
+    const location = request(`/surveys/${initial.body.id}`, 'PATCH', point.rows[0]);
+    assert.ok(await waitForSiteLock(), 'Survey PATCH should wait for the Site row lock');
+    const geometry = request(`/sites/${siteCode}`, 'PATCH', {
+      version: 1,
+      geometry: { type: 'Polygon', coordinates: [[[100.1496,10.15],[100.14965,10.15],[100.14965,10.15005],[100.1496,10.15005],[100.1496,10.15]]] },
+    });
+    await coordinator.query('COMMIT');
+    committed = true;
+    const [moved, edited] = await Promise.all([location, geometry]);
+    if (moved.response.status === 200) {
+      assert.equal(edited.response.status, 409);
+      assert.equal((edited.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
+    } else {
+      assert.equal(moved.response.status, 422);
+      assert.equal((moved.body.error as Record<string, unknown>).code, 'OUTSIDE_SITE');
+      assert.equal(edited.response.status, 200);
+    }
+    const invariant = await pool!.query<{ violations: number }>(
+      `SELECT count(*)::int AS violations FROM surveys v JOIN sites s ON s.id = v.site_id
+       WHERE v.site_id = $1 AND NOT ST_DWithin(s.geom::geography,v.geom::geography,50)`, [siteId],
+    );
+    assert.equal(invariant.rows[0].violations, 0);
   } finally {
     if (!committed) await coordinator.query('ROLLBACK');
     await pool!.query(

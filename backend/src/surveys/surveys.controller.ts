@@ -10,6 +10,7 @@ interface SurveyJson {
 }
 
 @ApiExtraModels(ApiErrorEnvelope)
+@ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
 @Controller()
 export class SurveysController {
   constructor(private readonly pool: Pool) {}

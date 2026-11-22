@@ -1,6 +1,6 @@
 # Step 4 — Survey API
 
-**Project phase:** Step 4 — Survey API. **Prerequisite:** Steps 1–3 completed and committed. **Commit prefix:** `step-4:`. **Status:** Implemented and verified; 48/48 isolated backend/PostGIS tests passed, rollback-only schema check passed, and Swagger UI was browser-verified.
+**Project phase:** Step 4 — Survey API. **Prerequisite:** Steps 1–3 completed and committed. **Commit prefix:** `step-4:`. **Status:** Implemented and verified; 50/50 isolated backend/PostGIS tests passed, including Bangkok-midnight and Survey PATCH/Site geometry races. The rollback-only schema check passed, and Swagger UI was browser-verified with the Survey `500 INTERNAL_ERROR` response.
 
 ## Objective
 
