@@ -13,8 +13,9 @@ let app: INestApplication | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
-let siteCodes: string[] = [];
+let createdSiteCodes: string[] = [];
 let siteToken = '';
+let postToken = '';
 
 before(async () => {
   if (!testDatabaseUrl) return;
@@ -30,11 +31,13 @@ before(async () => {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCodes = [token.slice(0, 2), token.slice(2, 4)];
     siteToken = token.slice(4, 12);
+    postToken = `POST-${token.slice(12, 16)}`;
     siteCodes = ['ALPHA', 'BETA', 'GAMMA', 'HISTORY'].map((name) => `${name}-${siteToken}`);
+    const postCodes = ['POST', 'MULTI', 'TIE', 'BAD', 'TOUCH'].map((name) => `${name}-${postToken}`);
     if (provinceCodes[0] === provinceCodes[1]) continue;
     const existing = await pool.query(
       'SELECT 1 FROM provinces WHERE code = ANY($1::varchar[]) UNION ALL SELECT 1 FROM sites WHERE code = ANY($2::text[])',
-      [provinceCodes, siteCodes],
+      [provinceCodes, [...siteCodes, ...postCodes]],
     );
     if (!existing.rowCount) break;
   } while (true);
@@ -62,7 +65,7 @@ before(async () => {
 after(async () => {
   await app?.close();
   if (pool) {
-    await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [siteCodes]);
+    await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[...siteCodes, ...createdSiteCodes]]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.end();
   }
@@ -74,6 +77,9 @@ async function json(path: string): Promise<{ response: Response; body: Record<st
 }
 
 async function createSite(feature: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const properties = feature && typeof feature === 'object' && 'properties' in feature ? feature.properties : undefined;
+  const code = properties && typeof properties === 'object' && 'code' in properties ? properties.code : undefined;
+  if (typeof code === 'string') createdSiteCodes.push(code);
   const response = await fetch(`${origin}/sites`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -94,7 +100,7 @@ const siteFeature = (code: string, geometry: unknown, extra: Record<string, unkn
 });
 
 integration('POST /sites stores Polygon as MultiPolygon and returns server-derived values', async () => {
-  const feature = siteFeature(`POST-${siteToken}`, polygon(100.15, 10.15, 100.25, 10.25));
+  const feature = siteFeature(`POST-${postToken}`, polygon(100.15, 10.15, 100.25, 10.25));
   const { response, body } = await createSite(feature);
   assert.equal(response.status, 201);
   assert.deepEqual(Object.keys(body).sort(), ['geometry', 'properties', 'type']);
@@ -102,8 +108,8 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
   assert.deepEqual((body.geometry as Record<string, unknown>).type, 'MultiPolygon');
   const properties = body.properties as Record<string, unknown>;
   assert.deepEqual(properties, {
-    code: `POST-${siteToken}`,
-    name: `New POST-${siteToken}`,
+    code: `POST-${postToken}`,
+    name: `New POST-${postToken}`,
     province_code: provinceCodes[0],
     area_rai: properties.area_rai,
     version: 1,
@@ -112,7 +118,7 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
   const stored = await pool!.query<{ area_rai: string; geometrytype: string; province_code: string }>(
     `SELECT area_rai::text, ST_GeometryType(geom) AS geometrytype, province_code
        FROM sites WHERE code = $1`,
-    [`POST-${siteToken}`],
+    [`POST-${postToken}`],
   );
   assert.equal(stored.rows[0].geometrytype, 'ST_MultiPolygon');
   assert.equal(stored.rows[0].province_code, provinceCodes[0]);
@@ -120,7 +126,7 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
 });
 
 integration('POST /sites accepts MultiPolygon, chooses greatest overlap and allows Site overlap', async () => {
-  const { response, body } = await createSite(siteFeature(`MULTI-${siteToken}`, {
+  const { response, body } = await createSite(siteFeature(`MULTI-${postToken}`, {
     type: 'MultiPolygon',
     coordinates: [
       polygon(100.3, 10.3, 100.4, 10.4).coordinates,
@@ -130,37 +136,37 @@ integration('POST /sites accepts MultiPolygon, chooses greatest overlap and allo
   assert.equal(response.status, 201);
   assert.equal((body.geometry as Record<string, unknown>).type, 'MultiPolygon');
   assert.equal((body.properties as Record<string, unknown>).province_code, provinceCodes[1]);
-  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`MULTI-${siteToken}`])).rowCount, 1);
+  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`MULTI-${postToken}`])).rowCount, 1);
 });
 
 integration('POST /sites breaks equal geographic overlap ties by Province code', async () => {
-  const { response, body } = await createSite(siteFeature(`TIE-${siteToken}`, polygon(100.5, 10.2, 101.5, 10.8)));
+  const { response, body } = await createSite(siteFeature(`TIE-${postToken}`, polygon(100.5, 10.2, 101.5, 10.8)));
   assert.equal(response.status, 201);
   assert.equal((body.properties as Record<string, unknown>).province_code, [provinceCodes[0], provinceCodes[1]].sort()[0]);
 });
 
 integration('POST /sites rejects strict field violations and invalid geometries', async () => {
-  const base = siteFeature(`BAD-${siteToken}`, polygon(100.2, 10.2, 100.3, 10.3));
+  const base = siteFeature(`BAD-${postToken}`, polygon(100.2, 10.2, 100.3, 10.3));
   const invalidRequests = [
     [{ ...base, properties: { ...(base.properties), province_code: provinceCodes[0] } }, 'VALIDATION_ERROR'],
     [{ ...base, extra: true }, 'VALIDATION_ERROR'],
-    [siteFeature(`BAD-${siteToken}`, { type: 'Polygon', coordinates: [] }), 'INVALID_GEOMETRY'],
-    [siteFeature(`BAD-${siteToken}`, polygon(181, 10, 182, 11)), 'INVALID_GEOMETRY'],
-    [siteFeature(`BAD-${siteToken}`, { type: 'Polygon', coordinates: [[[100.2, 10.2], [100.3, 10.3], [100.2, 10.3], [100.3, 10.2], [100.2, 10.2]]] }), 'INVALID_GEOMETRY'],
+    [siteFeature(`BAD-${postToken}`, { type: 'Polygon', coordinates: [] }), 'INVALID_GEOMETRY'],
+    [siteFeature(`BAD-${postToken}`, polygon(181, 10, 182, 11)), 'INVALID_GEOMETRY'],
+    [siteFeature(`BAD-${postToken}`, { type: 'Polygon', coordinates: [[[100.2, 10.2], [100.3, 10.2], [100.2, 10.3], [100.3, 10.2], [100.2, 10.2]]] }), 'INVALID_GEOMETRY'],
   ] as const;
   for (const [feature, code] of invalidRequests) {
     const { response, body } = await createSite(feature);
     assert.equal(response.status, 400);
     assert.equal((body.error as Record<string, unknown>).code, code);
   }
-  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`BAD-${siteToken}`])).rowCount, 0);
+  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`BAD-${postToken}`])).rowCount, 0);
 });
 
 integration('POST /sites rejects Province boundary-only contact and returns coverage error', async () => {
-  const { response, body } = await createSite(siteFeature(`TOUCH-${siteToken}`, polygon(99.9, 10.2, 100, 10.3)));
+  const { response, body } = await createSite(siteFeature(`TOUCH-${postToken}`, polygon(99.9, 10.2, 100, 10.3)));
   assert.equal(response.status, 422);
   assert.equal((body.error as Record<string, unknown>).code, 'OUTSIDE_COVERAGE');
-  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`TOUCH-${siteToken}`])).rowCount, 0);
+  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`TOUCH-${postToken}`])).rowCount, 0);
 });
 
 integration('POST /sites reserves active and deleted codes without deleting historical rows', async () => {
