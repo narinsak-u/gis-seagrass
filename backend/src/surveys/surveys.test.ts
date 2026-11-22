@@ -18,6 +18,9 @@ let siteCode = '';
 let deletedSiteCode = '';
 let siteId = '';
 let speciesCodes: [string, string] = ['', ''];
+let createdProvinceCode = '';
+let createdSiteCodes: string[] = [];
+let createdSpeciesCodes: string[] = [];
 
 before(async () => {
   if (!testDatabaseUrl) return;
@@ -34,7 +37,7 @@ before(async () => {
     provinceCode = token.slice(0, 2);
     siteCode = `SURVEY-${token.slice(2, 18)}`;
     deletedSiteCode = `RETIRED-${token.slice(18, 34)}`;
-    speciesCodes = [`TEST-${token.slice(34, 44)}`, `TEST-${token.slice(44, 54)}`];
+    speciesCodes = [`TEST-A${token.slice(0, 16)}`, `TEST-B${token.slice(16, 32)}`];
     const existing = await pool.query(
       'SELECT 1 FROM provinces WHERE code = $1 UNION ALL SELECT 1 FROM sites WHERE code = ANY($2::text[]) UNION ALL SELECT 1 FROM species WHERE code = ANY($3::text[])',
       [provinceCode, [siteCode, deletedSiteCode], speciesCodes],
@@ -42,11 +45,13 @@ before(async () => {
     if (!existing.rowCount) break;
   } while (true);
   await pool.query('INSERT INTO species (code,name_th,name_sci) VALUES ($1,$1,$1),($2,$2,$2)', speciesCodes);
+  createdSpeciesCodes = speciesCodes;
   await pool.query(
     `INSERT INTO provinces (code,name_th,geom)
      VALUES ($1,'Survey test province',ST_Multi(ST_GeomFromText('POLYGON((99 9,101 9,101 11,99 11,99 9))',4326)))`,
     [provinceCode],
   );
+  createdProvinceCode = provinceCode;
   const sites = await pool.query<{ id: string; code: string }>(
     `INSERT INTO sites (code,name,province_code,geom,area_rai,deleted_at)
      VALUES
@@ -55,6 +60,7 @@ before(async () => {
      RETURNING id,code`,
     [siteCode, deletedSiteCode, provinceCode],
   );
+  createdSiteCodes = sites.rows.map(({ code }) => code);
   siteId = sites.rows.find(({ code }) => code === siteCode)?.id ?? '';
   app = await NestFactory.create(AppModule, { logger: false });
   setupSwagger(app);
@@ -67,11 +73,13 @@ before(async () => {
 after(async () => {
   await app?.close();
   if (!pool) return;
-  await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
-  await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
-  await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[siteCode, deletedSiteCode]]);
-  await pool.query('DELETE FROM provinces WHERE code = $1', [provinceCode]);
-  await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [speciesCodes]);
+  if (siteId) {
+    await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
+    await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
+  }
+  if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
+  if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
+  if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
   await pool.end();
 });
 
