@@ -36,4 +36,9 @@ export const SURVEY_CREATE_BODY_SCHEMA = {
 export const SURVEY_PATCH_BODY_SCHEMA = {
   ...SURVEY_CREATE_BODY_SCHEMA,
   required: [],
+  minProperties: 1,
+  anyOf: [
+    { required: ['lon', 'lat'] },
+    { not: { anyOf: [{ required: ['lon'] }, { required: ['lat'] }] } },
+  ],
 };

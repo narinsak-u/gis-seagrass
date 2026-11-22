@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UnprocessableEntityException } from '@nestjs/common';
 import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Pool, type PoolClient } from 'pg';
 import { ApiErrorEnvelope } from '../sites/site-openapi';
@@ -45,8 +45,8 @@ export class SurveysController {
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async create(@Param('code') code: string, @Body() body: unknown) {
-    const input = parseSurveyInput(body, true);
+  async create(@Param('code') code: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+    const input = parseSurveyInput(body, true, request.rawBody);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -78,9 +78,8 @@ export class SurveysController {
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async update(@Param('id') rawId: string, @Body() body: unknown) {
-    const id = parseSurveyId(rawId);
-    const input = parseSurveyInput(body, false);
+  async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+    const input = parseSurveyInput(body, false, request.rawBody);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -144,7 +143,7 @@ export class SurveysController {
 }
 
 async function validateDateAndSpecies(client: PoolClient, date: string, species: string[]): Promise<void> {
-  const today = await client.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
+  const today = await client.query<{ today: string }>("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
   validateSurveyDateAgainstToday(date, today.rows[0].today);
   await validateSpecies(client, species);
 }
