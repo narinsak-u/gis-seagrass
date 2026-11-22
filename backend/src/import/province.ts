@@ -3,9 +3,11 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { PoolClient } from 'pg';
 import { createPool } from '../database/pool';
+import { importSpecies, parseSpeciesArray } from './species';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };
+  species: { inserted: number; skipped_existing: number; rejected: number };
 }
 
 export interface ProvinceRecord {
@@ -97,7 +99,10 @@ export async function runImport(): Promise<ImportSummary> {
   const reportPath = resolve(process.env.IMPORT_REPORT_PATH ?? '../reports/import_report.csv');
   const features = parseProvinceCollection(await readFile(inputPath, 'utf8'));
   const pool = createPool();
-  const summary: ImportSummary = { provinces: { inserted: 0, skipped_existing: 0, rejected: 0 } };
+  const summary: ImportSummary = {
+    provinces: { inserted: 0, skipped_existing: 0, rejected: 0 },
+    species: { inserted: 0, skipped_existing: 0, rejected: 0 },
+  };
   const report: Array<[string, number, string]> = [];
   const seen = new Set<string>();
   let client: PoolClient | undefined;
@@ -142,6 +147,14 @@ export async function runImport(): Promise<ImportSummary> {
       if (result.rowCount) summary.provinces.inserted++;
       else summary.provinces.skipped_existing++;
     }
+    const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
+    const species = await importSpecies(client, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
+    summary.species = {
+      inserted: species.inserted,
+      skipped_existing: species.skipped_existing,
+      rejected: species.rejected,
+    };
+    report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
     await replaceReport(reportPath, report);
     console.info('Import summary:', JSON.stringify(summary));
     return summary;
