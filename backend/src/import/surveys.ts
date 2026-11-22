@@ -60,18 +60,27 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     const foundSpecies = await client.query<{ code: string }>('SELECT code FROM species WHERE code = ANY($1::text[])', [speciesCodes]);
     if (foundSpecies.rowCount !== new Set(speciesCodes).size) { reject(row, 'UNKNOWN_SPECIES'); continue; }
 
-    const site = await client.query<{ id: string; within: boolean }>(
-      `SELECT id,
-              ST_DWithin(ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, geom::geography, 50) AS within
-         FROM sites WHERE code = $1 AND deleted_at IS NULL`,
-      [siteCode, lon, lat],
-    );
-    if (!site.rowCount) { reject(row, 'SITE_NOT_FOUND'); continue; }
-    if (!site.rows[0].within) { reject(row, 'OUTSIDE_SITE'); continue; }
     const today = await client.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
     if (date > today.rows[0].today) { reject(row, 'FUTURE_DATE'); continue; }
     await client.query('BEGIN');
     try {
+      const site = await client.query<{ id: string; within: boolean }>(
+        `SELECT id,
+                ST_DWithin(ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, geom::geography, 50) AS within
+           FROM sites WHERE code = $1 AND deleted_at IS NULL
+           FOR UPDATE`,
+        [siteCode, lon, lat],
+      );
+      if (!site.rowCount) {
+        await client.query('ROLLBACK');
+        reject(row, 'SITE_NOT_FOUND');
+        continue;
+      }
+      if (!site.rows[0].within) {
+        await client.query('ROLLBACK');
+        reject(row, 'OUTSIDE_SITE');
+        continue;
+      }
       const survey = await client.query<{ id: string }>(
         `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
          VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)

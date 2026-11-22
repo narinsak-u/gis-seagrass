@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Pool } from 'pg';
+import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
 import { runMigrations } from '../database/migrate';
 
@@ -13,9 +13,10 @@ let app: INestApplication | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
-let siteCodes: string[] = [];
 let createdSiteCodes: string[] = [];
+let surveyRefs: string[] = [];
 let siteToken = '';
+let importSpeciesCode = '';
 let postToken = '';
 
 before(async () => {
@@ -32,7 +33,8 @@ before(async () => {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCodes = [token.slice(0, 2), token.slice(2, 4)];
     siteToken = token.slice(4, 12);
-    postToken = `POST-${token.slice(12, 16)}`;
+    importSpeciesCode = `PATCH-SPECIES-${token.slice(12, 20)}`;
+    postToken = `POST-${token.slice(20, 24)}`;
     siteCodes = ['ALPHA', 'BETA', 'GAMMA', 'HISTORY'].map((name) => `${name}-${siteToken}`);
     const postCodes = ['POST', 'MULTI', 'TIE', 'BAD', 'TOUCH'].map((name) => `${name}-${postToken}`);
     if (provinceCodes[0] === provinceCodes[1]) continue;
@@ -42,6 +44,7 @@ before(async () => {
     );
     if (!existing.rowCount) break;
   } while (true);
+  await pool.query('INSERT INTO species (code,name_th,name_sci) VALUES ($1,$1,$1)', [importSpeciesCode]);
   await pool.query(
     `INSERT INTO provinces (code, name_th, geom) VALUES
       ($1, 'West', ST_Multi(ST_GeomFromText('POLYGON((100 10,101 10,101 11,100 11,100 10))',4326))),
@@ -66,8 +69,13 @@ before(async () => {
 after(async () => {
   await app?.close();
   if (pool) {
+    if (surveyRefs.length) {
+      await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [surveyRefs]);
+      await pool.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [surveyRefs]);
+    }
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[...siteCodes, ...createdSiteCodes]]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
+    await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
     await pool.end();
   }
 });
@@ -87,6 +95,32 @@ async function createSite(feature: unknown): Promise<{ response: Response; body:
     body: JSON.stringify(feature),
   });
   return { response, body: await response.json() as Record<string, unknown> };
+}
+
+async function patchSite(code: string, body: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const response = await fetch(`${origin}/sites/${code}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { response, body: await response.json() as Record<string, unknown> };
+}
+
+async function waitForBlockedQuery(query: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const blocked = await pool!.query<{ blocked: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1
+       ) AS blocked`,
+      [`%${query}%`],
+    );
+    if (blocked.rows[0].blocked) return;
+    // Poll PostgreSQL's lock state; fake time cannot advance database lock scheduling.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`Timed out waiting for blocked query: ${query}`);
 }
 
 const polygon = (west: number, south: number, east: number, north: number) => ({
@@ -294,5 +328,150 @@ integration('unexpected database failures return generic internal errors', async
     assert.deepEqual(failure.body.error, { code: 'INTERNAL_ERROR', message: 'Internal server error', details: {} });
   } finally {
     await pool!.query('ALTER TABLE sites_test_hidden RENAME TO sites');
+  }
+});
+
+integration('PATCH /sites enforces version and fields, then preserves spatial values for name-only edits', async () => {
+  const code = `PATCH-${postToken}`;
+  const { response: created, body: createdBody } = await createSite(siteFeature(code, polygon(100.15, 10.15, 100.25, 10.25)));
+  assert.equal(created.status, 201);
+  const original = createdBody.properties as Record<string, unknown>;
+  for (const body of [
+    { name: 'Bad' },
+    { version: 1 },
+    { version: 1, code: 'MUTATED' },
+    { version: 1, province_code: 'AA' },
+    { version: 1, name: 'Bad', unknown: true },
+  ]) {
+    const invalid = await patchSite(code, body);
+    assert.equal(invalid.response.status, 400);
+    assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  }
+  const missing = await patchSite(`missing-${postToken}`, { version: 1, name: 'No site' });
+  assert.equal(missing.response.status, 404);
+  assert.equal((missing.body.error as Record<string, unknown>).code, 'SITE_NOT_FOUND');
+  const deleted = await patchSite(siteCodes[3], { version: 1, name: 'Retired edit' });
+  assert.equal(deleted.response.status, 404);
+  assert.equal((deleted.body.error as Record<string, unknown>).code, 'SITE_NOT_FOUND');
+  const stale = await patchSite(code, { version: 2, name: 'Stale' });
+  assert.equal(stale.response.status, 409);
+  assert.equal((stale.body.error as Record<string, unknown>).code, 'VERSION_CONFLICT');
+
+  const changed = await patchSite(code, { version: 1, name: 'Renamed' });
+  assert.equal(changed.response.status, 200);
+  assert.deepEqual(Object.keys(changed.body).sort(), ['geometry', 'properties', 'type']);
+  const updated = changed.body.properties as Record<string, unknown>;
+  assert.equal(updated.name, 'Renamed');
+  assert.equal(updated.version, 2);
+  assert.equal('latest_survey' in updated, false);
+  assert.equal(updated.province_code, original.province_code);
+  assert.equal(updated.area_rai, original.area_rai);
+  assert.deepEqual(changed.body.geometry, createdBody.geometry);
+});
+
+integration('PATCH /sites recomputes geometry and rejects invalid coverage or stranded Surveys atomically', async () => {
+  const code = `PATCH-GEO-${postToken}`;
+  const { response: created, body: createdBody } = await createSite(siteFeature(code, polygon(100.15, 10.15, 100.25, 10.25)));
+  assert.equal(created.status, 201);
+  const originalProps = createdBody.properties as Record<string, unknown>;
+  const site = await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [code]);
+  const ref = `patch-survey-${siteToken}`;
+  surveyRefs.push(ref);
+  await pool!.query(
+    `INSERT INTO surveys (site_id,survey_ref,geom,surveyed_on,cover_percent)
+     VALUES ($1,$2,ST_SetSRID(ST_MakePoint(100.2,10.2),4326),CURRENT_DATE,40)`,
+    [site.rows[0].id, ref],
+  );
+  const near = await patchSite(code, { version: 1, geometry: polygon(100.199, 10.199, 100.201, 10.201) });
+  assert.equal(near.response.status, 200);
+  const nearProps = near.body.properties as Record<string, unknown>;
+  assert.notEqual(nearProps.area_rai, originalProps.area_rai);
+  assert.equal(nearProps.province_code, originalProps.province_code);
+  const before = await pool!.query<{ version: number; area_rai: string }>('SELECT version, area_rai::text FROM sites WHERE code = $1', [code]);
+  const outside = await patchSite(code, { version: 2, geometry: polygon(100.5, 10.5, 100.6, 10.6) });
+  assert.equal(outside.response.status, 409);
+  assert.equal((outside.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
+  const saved = await pool!.query<{ version: number; area_rai: string }>('SELECT version, area_rai::text FROM sites WHERE code = $1', [code]);
+  assert.deepEqual(saved.rows[0], before.rows[0]);
+  const invalid = await patchSite(code, { version: 2, geometry: polygon(102.5, 10.5, 102.6, 10.6) });
+  assert.equal(invalid.response.status, 422);
+  assert.equal((invalid.body.error as Record<string, unknown>).code, 'OUTSIDE_COVERAGE');
+  const invalidGeometry = await patchSite(code, { version: 2, geometry: { type: 'Polygon', coordinates: [] } });
+  assert.equal(invalidGeometry.response.status, 400);
+  assert.equal((invalidGeometry.body.error as Record<string, unknown>).code, 'INVALID_GEOMETRY');
+});
+
+integration('PATCH accepts a linked Survey exactly 50 meters from the edited geometry', async () => {
+  const code = `PATCH-50-${postToken}`;
+  const ref = `patch-50-${siteToken}`;
+  surveyRefs.push(ref);
+  const created = await createSite(siteFeature(code, polygon(100.15, 10.15, 100.25, 10.25)));
+  assert.equal(created.response.status, 201);
+  const site = await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [code]);
+  await pool!.query(
+    `INSERT INTO surveys (site_id,survey_ref,geom,surveyed_on,cover_percent)
+     VALUES ($1,$2,ST_Project(ST_SetSRID(ST_MakePoint(100.2,10.2),4326)::geography,50,pi()/2)::geometry,CURRENT_DATE,40)`,
+    [site.rows[0].id, ref],
+  );
+  const result = await patchSite(code, { version: 1, geometry: polygon(100.19, 10.19, 100.2, 10.21) });
+  assert.equal(result.response.status, 200);
+});
+
+integration('PATCH and Survey import serialize both lock orders without stranding accepted Surveys', async () => {
+  for (const importFirst of [true, false]) {
+    const suffix = importFirst ? 'IMPORT-FIRST' : 'EDIT-FIRST';
+    const code = `PATCH-RACE-${suffix}-${siteToken}`;
+    const ref = `patch-race-${suffix}-${siteToken}`;
+    surveyRefs.push(ref);
+    const created = await createSite(siteFeature(code, polygon(100.1, 10.1, 100.2, 10.2)));
+    assert.equal(created.response.status, 201);
+    const coordinator = await pool!.connect();
+    const importer = await pool!.connect();
+    let committed = false;
+    try {
+      await coordinator.query('BEGIN');
+      await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [code]);
+      const date = await pool!.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
+      const record: ParsedSurvey = {
+        row: 2,
+        values: {
+          survey_ref: ref,
+          site_code: code,
+          lon: '100.15',
+          lat: '10.15',
+          surveyed_on: date.rows[0].today,
+          cover_percent: '40',
+          species: importSpeciesCode,
+        },
+      };
+      const importPromise = importSurveys(importer, [record]);
+      const patchPromise = importFirst
+        ? undefined
+        : patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
+      if (importFirst) {
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
+        const patch = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
+        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await coordinator.query('COMMIT');
+        committed = true;
+        const [imported, edited] = await Promise.all([importPromise, patch]);
+        assert.equal(imported.summary.inserted, 1);
+        assert.equal(edited.response.status, 409);
+        assert.equal((edited.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
+      } else {
+        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
+        await coordinator.query('COMMIT');
+        committed = true;
+        const [edited, imported] = await Promise.all([patchPromise!, importPromise]);
+        assert.equal(edited.response.status, 200);
+        assert.equal(imported.summary.inserted, 0);
+        assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['OUTSIDE_SITE']);
+      }
+    } finally {
+      if (!committed) await coordinator.query('ROLLBACK');
+      importer.release();
+      coordinator.release();
+    }
   }
 });
