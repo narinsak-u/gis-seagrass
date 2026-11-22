@@ -4,7 +4,7 @@ import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger'
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
-import type { PublicSiteSummary, SiteSummary } from './site.types';
+import type { PublicSiteSummary, SiteStatus, SiteSummary } from './site.types';
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
 
 
@@ -228,7 +228,7 @@ export class SitesController {
       province_code: string;
       area_rai: string;
       version: number;
-      site_status: string;
+      site_status: SiteStatus;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
               COALESCE(status.site_status, 'no_data') AS site_status
@@ -275,7 +275,7 @@ export class SitesController {
       survey_ref: string | null;
       surveyed_on: string | null;
       cover_percent: string | null;
-      site_status: string | null;
+      site_status: SiteStatus | null;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
               ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,

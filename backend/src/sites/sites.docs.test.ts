@@ -139,4 +139,5 @@ interface OpenApiSchema {
   required?: string[];
   enum?: string[];
   properties?: Record<string, OpenApiSchema>;
+  items?: OpenApiSchema;
 }

@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
-import type { PublicSiteSummary } from './site.types';
+import type { PublicSiteSummary, SiteStatus } from './site.types';
 
 
 interface SiteFeature {
@@ -50,7 +50,7 @@ export class SitesGeoJsonController {
       area_rai: string;
       version: number;
       geometry: SiteFeature['geometry'];
-      site_status: string | null;
+      site_status: SiteStatus | null;
     }>(
       `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
               ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry, status.site_status
