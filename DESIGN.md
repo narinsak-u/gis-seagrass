@@ -18,13 +18,17 @@ Sites may overlap; no overlap ban is enforced. Create and geometry updates requi
 
 Step 3 write routes have no authentication or authorization. Step 5 owns JWT and role-based authorization.
 
+## Step 4 Survey API policy
+
+Site status is derived from current Survey rows, not stored as a cache. POST and PATCH return the flat Survey representation with top-level `siteStatus`. DELETE remains `204` with no response body; the derived status reflects deletion on its next calculation.
+
 ## Migration ordering
 
 Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
 
 ## Concurrency and scaling limits
 
-The import holds PostgreSQL advisory lock `192837465` for the full import pass so concurrent importer processes serialize. Unique database constraints remain the final protection for persisted identities. The lock applies only to imports; it does not define concurrent Site or Survey CRUD edit behavior.
+The importer-wide PostgreSQL advisory lock `192837465` serializes importer instances. Importer and Site API writes also lock the corresponding Site row with `FOR UPDATE`; Step 4 Survey writes must use the same row lock to preserve per-Site spatial and active-Site invariants.
 
 No worker model, replicas, load balancing, or production scaling configuration exists. Design those policies when their use cases are in scope; do not infer them from the schema or import lock.
 
