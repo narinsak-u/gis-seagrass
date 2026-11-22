@@ -191,12 +191,12 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   const list = document.paths['/sites/{code}/surveys'].get;
   assert.ok(post && patch && remove && list);
   assert.deepEqual(document.components?.securitySchemes?.['access-token'], { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' });
-  assert.deepEqual(list.security, [{ 'access-token': [] }]);
-  assert.match(list.description ?? '', /viewer, editor, or admin/);
+  assert.deepEqual(patch.security, [{ 'access-token': [] }]);
+  assert.match(patch.description ?? '', /admin/);
   for (const [operation, statuses] of [
     [list, ['200', '400', '401', '403', '404', '500']],
     [post, ['201', '400', '404', '422', '500']],
-    [patch, ['200', '400', '404', '422', '500']],
+    [patch, ['200', '400', '401', '403', '404', '422', '500']],
     [remove, ['204', '400', '404', '500']],
   ] as const) {
     for (const code of statuses) assert.ok(operation.responses?.[code], `Missing documented response ${code}`);
@@ -396,7 +396,7 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     assert.ok(address && typeof address === 'object');
     const clockOrigin = `http://127.0.0.1:${address.port}`;
     const send = async (path: string, method: string, body: unknown) => fetch(`${clockOrigin}${path}`, {
-      method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      method, headers: { 'content-type': 'application/json', ...(method === 'PATCH' ? { authorization: `Bearer ${accessToken('admin')}` } : {}) }, body: JSON.stringify(body),
     });
     const yesterday = await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-01' }));
     assert.equal(yesterday.status, 201);
@@ -455,7 +455,7 @@ integration('POST rejects 200-meter points with OUTSIDE_SITE', async () => {
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
   const original = await create(await validSurvey());
   assert.equal(original.response.status, 201);
-  const rejectedPatch = await request(`/surveys/${original.body.id}`, 'PATCH', point.rows[0]);
+  const rejectedPatch = await request(`/surveys/${original.body.id}`, 'PATCH', point.rows[0], accessToken('admin'));
   assert.equal(rejectedPatch.response.status, 422);
   assert.equal((rejectedPatch.body.error as Record<string, unknown>).code, 'OUTSIDE_SITE');
   const stored = await pool!.query<{ lon: number; lat: number }>(
@@ -481,15 +481,15 @@ integration('POST and PATCH derive status from all latest-date Surveys and thres
   assert.equal(firstLatest.body.siteStatus, 'poor');
   const secondLatest = await create(await validSurvey({ surveyed_on: today, cover_percent: 80 }));
   assert.equal(secondLatest.body.siteStatus, 'good');
-  const updated = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { cover_percent: 40 });
+  const updated = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { cover_percent: 40 }, accessToken('admin'));
   assert.equal(updated.response.status, 200);
   assert.equal(updated.body.siteStatus, 'good');
   const removed = await request(`/surveys/${secondLatest.body.id}`, 'DELETE');
   assert.equal(removed.response.status, 204);
   assert.equal(await removed.response.text(), '');
-  const afterDelete = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { note: 'recomputed' });
+  const afterDelete = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { note: 'recomputed' }, accessToken('admin'));
   assert.equal(afterDelete.body.siteStatus, 'fair');
-  const remaining = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { surveyed_on: yesterday });
+  const remaining = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { surveyed_on: yesterday }, accessToken('admin'));
   assert.equal(remaining.response.status, 200);
   assert.equal(remaining.body.siteStatus, 'good');
   const deleteLatest = await request(`/surveys/${older.body.id}`, 'DELETE');
@@ -509,15 +509,22 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
   const initial = await create(await validSurvey({ species: [...speciesCodes], note: 'keep me' }));
   const roundedPatch = await fetch(`${origin}/surveys/${initial.body.id}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
     body: '{"cover_percent":1.0000000000000001}',
   });
   assert.equal(roundedPatch.status, 400);
   assert.equal(((await roundedPatch.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   const unchangedCover = await pool!.query<{ cover_percent: string }>('SELECT cover_percent FROM surveys WHERE id = $1', [initial.body.id]);
   assert.equal(unchangedCover.rows[0].cover_percent, '40.00');
+  assert.equal((await request('/surveys/abc', 'PATCH', { note: 'x' })).response.status, 401);
+  assert.equal((await request('/surveys/abc', 'PATCH', { note: 'x' }, 'not-a-token')).response.status, 401);
+  for (const role of ['viewer', 'editor'] as const) {
+    const forbidden = await request('/surveys/abc', 'PATCH', { note: 'x' }, accessToken(role));
+    assert.equal(forbidden.response.status, 403);
+    assert.equal((forbidden.body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  }
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
-    const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' });
+    const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' }, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
@@ -526,26 +533,37 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
-  const unknown = await request('/surveys/999999999999999999', 'PATCH', { note: 'x' });
+  const unknown = await request('/surveys/999999999999999999', 'PATCH', { note: 'x' }, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
   for (const body of [{}, { lon: 100.15 }, { lat: 10.15 }, { site_id: '2' }, { species: [`UNKNOWN-${siteCode}`] }]) {
-    const invalid = await request(`/surveys/${initial.body.id}`, 'PATCH', body);
+    const invalid = await request(`/surveys/${initial.body.id}`, 'PATCH', body, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
-  const unchanged = await request(`/surveys/${initial.body.id}`, 'PATCH', { cover_percent: 41 });
+  const forged = await request(`/surveys/${initial.body.id}`, 'PATCH', {
+    note: 'forged', created_by: users.viewer, updated_by: users.viewer, updated_at: '2000-01-01T00:00:00Z',
+  }, accessToken('admin'));
+  assert.equal(forged.response.status, 400);
+  const unchanged = await request(`/surveys/${initial.body.id}`, 'PATCH', { cover_percent: 41 }, accessToken('admin'));
   assert.equal(unchanged.response.status, 200);
   assert.equal(unchanged.body.note, 'keep me');
   assert.deepEqual((unchanged.body.species as string[]).sort(), [...speciesCodes].sort());
-  const replaced = await request(`/surveys/${initial.body.id}`, 'PATCH', { species: [speciesCodes[1], speciesCodes[1]] });
+  const beforeSpecies = await pool!.query<{ created_by: string | null }>('SELECT created_by FROM surveys WHERE id = $1', [initial.body.id]);
+  await pool!.query("UPDATE surveys SET updated_at = '2000-01-01 00:00:00+00', updated_by = $2 WHERE id = $1", [initial.body.id, users.viewer]);
+  const replaced = await request(`/surveys/${initial.body.id}`, 'PATCH', { species: [speciesCodes[1], speciesCodes[1]] }, accessToken('admin'));
   assert.deepEqual(replaced.body.species, [speciesCodes[1]]);
+  const audited = await pool!.query<{ created_by: string | null; updated_by: string | null; updated_at: Date }>(
+    'SELECT created_by, updated_by, updated_at FROM surveys WHERE id = $1', [initial.body.id],
+  );
+  assert.equal(audited.rows[0].created_by, beforeSpecies.rows[0].created_by);
+  assert.equal(audited.rows[0].updated_by, users.admin);
+  assert.ok(audited.rows[0].updated_at > new Date('2000-01-01T00:00:00Z'));
   const savedSpecies = await pool!.query<{ species_code: string }>(
     'SELECT species_code FROM survey_species WHERE survey_id = $1 ORDER BY species_code', [initial.body.id],
   );
   assert.deepEqual(savedSpecies.rows.map(({ species_code }) => species_code), [speciesCodes[1]]);
-  const cleared = await request(`/surveys/${initial.body.id}`, 'PATCH', { note: null });
-  assert.equal(cleared.body.note, null);
+  const cleared = await request(`/surveys/${initial.body.id}`, 'PATCH', { note: null }, accessToken('admin'));
   const savedNote = await pool!.query<{ note: string | null }>('SELECT note FROM surveys WHERE id = $1', [initial.body.id]);
   assert.equal(savedNote.rows[0].note, null);
   const newPosition = await pool!.query<{ lon: number; lat: number }>(
@@ -553,10 +571,9 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
        SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,20::double precision,pi()/2)::geometry AS p
      ) q`,
   );
-  const loneCoordinate = await request(`/surveys/${initial.body.id}`, 'PATCH', { lon: newPosition.rows[0].lon });
+  const loneCoordinate = await request(`/surveys/${initial.body.id}`, 'PATCH', { lon: newPosition.rows[0].lon }, accessToken('admin'));
   assert.equal(loneCoordinate.response.status, 400);
-  const moved = await request(`/surveys/${initial.body.id}`, 'PATCH', newPosition.rows[0]);
-  assert.equal(moved.response.status, 200);
+  const moved = await request(`/surveys/${initial.body.id}`, 'PATCH', newPosition.rows[0], accessToken('admin'));
   assert.equal(moved.body.lon, newPosition.rows[0].lon);
   assert.equal(moved.body.lat, newPosition.rows[0].lat);
 });
@@ -628,7 +645,7 @@ integration('Survey location PATCH and Site geometry edit cannot commit incompat
   try {
     await coordinator.query('BEGIN');
     await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [siteCode]);
-    const location = request(`/surveys/${initial.body.id}`, 'PATCH', point.rows[0]);
+    const location = request(`/surveys/${initial.body.id}`, 'PATCH', point.rows[0], accessToken('admin'));
     assert.ok(await waitForSiteLock(), 'Survey PATCH should wait for the Site row lock');
     const geometry = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,

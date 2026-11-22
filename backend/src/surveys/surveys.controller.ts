@@ -4,7 +4,7 @@ import { Pool, type PoolClient } from 'pg';
 import { ApiErrorEnvelope } from '../sites/site-openapi';
 import { parseSurveyId, parseSurveyInput, parseSurveyPage, validateSurveyDateAgainstToday } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
-import { AuthGuard, Roles } from '../auth/auth.guard';
+import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 
 interface SurveyJson {
   id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null; created_by: string | null;
@@ -81,12 +81,18 @@ export class SurveysController {
   }
 
   @Patch('surveys/:id')
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Records the authenticated updater on every successful update.' })
   @ApiBody({ schema: SURVEY_PATCH_BODY_SCHEMA })
   @ApiResponse({ status: 200, schema: SURVEY_WRITE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+  async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const id = parseSurveyId(rawId);
     const input = parseSurveyInput(body, false, request.rawBody);
     const client = await this.pool.connect();
@@ -111,7 +117,8 @@ export class SurveysController {
       if (input.surveyed_on !== undefined) add('surveyed_on', input.surveyed_on, '::date');
       if (input.cover_percent !== undefined) add('cover_percent', input.cover_percent, '::numeric');
       if (input.note !== undefined) add('note', input.note);
-      if (updates.length) await client.query(`UPDATE surveys SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, values);
+      add('updated_by', request.user.id, '::uuid');
+      await client.query(`UPDATE surveys SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, values);
       if (input.species !== undefined) {
         await client.query('DELETE FROM survey_species WHERE survey_id = $1', [id]);
         await replaceSpecies(client, id, input.species);
