@@ -1,5 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import type { PoolClient } from 'pg';
+import { isStrictCalendarDate } from '../domain/guards';
 
 const columns = ['survey_ref', 'site_code', 'lon', 'lat', 'surveyed_on', 'cover_percent', 'species'] as const;
 
@@ -52,8 +53,7 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     const cover = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(values.cover_percent.trim()) ? Number(values.cover_percent) : NaN;
     if (!Number.isFinite(cover) || cover < 0 || cover > 100) { reject(row, 'INVALID_COVER'); continue; }
     const date = values.surveyed_on;
-    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && !date.startsWith('0000') ? new Date(`${date}T00:00:00.000Z`) : null;
-    if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) { reject(row, 'INVALID_DATE'); continue; }
+    if (!isStrictCalendarDate(date)) { reject(row, 'INVALID_DATE'); continue; }
 
     const speciesCodes = values.species.split('|');
     if (speciesCodes.some((code) => !code.trim() || code.includes('\0'))) { reject(row, 'UNKNOWN_SPECIES'); continue; }

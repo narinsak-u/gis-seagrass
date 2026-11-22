@@ -55,7 +55,7 @@ Run unit and isolated PostGIS integration tests:
 
 Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. List responses use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
 
-Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 with at most two decimal places. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion.
+Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion.
 
 ```sh
 curl 'http://localhost:3000/sites/TRG-001/surveys?page=1&pageSize=20'
