@@ -44,7 +44,7 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
 
   async hasSpecies(tx: SiteWriteTransaction, codes: string[]): Promise<boolean> {
     if (codes.length === 0) return true;
-    const result = await tx.execute<{ code: string }>(sql`SELECT code FROM species WHERE code = ANY(${codes}::text[])`);
+    const result = await tx.execute<{ code: string }>(sql`SELECT code FROM species WHERE code IN (${sql.join(codes.map((code) => sql`${code}`), sql`, `)})`);
     return result.rows.length === codes.length;
   }
 

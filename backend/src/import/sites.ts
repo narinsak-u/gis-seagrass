@@ -53,11 +53,11 @@ export async function importSiteFeatures(coordinator: SiteSurveyCoordinator, fea
       reject(result, index + 1, error instanceof SiteValidationError ? error.message : 'INVALID_FEATURE');
       continue;
     }
+    if (code) seen.add(code);
     const outcome = await coordinator.importSite(site);
     if (outcome === 'INSERTED') result.summary.inserted++;
     else if (outcome === 'SKIPPED') result.summary.skipped_existing++;
     else {
-      if (outcome === 'OUTSIDE_COVERAGE' && code) seen.add(code);
       reject(result, index + 1, outcome);
     }
   }

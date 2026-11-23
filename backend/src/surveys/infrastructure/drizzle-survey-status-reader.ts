@@ -19,7 +19,7 @@ export class DrizzleSurveyStatusReader implements SurveyStatusReaderPort {
       WITH latest_dates AS (
         SELECT site_id, max(surveyed_on) AS surveyed_on
           FROM surveys
-         WHERE site_id = ANY(${siteIds}::bigint[])
+         WHERE site_id IN (${sql.join(siteIds.map((siteId) => sql`${siteId}::bigint`), sql`, `)})
          GROUP BY site_id
       )
       SELECT surveys.site_id::text AS site_id, array_agg(surveys.cover_percent::float8) AS cover_percentages
