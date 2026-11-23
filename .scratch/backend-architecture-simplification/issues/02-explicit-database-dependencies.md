@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Nest modules that own Drizzle adapters receive database access through explicit module imports.
-- [ ] The API continues to share one configured pool-backed Drizzle provider across migrations, startup import, and request handling.
-- [ ] The standalone Import CLI retains its independent provider lifecycle.
-- [ ] The real Nest HTTP/PostGIS integration suite boots and exercises the affected feature modules.
-- [ ] The architecture check enforces dependency direction and approved composition roots without adding folder-name-only rules.
-- [ ] Existing Site, Survey, Auth, and Import behavior remains unchanged.
+- [x] Nest modules that own Drizzle adapters receive database access through explicit module imports.
+- [x] The API continues to share one configured pool-backed Drizzle provider across migrations, startup import, and request handling.
+- [x] The standalone Import CLI retains its independent provider lifecycle.
+- [x] The real Nest HTTP/PostGIS integration suite boots and exercises the affected feature modules.
+- [x] The architecture check enforces dependency direction and approved composition roots without adding folder-name-only rules.
+- [x] Existing Site, Survey, Auth, and Import behavior remains unchanged.

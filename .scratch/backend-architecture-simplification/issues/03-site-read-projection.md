@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Site list responses preserve existing fields, pagination, and Site status values.
-- [ ] GeoJSON responses preserve existing feature geometry, properties, and Site status values.
-- [ ] Repeated Site-to-public-summary projection is consolidated within the existing Site query implementation.
-- [ ] Site detail retains its distinct latest Survey summary behavior.
-- [ ] Existing HTTP/PostGIS tests verify the observable responses rather than private helper calls.
+- [x] Site list responses preserve existing fields, pagination, and Site status values.
+- [x] GeoJSON responses preserve existing feature geometry, properties, and Site status values.
+- [x] Repeated Site-to-public-summary projection is consolidated within the existing Site query implementation.
+- [x] Site detail retains its distinct latest Survey summary behavior.
+- [x] Existing HTTP/PostGIS tests verify the observable responses rather than private helper calls.
