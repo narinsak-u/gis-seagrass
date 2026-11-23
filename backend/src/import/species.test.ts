@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
-import { runMigrations } from '../database/migrate';
-import { parseSpeciesArray, parseSpeciesRecord } from './species';
+import { runMigrations } from '../platform/database';
+import { parseSpeciesArray, parseSpeciesRecord } from './parser/species';
 
 test('species parser requires array and nonempty required fields', () => {
   assert.throws(() => parseSpeciesArray('{'), /JSON/);

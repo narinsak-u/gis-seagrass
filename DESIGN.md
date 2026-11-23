@@ -32,6 +32,22 @@ Site PATCH locks the Site row and compares the client's version within the updat
 
 Development account seeding requires an explicit flag and inserts only missing accounts. API startup requires a deployment-specific `JWT_SECRET`; the example signing secret and credentials are for local development only.
 
+## Backend architecture refactor
+
+Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer owns and closes its provider without starting Nest. Its session advisory lock stays pinned to one pool client.
+
+Sites, Surveys, and Auth each own `http`, `application`, `domain`, and `infrastructure` layers. HTTP DTO classes live under `http/dto`; application operations and contracts are grouped under `application/use-cases` and `application/contracts`. Persistence contracts use `*Repository` names, with concrete `Drizzle*Repository` implementations under `infrastructure/repositories`. Platform owns database schema and migrations, health checks, and global HTTP error mapping. Shared application errors, generic input checks, and WGS84 geometry rules live outside feature modules. External feature use goes through public application contracts and use cases; adapters stay private to composition roots.
+
+Nest modules are composition roots, not one module per layer. `SitesModule` and `SurveysModule` register their HTTP and read adapters. The single root `SiteSurveyModule` in `site-survey-workflows` wires cross-feature use cases to feature-owned Drizzle repositories. Import composes those repositories in its CLI infrastructure. Do not add duplicate feature submodules or infrastructure Nest modules for provider registration.
+
+Workflows spanning Sites and Surveys go through the application-level `SiteSurveyCoordinator`. It owns transaction sequencing and passes one opaque `SiteWriteTransaction` context through Site- and Survey-owned repository contracts. The Drizzle transaction runner and adapters alone unwrap that context. `SurveyCommands` handles Survey writes, including imports, so Site locking, distance checks, species association atomicity, and per-Survey rollback remain shared with API behavior. Imports keep null actor history.
+
+Import owns parser, application use cases, and infrastructure responsibilities while remaining a standalone CLI. It composes Site and Survey operations without starting the HTTP application. Auth login and active-user/current-role lookups use application contracts with Drizzle-owned persistence. HTTP controllers contain no database queries.
+
+Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, advisory locks, and query-builder gaps as explicit SQL in infrastructure. Health retains its pool-level PostGIS check. This keeps spatial behavior visible without adding generic repositories or hiding transaction boundaries.
+
+HTTP request DTOs use one global transforming, whitelisting `ValidationPipe`; query conversion is explicit and request bodies are not coerced. `ApiErrorFilter` maps framework-independent application errors to HTTP statuses and preserves the shared error envelope.
+
 ## Migration ordering
 
 Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. Step 5 adds `0003_add_active_users.sql`, defaulting existing users to active. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.

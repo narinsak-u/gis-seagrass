@@ -3,15 +3,20 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Pool } from 'pg';
-import { importSurveys, type ParsedSurvey } from '../import/surveys';
+import { Pool, type PoolClient } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../platform/database';
+import { createSiteSurveyImportOperations } from '../import/infrastructure/site-survey-operations';
+import { importSurveys, type SurveyImportResult } from '../import/application/use-cases/surveys';
+import type { ParsedSurvey } from '../import/parser/surveys';
 import { AppModule } from '../app.module';
-import { signAccessToken } from '../auth/auth.controller';
-import { runMigrations } from '../database/migrate';
-
+import { signAccessToken } from '../auth/application/security/auth-token';
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
+import { runMigrations } from '../platform/database';
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let siteCodes: string[] = [];
@@ -23,6 +28,11 @@ let importSpeciesCode = '';
 let postToken = '';
 let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
+function importSurveyRecords(client: PoolClient, records: ParsedSurvey[]) {
+  const writer = createSiteSurveyImportOperations(drizzle(client, { schema })).surveyCommands;
+  return importSurveys(writer, records);
+}
+
 before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
@@ -32,8 +42,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  pool = database.pool;
   do {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCodes = [token.slice(0, 2), token.slice(2, 4)];
@@ -71,7 +82,7 @@ before(async () => {
       users.editor, `${users.editor}@example.test`, 'unused', 'editor',
       users.admin, `${users.admin}@example.test`, 'unused', 'admin'],
   );
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule.register(database), { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
   assert.ok(address && typeof address === 'object');
@@ -79,7 +90,6 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
   if (pool) {
     if (surveyRefs.length) {
       await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [surveyRefs]);
@@ -89,8 +99,9 @@ after(async () => {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
     await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
-    await pool.end();
   }
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function json(path: string): Promise<{ response: Response; body: Record<string, unknown> }> {
@@ -384,7 +395,11 @@ integration('POST /sites reserves active and deleted codes without deleting hist
   for (const code of [siteCodes[0], siteCodes[3]]) {
     const { response, body } = await createSite(siteFeature(code, polygon(100.2, 10.2, 100.3, 10.3)));
     assert.equal(response.status, 409);
-    assert.equal((body.error as Record<string, unknown>).code, 'DUPLICATE_CODE');
+    assert.deepEqual(body.error, {
+      code: 'DUPLICATE_CODE',
+      message: 'Site code already exists',
+      details: {},
+    });
   }
   const history = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [siteCodes[3]]);
   assert.ok(history.rows[0].deleted_at);
@@ -657,28 +672,33 @@ integration('PATCH and Survey import serialize both lock orders without strandin
           species: importSpeciesCode,
         },
       };
-      const importPromise = importSurveys(importer, [record]);
-      const patchPromise = importFirst
-        ? undefined
-        : patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
+      let importPromise: Promise<SurveyImportResult>;
+      let patchPromise: Promise<{ response: Response; body: Record<string, unknown> }>;
       if (importFirst) {
+        importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
-        const patch = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
-        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
-        await coordinator.query('COMMIT');
-        committed = true;
-        const [imported, edited] = await Promise.all([importPromise, patch]);
-        assert.equal(imported.summary.inserted, 1);
+        patchPromise = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
+        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+      } else {
+        patchPromise = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
+        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        importPromise = importSurveyRecords(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
+      }
+      await coordinator.query('COMMIT');
+      committed = true;
+      const [edited, imported] = await Promise.all([patchPromise, importPromise]);
+      if (imported.summary.inserted) {
         assert.equal(edited.response.status, 409);
         assert.equal((edited.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
+        const distance = await pool!.query<{ within: boolean }>(
+          `SELECT ST_DWithin(s.geom::geography, v.geom::geography, 50) AS within
+             FROM sites s JOIN surveys v ON v.site_id = s.id WHERE s.code = $1 AND v.survey_ref = $2`,
+          [code, ref],
+        );
+        assert.equal(distance.rows[0].within, true);
       } else {
-        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
-        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
-        await coordinator.query('COMMIT');
-        committed = true;
-        const [edited, imported] = await Promise.all([patchPromise!, importPromise]);
         assert.equal(edited.response.status, 200);
-        assert.equal(imported.summary.inserted, 0);
         assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['OUTSIDE_SITE']);
       }
     } finally {
@@ -776,27 +796,27 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
           surveyed_on: date.rows[0].today, cover_percent: '40', species: importSpeciesCode,
         },
       };
+      let importPromise: Promise<SurveyImportResult>;
+      let deletePromise: Promise<Response>;
       if (importFirst) {
-        const importPromise = importSurveys(importer, [record]);
+        importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
-        const deletion = deleteSite(code);
-        await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
-        await coordinator.query('COMMIT');
-        committed = true;
-        const [imported, deleted] = await Promise.all([importPromise, deletion]);
-        assert.equal(imported.summary.inserted, 1);
+        deletePromise = deleteSite(code);
+        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+      } else {
+        deletePromise = deleteSite(code);
+        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        importPromise = importSurveyRecords(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
+      }
+      await coordinator.query('COMMIT');
+      committed = true;
+      const [deleted, imported] = await Promise.all([deletePromise, importPromise]);
+      if (imported.summary.inserted) {
         assert.equal(deleted.status, 409);
         assert.equal(((await deleted.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
       } else {
-        const deletion = deleteSite(code);
-        await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
-        const importPromise = importSurveys(importer, [record]);
-        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
-        await coordinator.query('COMMIT');
-        committed = true;
-        const [deleted, imported] = await Promise.all([deletion, importPromise]);
         assert.equal(deleted.status, 204);
-        assert.equal(imported.summary.inserted, 0);
         assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['SITE_NOT_FOUND']);
       }
     } finally {

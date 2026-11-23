@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
-import { runMigrations } from '../database/migrate';
-import { parseProvinceCollection, parseProvinceFeature } from './province';
+import { runMigrations } from '../platform/database';
+import { parseProvinceCollection, parseProvinceFeature } from './parser/province';
 
 
 test('province parser rejects malformed collections and invalid WGS84 coordinates', () => {
@@ -43,7 +43,7 @@ before(async () => {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     codes = [token.slice(0, 2), token.slice(2, 4), token.slice(4, 6)];
     const result = await pool.query('SELECT 1 FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
-    occupied = result.rowCount !== 0;
+    occupied = new Set(codes).size !== codes.length || result.rowCount !== 0;
   } while (occupied);
   directory = await mkdtemp(join(tmpdir(), 'province-import-'));
   reportPath = join(directory, 'import_report.csv');

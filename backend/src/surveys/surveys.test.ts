@@ -6,13 +6,16 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
+import { runMigrations } from '../platform/database';
 import { setupSwagger } from '../swagger';
-import { signAccessToken } from '../auth/auth.controller';
+import { signAccessToken } from '../auth/application/security/auth-token';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let clockApp: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCode = '';
@@ -34,8 +37,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  pool = database.pool;
   do {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCode = token.slice(0, 2);
@@ -71,7 +75,7 @@ before(async () => {
     'INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
     [users.viewer, `${randomUUID()}@example.test`, 'unused', 'viewer', users.editor, `${randomUUID()}@example.test`, 'unused', 'editor', users.admin, `${randomUUID()}@example.test`, 'unused', 'admin'],
   );
-  app = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+  app = await NestFactory.create(AppModule.register(database), { logger: false, rawBody: true });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -80,17 +84,18 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
-  if (!pool) return;
-  if (siteId) {
-    await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
-    await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
+  if (pool) {
+    if (siteId) {
+      await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
+      await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
+    }
+    if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
+    if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
+    if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
   }
-  if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
-  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
-  if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
-  if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
-  await pool.end();
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function request(path: string, method = 'GET', body?: unknown, token?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
@@ -153,7 +158,7 @@ async function waitForSiteLock(): Promise<boolean> {
   while (Date.now() < deadline) {
     const result = await pool!.query<{ blocked: boolean }>(
       `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-       AND wait_event_type = 'Lock' AND query LIKE '%SELECT%sites%FOR%UPDATE%') AS blocked`,
+       AND wait_event_type = 'Lock' AND query ILIKE '%select%sites%for%update%') AS blocked`,
     );
     if (result.rows[0].blocked) return true;
     // PostgreSQL lock scheduling uses the real database clock.
@@ -243,7 +248,7 @@ integration('GET /sites/:code/surveys paginates deterministic list shapes and re
   const secondTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 30 }));
   assert.equal(firstTie.body.siteStatus, 'poor');
   assert.equal(secondTie.body.siteStatus, 'fair');
-  await pool!.query('UPDATE surveys SET created_by = $1 WHERE id = $2', [users.editor, secondTie.body.id]);
+  await pool!.query("UPDATE surveys SET created_by = $1, photo_key = 'private-survey-secret' WHERE id = $2", [users.editor, secondTie.body.id]);
   const page = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
   assert.equal(page.response.status, 200);
   assert.deepEqual(Object.keys(page.body).sort(), ['items', 'page', 'total']);
@@ -253,6 +258,7 @@ integration('GET /sites/:code/surveys paginates deterministic list shapes and re
   assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.rows[0].id]);
   assert.deepEqual(Object.keys(items[0]).sort(), ['cover_percent', 'created_by', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
   assert.equal(items[0].created_by, users.editor);
+  assert.equal(items[0].photo_key, undefined);
   assert.equal(items[0].siteStatus, undefined);
   assert.equal(items[2].created_by, null);
   assert.deepEqual(items[0].species, [speciesCodes[0]]);
@@ -430,7 +436,7 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
 integration('POST and PATCH use the Bangkok calendar date across midnight', async () => {
   await resetSurveys();
   const previousOptions = process.env.PGOPTIONS;
-  let clockApp: INestApplication | undefined;
+  let clockDatabase: DatabaseProvider | undefined;
   try {
     await pool!.query('CREATE SCHEMA survey_test_clock');
     await pool!.query('CREATE TABLE survey_test_clock.fixed_time (instant timestamptz NOT NULL)');
@@ -438,7 +444,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     await pool!.query(`CREATE FUNCTION survey_test_clock.clock_timestamp() RETURNS timestamptz
       LANGUAGE sql VOLATILE AS $$ SELECT instant FROM survey_test_clock.fixed_time $$`);
     process.env.PGOPTIONS = '-c search_path=survey_test_clock,pg_catalog,public';
-    clockApp = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+    clockDatabase = createDatabaseProvider();
+    clockApp = await NestFactory.create(AppModule.register(clockDatabase), { logger: false, rawBody: true });
     await clockApp.listen(0, '127.0.0.1');
     const address = clockApp.getHttpServer().address();
     assert.ok(address && typeof address === 'object');
@@ -455,7 +462,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     assert.equal((await send(`/surveys/${id}`, 'PATCH', { surveyed_on: '2025-01-02' })).status, 200);
     assert.equal((await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-02' }))).status, 201);
   } finally {
-    await clockApp?.close();
+    if (clockApp) await clockApp.close();
+    else await clockDatabase?.close();
     if (previousOptions === undefined) delete process.env.PGOPTIONS;
     else process.env.PGOPTIONS = previousOptions;
     await pool!.query('DROP SCHEMA IF EXISTS survey_test_clock CASCADE');
@@ -647,15 +655,19 @@ integration('DELETE /surveys/:id authorizes before ID validation or lookup', asy
   assert.equal((missing.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
 });
 
-integration('DELETE hard-deletes Survey and species links; unknown IDs use shared envelope', async () => {
+integration('DELETE hard-deletes Survey and species links, recomputes Site status, and preserves the shared error envelope', async () => {
   await resetSurveys();
   const created = await create(await validSurvey({ species: [...speciesCodes] }));
   const id = created.body.id as string;
+  const populatedSite = await request(`/sites/${siteCode}`);
+  assert.equal(((populatedSite.body.properties as Record<string, unknown>)).siteStatus, 'fair');
   const deleted = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleted.response.status, 204);
   assert.equal(await deleted.response.text(), '');
   assert.equal((await pool!.query('SELECT 1 FROM surveys WHERE id = $1', [id])).rowCount, 0);
   assert.equal((await pool!.query('SELECT 1 FROM survey_species WHERE survey_id = $1', [id])).rowCount, 0);
+  const emptySite = await request(`/sites/${siteCode}`);
+  assert.equal(((emptySite.body.properties as Record<string, unknown>)).siteStatus, 'no_data');
   const unknown = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');

@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { PoolClient } from 'pg';
-import { createPool } from '../database/pool';
-import { parseProvinceCollection, parseProvinceFeature, ProvinceValidationError, type ProvinceRecord } from './province';
-import { importSiteFeatures, parseSiteCollection } from './sites';
-import { importSpecies, parseSpeciesArray } from './species';
-import { importSurveys, parseSurveysCsv } from './surveys';
+
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
+import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
+import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
+import { parseProvinceCollection } from './parser/province';
+import { importSiteFeatures } from './application/use-cases/sites';
+import { parseSiteCollection } from './parser/sites';
+import { parseSpeciesArray } from './parser/species';
+import { importProvinces, importSpecies } from './infrastructure/reference-data';
+import { importSurveys } from './application/use-cases/surveys';
+import { parseSurveysCsv } from './parser/surveys';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };
@@ -34,13 +39,15 @@ async function replaceReport(path: string, rows: Array<[string, number, string]>
   }
 }
 
-export async function runImport(): Promise<ImportSummary> {
+export async function runImport(provider?: DatabaseProvider): Promise<ImportSummary> {
   const inputDir = resolve(process.env.SEED_DATA_DIR ?? 'seed-data');
   const provinceFeatures = parseProvinceCollection(await readFile(resolve(inputDir, 'provinces.geojson'), 'utf8'));
   const siteFeatures = parseSiteCollection(await readFile(resolve(inputDir, 'seagrass_sites.geojson'), 'utf8'));
   const surveyRecords = parseSurveysCsv(await readFile(resolve(inputDir, 'surveys.csv'), 'utf8'));
   const reportPath = resolve(process.env.IMPORT_REPORT_PATH ?? '../reports/import_report.csv');
-  const pool = createPool();
+  const ownsProvider = !provider;
+  const database = provider ?? createDatabaseProvider();
+  const pool = database.pool;
   const summary: ImportSummary = {
     provinces: { inserted: 0, skipped_existing: 0, rejected: 0 },
     species: { inserted: 0, skipped_existing: 0, rejected: 0 },
@@ -48,74 +55,28 @@ export async function runImport(): Promise<ImportSummary> {
     surveys: { inserted: 0, skipped_existing: 0, rejected: 0 },
   };
   const report: Array<[string, number, string]> = [];
-  const seen = new Set<string>();
-  let client: PoolClient | undefined;
-  let locked = false;
   try {
-    client = await pool.connect();
-    await client.query('SELECT pg_advisory_lock($1)', [192837465]);
-    locked = true;
-    for (const [index, feature] of provinceFeatures.entries()) {
-      let province: ProvinceRecord;
-      try {
-        province = parseProvinceFeature(feature);
-      } catch (error) {
-        const reason = error instanceof ProvinceValidationError ? error.message : 'INVALID_FEATURE';
-        report.push(['provinces.geojson', index + 1, reason]);
-        summary.provinces.rejected++;
-        continue;
-      }
-      if (seen.has(province.code)) {
-        report.push(['provinces.geojson', index + 1, 'DUPLICATE_CODE']);
-        summary.provinces.rejected++;
-        continue;
-      }
-      const geometry = JSON.stringify(province.geometry);
-      const validation = await client.query<{ valid: boolean; empty: boolean }>(
-        `SELECT ST_IsValid(g.geom) AS valid, ST_IsEmpty(g.geom) AS empty
-           FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) AS g`,
-        [geometry],
-      );
-      if (!validation.rows[0].valid || validation.rows[0].empty) {
-        report.push(['provinces.geojson', index + 1, 'INVALID_GEOMETRY']);
-        summary.provinces.rejected++;
-        continue;
-      }
-      seen.add(province.code);
-      const result = await client.query(
-        `INSERT INTO provinces (code, name_th, geom)
-         VALUES ($1, $2, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)))
-         ON CONFLICT (code) DO NOTHING`,
-        [province.code, province.nameTh, geometry],
-      );
-      if (result.rowCount) summary.provinces.inserted++;
-      else summary.provinces.skipped_existing++;
-    }
-    const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
-    const species = await importSpecies(client, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
-    summary.species = {
-      inserted: species.inserted,
-      skipped_existing: species.skipped_existing,
-      rejected: species.rejected,
-    };
-    report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
-    const siteResult = await importSiteFeatures(client, siteFeatures);
-    summary.sites = siteResult.summary;
-    for (const rejection of siteResult.rejections) {
-      report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
-    }
-    const surveys = await importSurveys(client, surveyRecords);
-    summary.surveys = surveys.summary;
-    report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
-    await replaceReport(reportPath, report);
-    console.info('Import summary:', JSON.stringify(summary));
-    return summary;
+    return await withImportAdvisoryLock(pool, async () => {
+      const { coordinator, surveyCommands } = createSiteSurveyImportOperations(database.db);
+      const provinces = await importProvinces(database.db, provinceFeatures);
+      summary.provinces = provinces.summary;
+      report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
+      const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
+      const species = await importSpecies(database.db, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
+      summary.species = species.summary;
+      report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
+      const siteResult = await importSiteFeatures(coordinator, siteFeatures);
+      summary.sites = siteResult.summary;
+      for (const rejection of siteResult.rejections) report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
+      const surveys = await importSurveys(surveyCommands, surveyRecords);
+      summary.surveys = surveys.summary;
+      report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
+      await replaceReport(reportPath, report);
+      console.info('Import summary:', JSON.stringify(summary));
+      return summary;
+    });
   } finally {
-    if (client) {
-      if (locked) await client.query('SELECT pg_advisory_unlock($1)', [192837465]).catch(() => undefined);
-      client.release();
-    }
-    await pool.end();
+    if (ownsProvider) await database.close();
   }
 }
 
