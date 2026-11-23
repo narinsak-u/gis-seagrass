@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { SITE_WRITE_REPOSITORY, type SiteWriteRepository } from '../sites';
 import {
   SITE_SURVEY_CONSTRAINT_REPOSITORY,
@@ -17,34 +17,40 @@ import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner } from
 import { SiteSurveyCoordinator } from './application/use-cases/site-survey-coordinator';
 import { DrizzleSiteSurveyTransactionRunner, SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER } from './infrastructure/transactions/drizzle-transaction-runner';
 
-@Module({
-  providers: [
-    DrizzleSiteWriteRepository,
-    { provide: SITE_WRITE_REPOSITORY, useExisting: DrizzleSiteWriteRepository },
-    DrizzleSiteSurveyConstraintRepository,
-    { provide: SITE_SURVEY_CONSTRAINT_REPOSITORY, useExisting: DrizzleSiteSurveyConstraintRepository },
-    DrizzleSurveyStatusRepository,
-    { provide: SURVEY_STATUS_REPOSITORY, useExisting: DrizzleSurveyStatusRepository },
-    DrizzleSurveyWriteRepository,
-    { provide: SURVEY_WRITE_REPOSITORY, useExisting: DrizzleSurveyWriteRepository },
-    DrizzleSiteSurveyTransactionRunner,
-    SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER,
-    {
-      provide: SiteSurveyCoordinator,
-      useFactory: (
-        surveys: SurveyStatusRepository,
-        transactions: SiteSurveyTransactionRunner,
-        sites: SiteWriteRepository,
-        constraints: SiteSurveyConstraintRepository,
-      ) => new SiteSurveyCoordinator(surveys, transactions, sites, constraints),
-      inject: [SURVEY_STATUS_REPOSITORY, SITE_SURVEY_TRANSACTION_RUNNER, SITE_WRITE_REPOSITORY, SITE_SURVEY_CONSTRAINT_REPOSITORY],
-    },
-    {
-      provide: SurveyCommands,
-      useFactory: (coordinator: SiteSurveyCoordinator, writer: SurveyWriteRepository) => new SurveyCommands(coordinator, writer),
-      inject: [SiteSurveyCoordinator, SURVEY_WRITE_REPOSITORY],
-    },
-  ],
-  exports: [SiteSurveyCoordinator, SurveyCommands],
-})
-export class SiteSurveyModule {}
+@Module({})
+export class SiteSurveyModule {
+  static register(databaseModule: DynamicModule): DynamicModule {
+    return {
+      module: SiteSurveyModule,
+      imports: [databaseModule],
+      providers: [
+        DrizzleSiteWriteRepository,
+        { provide: SITE_WRITE_REPOSITORY, useExisting: DrizzleSiteWriteRepository },
+        DrizzleSiteSurveyConstraintRepository,
+        { provide: SITE_SURVEY_CONSTRAINT_REPOSITORY, useExisting: DrizzleSiteSurveyConstraintRepository },
+        DrizzleSurveyStatusRepository,
+        { provide: SURVEY_STATUS_REPOSITORY, useExisting: DrizzleSurveyStatusRepository },
+        DrizzleSurveyWriteRepository,
+        { provide: SURVEY_WRITE_REPOSITORY, useExisting: DrizzleSurveyWriteRepository },
+        DrizzleSiteSurveyTransactionRunner,
+        SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER,
+        {
+          provide: SiteSurveyCoordinator,
+          useFactory: (
+            surveys: SurveyStatusRepository,
+            transactions: SiteSurveyTransactionRunner,
+            sites: SiteWriteRepository,
+            constraints: SiteSurveyConstraintRepository,
+          ) => new SiteSurveyCoordinator(surveys, transactions, sites, constraints),
+          inject: [SURVEY_STATUS_REPOSITORY, SITE_SURVEY_TRANSACTION_RUNNER, SITE_WRITE_REPOSITORY, SITE_SURVEY_CONSTRAINT_REPOSITORY],
+        },
+        {
+          provide: SurveyCommands,
+          useFactory: (coordinator: SiteSurveyCoordinator, writer: SurveyWriteRepository) => new SurveyCommands(coordinator, writer),
+          inject: [SiteSurveyCoordinator, SURVEY_WRITE_REPOSITORY],
+        },
+      ],
+      exports: [SiteSurveyCoordinator, SurveyCommands],
+    };
+  }
+}

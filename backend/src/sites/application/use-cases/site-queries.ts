@@ -1,5 +1,5 @@
 import { ApplicationError } from '../../../shared';
-import type { SiteReadFilters, SiteReadRepository } from '../contracts/site-read-repository';
+import type { SiteReadFilters, SiteReadRepository, SiteReadRow } from '../contracts/site-read-repository';
 import type { SiteSurveyReadContract } from '../contracts/site-survey-read-contract';
 import type { PublicSiteSummary } from '../../domain/site.types';
  
@@ -19,6 +19,17 @@ export interface SiteFeature {
   };
 }
 
+function publicSummary(row: SiteReadRow, siteStatus: PublicSiteSummary['siteStatus'] | undefined): PublicSiteSummary {
+  return {
+    code: row.code,
+    name: row.name,
+    province_code: row.province_code,
+    area_rai: Number(row.area_rai),
+    version: row.version,
+    siteStatus: siteStatus ?? 'no_data',
+  };
+}
+
 export class SiteQueries {
   constructor(
     private readonly sites: SiteReadRepository,
@@ -29,14 +40,7 @@ export class SiteQueries {
     const { rows, total } = await this.sites.list(filters);
     const statuses = await this.siteSurvey.statuses(rows.map(({ id }) => id));
     return {
-      items: rows.map((row) => ({
-        code: row.code,
-        name: row.name,
-        province_code: row.province_code,
-        area_rai: Number(row.area_rai),
-        version: row.version,
-        siteStatus: statuses.get(row.id) ?? 'no_data',
-      })),
+      items: rows.map((row) => publicSummary(row, statuses.get(row.id))),
       total,
       page: filters.page,
     };
@@ -53,12 +57,7 @@ export class SiteQueries {
       type: 'Feature',
       geometry: row.geometry,
       properties: {
-        code: row.code,
-        name: row.name,
-        province_code: row.province_code,
-        area_rai: Number(row.area_rai),
-        version: row.version,
-        siteStatus: statuses.get(row.id) ?? 'no_data',
+        ...publicSummary(row, statuses.get(row.id)),
         latest_survey: latestSurvey,
       },
     };
@@ -72,14 +71,7 @@ export class SiteQueries {
       features: rows.map((row) => ({
         type: 'Feature',
         geometry: row.geometry,
-        properties: {
-          code: row.code,
-          name: row.name,
-          province_code: row.province_code,
-          area_rai: Number(row.area_rai),
-          version: row.version,
-          siteStatus: statuses.get(row.id) ?? 'no_data',
-        },
+        properties: publicSummary(row, statuses.get(row.id)),
       })),
     };
   }

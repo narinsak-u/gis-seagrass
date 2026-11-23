@@ -161,3 +161,35 @@ test('cross-module imports use public module exports', () => {
     }
   }
 });
+test('database access is explicit in Nest consumers and composed once by AppModule', () => {
+  const consumers = [
+    'auth/auth.module.ts',
+    'sites/sites.module.ts',
+    'surveys/surveys.module.ts',
+    'site-survey-workflows/site-survey.module.ts',
+  ];
+  for (const path of consumers) {
+    const source = readFileSync(join(sourceRoot, path), 'utf8');
+    assert.match(source, /imports:\s*\[databaseModule\b/, `${path} must import the configured database module`);
+  }
+
+  const databaseModuleImporters = sourceFiles(sourceRoot)
+    .filter((file) => importsFrom(file).includes('./platform/database/database.module') || importsFrom(file).includes('../platform/database/database.module'))
+    .map((file) => relative(sourceRoot, file));
+  assert.deepEqual(databaseModuleImporters, ['app.module.ts'],
+    'only AppModule may configure the database module');
+
+  const appModule = readFileSync(join(sourceRoot, 'app.module.ts'), 'utf8');
+  assert.equal((appModule.match(/DatabaseModule\.register\(database\)/g) ?? []).length, 1,
+    'AppModule must configure the database provider exactly once');
+  for (const [moduleName, args] of [
+    ['PlatformModule', 'databaseModule'],
+    ['AuthModule', 'databaseModule'],
+    ['SiteSurveyModule', 'databaseModule'],
+    ['SitesModule', 'databaseModule, authModule, siteSurveyModule'],
+    ['SurveysModule', 'databaseModule, authModule, siteSurveyModule'],
+  ]) {
+    assert.match(appModule, new RegExp(`${moduleName}\\.register\\(${args.replaceAll(', ', '\\s*,\\s*')}\\)`),
+      `AppModule must compose ${moduleName} with approved dependencies`);
+  }
+});

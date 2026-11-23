@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ApplicationError } from '../../../shared';
+import { ApplicationError, isRecord } from '../../../shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { sites } from '../../../platform/database';
 import type { SiteWriteTransaction } from '../../../site-survey-workflows';
@@ -16,13 +16,21 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
     const tx = asDrizzleTransaction(context);
     const source = JSON.stringify(site.geometry);
     const spatial = await deriveSiteSpatial(tx, source);
-    const result = await tx.execute<{ version: number; geometry: SiteFeature['geometry'] }>(sql`
-      INSERT INTO sites (code, name, province_code, geom, area_rai, created_by, updated_by)
-      VALUES (${site.code}, ${site.name}, ${spatial.provinceCode},
-        ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326)), ${spatial.areaRai}, ${actorId}, ${actorId})
-      RETURNING version, ST_AsGeoJSON(geom, 15)::jsonb AS geometry
-    `);
-    return feature(site.code, site.name, spatial.provinceCode, spatial.areaRai, result.rows[0].version, result.rows[0].geometry);
+    try {
+      const result = await tx.execute<{ version: number; geometry: SiteFeature['geometry'] }>(sql`
+        INSERT INTO sites (code, name, province_code, geom, area_rai, created_by, updated_by)
+        VALUES (${site.code}, ${site.name}, ${spatial.provinceCode},
+          ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326)), ${spatial.areaRai}, ${actorId}, ${actorId})
+        RETURNING version, ST_AsGeoJSON(geom, 15)::jsonb AS geometry
+      `);
+      return feature(site.code, site.name, spatial.provinceCode, spatial.areaRai, result.rows[0].version, result.rows[0].geometry);
+    } catch (error) {
+      const databaseError = isRecord(error) && isRecord(error.cause) ? error.cause : error;
+      if (isRecord(databaseError) && databaseError.code === '23505' && databaseError.constraint === 'uq_sites_code') {
+        throw new ApplicationError('DUPLICATE_CODE', 'Site code already exists');
+      }
+      throw error;
+    }
   }
   async hasCode(context: SiteWriteTransaction, code: string): Promise<boolean> {
     const tx = asDrizzleTransaction(context);

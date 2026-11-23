@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { type DynamicModule, Module } from '@nestjs/common';
 import type { DatabaseProvider } from '../platform/database';
 import { AuthService } from './application/use-cases/auth-service';
 import { requireJwtSecret } from './application/security/auth-token';
@@ -7,21 +7,27 @@ import { AuthGuard } from './http/auth.guard';
 import { AuthController } from './http/auth.controller';
 import { DrizzleAuthRepository } from './infrastructure/repositories/drizzle-auth-repository';
 
-@Module({
-  controllers: [AuthController],
-  providers: [
-    AuthGuard,
-    DrizzleAuthRepository,
-    { provide: AUTH_REPOSITORY, useExisting: DrizzleAuthRepository },
-    {
-      provide: AuthService,
-      useFactory: (users: AuthRepository) => new AuthService(users),
-      inject: [AUTH_REPOSITORY],
-    },
-  ],
-  exports: [AuthGuard, AuthService],
-})
-export class AuthModule {}
+@Module({})
+export class AuthModule {
+  static register(databaseModule: DynamicModule): DynamicModule {
+    return {
+      module: AuthModule,
+      imports: [databaseModule],
+      controllers: [AuthController],
+      providers: [
+        AuthGuard,
+        DrizzleAuthRepository,
+        { provide: AUTH_REPOSITORY, useExisting: DrizzleAuthRepository },
+        {
+          provide: AuthService,
+          useFactory: (users: AuthRepository) => new AuthService(users),
+          inject: [AUTH_REPOSITORY],
+        },
+      ],
+      exports: [AuthGuard, AuthService],
+    };
+  }
+}
 
 export { AuthGuard, Roles } from './http/auth.guard';
 export type { AuthenticatedRequest } from './http/auth.guard';

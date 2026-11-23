@@ -1,6 +1,5 @@
 import { BadRequestException, Inject, Injectable, type DynamicModule, Module, type OnApplicationShutdown, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
-import { DatabaseModule } from './database/database.module';
 import { DATABASE_PROVIDER, type DatabaseProvider } from './database/provider';
 import { ApiErrorFilter } from './errors/error.filter';
 import { HealthController } from './health/health.controller';
@@ -16,10 +15,10 @@ class CloseDatabaseOnShutdown implements OnApplicationShutdown {
 
 @Module({})
 export class PlatformModule {
-  static register(database: DatabaseProvider): DynamicModule {
+  static register(databaseModule: DynamicModule): DynamicModule {
     return {
       module: PlatformModule,
-      imports: [DatabaseModule.register(database)],
+      imports: [databaseModule],
       controllers: [HealthController],
       providers: [
         { provide: APP_FILTER, useClass: ApiErrorFilter },

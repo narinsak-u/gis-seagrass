@@ -1,8 +1,7 @@
-import { Global, type DynamicModule, Module } from '@nestjs/common';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DATABASE_PROVIDER, DRIZZLE_DATABASE, type DatabaseProvider } from './provider';
 
-@Global()
 @Module({})
 export class DatabaseModule {
   static register(database: DatabaseProvider): DynamicModule {

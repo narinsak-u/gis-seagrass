@@ -1,6 +1,6 @@
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Query, UseGuards } from '@nestjs/common';
 import { isRecord } from '../../shared';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.module';
 import { parseSiteFeature, SiteValidationError } from '../domain/site-feature';
@@ -41,15 +41,7 @@ export class SitesController {
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async create(@Req() request: AuthenticatedRequest, @Body() body: SiteFeatureDto): Promise<CreatedSiteFeature> {
     const site = validateCreateFeature(body);
-    try {
-      return await this.siteSurvey.create(site, request.user.id);
-    } catch (error) {
-      const databaseError = isRecord(error) && isRecord(error.cause) ? error.cause : error;
-      if (isRecord(databaseError) && databaseError.code === '23505' && databaseError.constraint === 'uq_sites_code') {
-        throw new ConflictException({ code: 'DUPLICATE_CODE', message: 'Site code already exists', details: {} });
-      }
-      throw error;
-    }
+    return this.siteSurvey.create(site, request.user.id);
   }
 
   @Patch(':code')
