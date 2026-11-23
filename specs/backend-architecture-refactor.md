@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation. The implementation decisions below were confirmed during review.
+Implemented and verified. Backend build and 73/73 tests pass against disposable PostGIS.
 
 ## Goal
 
@@ -13,7 +13,7 @@ The refactor must preserve the behavior and policies already established in Step
 ## Scope
 
 - Restructure Site, Survey, Auth, and import code into clear modules and layers.
-- Move database access out of HTTP controllers and into infrastructure adapters.
+- Move database access out of HTTP controllers and into infrastructure repositories.
 - Use Drizzle for ordinary PostgreSQL reads and writes.
 - Add HTTP DTOs validated with NestJS `ValidationPipe`, `class-validator`, and `class-transformer`.
 - Keep PostGIS-specific operations, locking, and other query-builder gaps expressible through Drizzle's SQL support in infrastructure.
@@ -34,44 +34,58 @@ backend/src/
 ├── app.module.ts
 ├── main.ts
 ├── platform/
-│   ├── database/              # Drizzle client, schema, migration runner
-│   ├── errors/                # Global HTTP error handling
-│   └── health/                # Health endpoint
+│   ├── database/
+│   ├── errors/
+│   ├── health/
+│   └── http/
 ├── sites/
 │   ├── sites.module.ts
-│   ├── http/                  # Controllers, DTOs, guards, OpenAPI
-│   ├── application/           # Use cases and required ports
-│   ├── domain/                # Site concepts and business rules
-│   └── infrastructure/       # Drizzle adapters and SQL
+│   ├── http/dto/
+│   ├── application/
+│   │   ├── contracts/
+│   │   └── use-cases/
+│   ├── domain/
+│   └── infrastructure/repositories/
 ├── surveys/
 │   ├── surveys.module.ts
-│   ├── http/
+│   ├── http/dto/
 │   ├── application/
+│   │   ├── contracts/
+│   │   └── use-cases/
 │   ├── domain/
-│   └── infrastructure/
+│   └── infrastructure/repositories/
 ├── auth/
 │   ├── auth.module.ts
-│   ├── http/
+│   ├── http/dto/
 │   ├── application/
+│   │   ├── contracts/
+│   │   ├── security/
+│   │   └── use-cases/
 │   ├── domain/
-│   └── infrastructure/
+│   └── infrastructure/repositories/
+├── site-survey-workflows/
+│   ├── site-survey.module.ts
+│   ├── application/
+│   │   ├── contracts/
+│   │   └── use-cases/
+│   └── infrastructure/transactions/
 └── import/
-    ├── parsers/               # Source format parsing and validation
-    └── application/           # Import orchestration and CLI entry path
+    ├── parser/
+    ├── application/use-cases/
+    └── infrastructure/
 ```
 
-Names may be adjusted where the current implementation makes a better fit clear, but each business module must retain clear ownership of its HTTP, application, domain, and persistence behavior. Keep the import workflow usable as a CLI and avoid coupling it to HTTP DTOs.
+Each feature keeps clear ownership of its HTTP, application, domain, and persistence behavior. Use `application/contracts` and `application/use-cases`; place DTO classes in `http/dto`; name persistence contracts `*Repository` and Drizzle implementations `Drizzle*Repository` under `infrastructure/repositories`. Keep Import usable as a CLI without Nest or HTTP DTO coupling.
 
 ## Architecture rules
 
-1. **Dependency direction points inward.** HTTP code calls application use cases. Application code depends on domain rules and small ports it needs. Infrastructure implements those ports. Domain code must not import NestJS, Drizzle, `pg`, or HTTP types.
-2. **Nest modules compose the application.** `AppModule` imports feature modules and platform modules. Each feature module registers its own controllers and providers and exports only what another module or the CLI needs.
-3. **Use ports where a real seam exists.** Define ports for persistence or cross-module collaboration when they keep application code independent of infrastructure or clarify ownership. Do not add pass-through interfaces for every query.
-4. **Modules own their data access.** A module must not reach into another module's tables or infrastructure adapter. Cross-module behavior goes through a deliberately small exported application interface or shared domain rule.
+1. **Dependency direction points inward.** HTTP code calls application use cases. Application code depends on domain rules and contracts; infrastructure implements repository contracts and other required roles. Domain code must not import NestJS, Drizzle, `pg`, or HTTP types.
+2. **Nest modules compose the application.** `AppModule` imports platform and feature modules. Each feature module registers its own controllers and providers and exports only public application contracts and use cases needed by other modules or the CLI.
+3. **Use contracts at real seams.** Persistence contracts use `*Repository` names; transaction collaboration uses a role-specific contract such as `SiteSurveyTransactionRunner`. Do not add pass-through interfaces for every query.
+4. **Modules own their data access.** Feature application code and controllers must not import peer tables or infrastructure adapters. The `SiteSurveyModule` composition root may bind Site- and Survey-owned repositories to their public contracts. Import infrastructure may compose those same application operations for the standalone CLI. These roots only compose cross-feature operations; they do not implement Site/Survey SQL. Site and Survey SQL remains in their owning repositories; Import may keep SQL for its own persistence. Other cross-feature callers use public contracts and use cases.
 5. **Drizzle is the default data access tool.** Use Drizzle's query builder for ordinary reads and writes. Use Drizzle transactions and `sql` support for PostGIS functions, row locks, and queries that need SQL-specific behavior. Keep all such database details in infrastructure.
 6. **Keep domain rules framework-independent.** Domain rules should be plain TypeScript and return values or explicit domain errors. Nest exceptions and HTTP response mapping belong in `http` or an outer adapter.
 7. **Avoid unnecessary layers.** Keep abstractions only when they create useful locality, testability, or a real substitution seam. Do not add generic CQRS, event buses, or repository bases as part of this refactor.
-
 ## HTTP DTO and validation policy
 
 - Define request DTO classes in the owning module's `http` layer.
@@ -87,7 +101,7 @@ Names may be adjusted where the current implementation makes a better fit clear,
 
 Site and Survey behavior has shared invariants: Site status is derived from Survey rows, Survey writes require an active Site, and Site and Survey writes serialize per Site where required. The refactor must preserve these rules and make ownership explicit.
 
-- A small application-level Site–Survey coordinator owns workflows that span both modules. It owns the transaction boundary and passes the same Drizzle transaction to Site- and Survey-owned persistence ports. Feature modules never access each other's tables or infrastructure directly; shared status and per-Site locking behavior use this coordinator without circular module dependencies.
+- A small application-level Site–Survey coordinator owns workflows that span both features. It owns the transaction boundary and passes one opaque application transaction context through Site- and Survey-owned repository contracts; only infrastructure unwraps it as a Drizzle transaction. The `SiteSurveyModule` composition root binds the feature-owned repositories. Feature application code and controllers do not import peer infrastructure, and the modules have no circular dependency.
 
 ## Drizzle migration requirements
 
@@ -103,7 +117,7 @@ Site and Survey behavior has shared invariants: Site status is derived from Surv
 1. Record the target layering and constraints in `DESIGN.md`; inspect the existing Nest, pool, Drizzle schema, and migration setup.
 2. Establish the Drizzle provider and prove it with the AuthGuard's active-user/current-role lookup, without changing behavior.
 3. Introduce feature Nest modules and move controller registration out of `AppModule`.
-4. Refactor Sites: extract use cases, ports, and Drizzle adapters; add HTTP DTOs and validation.
+4. Refactor Sites: extract use cases, repository contracts, and Drizzle repositories; add HTTP DTOs and validation.
 5. Refactor Surveys and define the Site–Survey collaboration seam while preserving per-Site transaction and lock behavior.
 6. Refactor Auth into HTTP, application/domain, and infrastructure responsibilities; preserve active-user and role checks.
 7. Keep Import application responsible for source parsing, reporting, and CLI orchestration. Keep Province and Species seed-only persistence in Import infrastructure; route Site and Survey writes through their owning application operations and the Site–Survey coordinator. Preserve the session advisory lock on one pinned connection and per-Survey transactions.
@@ -114,18 +128,18 @@ Each phase should be a small reviewable change. Do not combine this work with St
 
 ## Acceptance criteria
 
-- [ ] Backend remains one NestJS application, one independently managed backend package, and one PostgreSQL database.
-- [ ] `AppModule` composes platform and feature modules; feature modules own their controllers and providers.
-- [ ] Site, Survey, and Auth code has explicit `http`, `application`, `domain`, and `infrastructure` responsibilities.
-- [ ] Domain code has no NestJS, HTTP, Drizzle, or `pg` dependencies.
-- [ ] The API and standalone CLI each have one explicit owner for their pool-backed Drizzle provider; API migrations, startup import, and Nest share the API provider, and shutdown closes it once.
-- [ ] Shared Site–Survey workflows use an application-level coordinator and one Drizzle transaction across module-owned persistence ports, with no circular dependencies or direct cross-module data access.
-- [ ] The global `ValidationPipe` transforms only explicitly configured DTO values, rejects unknown fields, and maps failures to the current error envelope without changing parser/guard precedence.
-- [ ] AuthGuard's current active-user/role lookup demonstrates Drizzle access without changing authorization behavior.
-- [ ] Import parsing and reporting remain independent of HTTP DTOs; CLI import operations delegate Site and Survey persistence to their owning application operations, retain the advisory lock and per-Survey transaction behavior, and preserve Province/Species seed handling.
-- [ ] Existing routes, API response contracts, role behavior, database constraints, migration history, spatial rules, and concurrency guarantees are preserved.
-- [ ] `DESIGN.md` documents module ownership, the Site–Survey seam, provider lifecycle, Drizzle/SQL usage, and material trade-offs.
-- [ ] Required backend build and existing tests pass; relevant HTTP validation and integration behavior is covered.
+- [x] Backend remains one NestJS application, one independently managed backend package, and one PostgreSQL database.
+- [x] `AppModule` composes platform and feature modules; feature modules own their controllers and providers.
+- [x] Site, Survey, and Auth code has explicit `http`, `application`, `domain`, and `infrastructure` responsibilities, using the documented contract, use-case, DTO, and repository folders.
+- [x] Domain code has no NestJS, HTTP, Drizzle, or `pg` dependencies.
+- [x] The API and standalone CLI each have one explicit owner for their pool-backed Drizzle provider; API migrations, startup import, and Nest share the API provider, and shutdown closes it once.
+- [x] Shared Site–Survey workflows use an application coordinator and one opaque transaction across repository contracts. `SiteSurveyModule` and Import CLI infrastructure may wire feature-owned repositories at their composition roots; feature application code and controllers do not import peer infrastructure, and no circular feature dependency exists.
+- [x] The global `ValidationPipe` transforms only explicitly configured DTO values, rejects unknown fields, and maps failures to the current error envelope without changing parser/guard precedence.
+- [x] AuthGuard's current active-user/role lookup uses Drizzle without changing authorization behavior.
+- [x] Import parsing and reporting remain independent of HTTP DTOs; CLI operations use the Site–Survey coordinator and Survey application operations, while Import infrastructure may wire their repositories. The advisory lock, per-Survey transactions, and Province/Species seed handling remain intact.
+- [x] Existing routes, API response contracts, role behavior, database constraints, migration history, spatial rules, and concurrency guarantees are preserved.
+- [x] `DESIGN.md` documents module ownership, the Site–Survey seam, provider lifecycle, Drizzle/SQL usage, and material trade-offs.
+- [x] Required backend build and existing tests pass; relevant HTTP validation and integration behavior is covered.
 
 ## Confirmed implementation decisions
 
@@ -133,7 +147,7 @@ Each phase should be a small reviewable change. Do not combine this work with St
 - Keep health checks at the pool level. First demonstrate Drizzle with the AuthGuard's active-user/current-role query.
 - The API composition root owns one pool-backed Drizzle provider shared by migrations, startup import, and Nest. The standalone importer CLI owns and closes its own provider.
 - Import owns file parsing, reporting, CLI orchestration, and Province/Species seed persistence. Site and Survey writes use their owning application operations and the Site–Survey coordinator; preserve the pinned-session advisory lock and per-Survey transactions.
-- The Site–Survey coordinator owns shared transaction boundaries and passes the same Drizzle transaction to module-owned persistence ports.
+- The Site–Survey coordinator owns shared transaction boundaries and passes one opaque application transaction context through module-owned repository contracts. The `SiteSurveyModule` composition root binds the Site and Survey repositories; Import infrastructure may compose the same public application operations for the CLI.
 
 Capture architecture ownership, transaction and provider lifecycle rationale, and ValidationPipe/error-mapping trade-offs in `DESIGN.md` during implementation.
 

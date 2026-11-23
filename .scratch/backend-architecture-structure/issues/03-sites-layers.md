@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [x] Sites owns its module and four physical layers; controllers, DTOs, OpenAPI, use cases, Site rules, and Drizzle adapters have clear ownership.
+- [x] Sites owns its module and four physical layers; controllers, DTOs, OpenAPI, use cases, Site rules, and Drizzle repositories have clear ownership.
 - [x] Site reads, writes, status, audit, validation, soft deletion, version conflicts, and spatial guarantees preserve existing behavior.
 - [x] Import can consume Site parsing/application contracts without importing HTTP DTOs or private infrastructure.
 - [x] Existing Site HTTP/PostGIS tests and backend build pass.

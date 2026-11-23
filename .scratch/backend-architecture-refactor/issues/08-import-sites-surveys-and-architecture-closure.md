@@ -6,8 +6,8 @@
 
 **Status:** resolved
 
-- [ ] Import delegates Site and Survey persistence to their owning application operations and the Site–Survey coordinator.
+- [ ] Import delegates Site and Survey work to their public application operations and coordinator. Its infrastructure may bind owning repository implementations as the standalone CLI composition root; it does not implement their data access.
 - [ ] The CLI preserves source parsing, rejection reasons, idempotency, the pinned advisory lock, per-Survey transactions, and full import reports.
-- [ ] No HTTP controller or application use case performs direct database queries; domain rules remain framework-independent and each module owns its persistence.
+- [ ] No HTTP controller or application use case performs direct database queries; feature repositories own persistence. Concrete cross-feature repository imports are limited to the Site–Survey and CLI composition roots.
 - [ ] Update `DESIGN.md` with final module ownership, provider lifecycle, Site–Survey collaboration, and Drizzle/SQL trade-offs.
 - [ ] Full backend build and existing HTTP/PostGIS and importer tests pass against disposable resources; Step 6 remains unchanged.

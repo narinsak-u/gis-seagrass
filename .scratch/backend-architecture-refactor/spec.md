@@ -1,6 +1,6 @@
 # Backend Architecture Refactor
 
-Status: ready-for-agent
+Status: implemented and verified
 
 ## Problem Statement
 
@@ -12,7 +12,7 @@ This preparatory refactor must make module ownership and dependency direction ex
 
 Keep one NestJS backend and one PostgreSQL database. Organize the backend as a modular monolith with HTTP, application, domain, and infrastructure responsibilities for Site, Survey, and Auth. Keep request parsing and validation at the HTTP boundary, application use cases independent of transport, and database access in module-owned infrastructure.
 
-Use Drizzle for ordinary database operations and its SQL/transaction support for PostGIS and locking. A small application-level Site–Survey coordinator owns workflows that span both modules and shares one transaction across their persistence ports. Preserve the existing API, spatial, import, migration, authorization, and concurrency contracts.
+Use Drizzle for ordinary database operations and its SQL/transaction support for PostGIS and locking. A small application-level Site–Survey coordinator owns workflows that span both features and shares one opaque transaction context across their repository contracts. Preserve the existing API, spatial, import, migration, authorization, and concurrency contracts.
 
 ## User Stories
 
@@ -29,7 +29,7 @@ Use Drizzle for ordinary database operations and its SQL/transaction support for
 11. As a user, I want authentication to resolve the current active account and role on each protected request, so that disabled accounts and role changes take effect immediately.
 12. As a backend maintainer, I want ordinary reads and writes to use Drizzle, so that database access follows one default persistence approach.
 13. As a backend maintainer, I want PostGIS queries, row locks, and other SQL-specific operations kept in infrastructure, so that necessary SQL remains explicit without leaking into controllers or domain rules.
-14. As a backend maintainer, I want persistence ports only where they provide a real boundary, so that the design avoids pass-through abstractions.
+14. As a backend maintainer, I want persistence defined by application repository contracts only where a real boundary exists, so that the design avoids pass-through abstractions.
 15. As a backend maintainer, I want Site–Survey workflows coordinated through one application-level seam, so that both modules share a transaction without circular imports or direct access to each other's tables.
 16. As an API operator, I want one explicit pool-backed Drizzle provider for API startup and request handling, so that migrations, startup import, and Nest share clear connection ownership.
 17. As an operator, I want the health endpoint to retain its pool-level PostGIS check, so that health reporting does not depend on ORM query behavior.
@@ -50,9 +50,9 @@ Use Drizzle for ordinary database operations and its SQL/transaction support for
 
 - Keep one NestJS application, one independently managed backend package, and one PostgreSQL database; do not introduce a monorepo or cross-application packages.
 - `AppModule` composes platform and feature modules. Site, Survey, and Auth each own HTTP, application, domain, and infrastructure responsibilities. Export only application interfaces needed by other modules or the CLI.
-- Dependencies point inward: HTTP calls application operations; application code depends on domain rules and small ports; infrastructure implements persistence ports. Domain code has no NestJS, HTTP, Drizzle, or `pg` dependencies.
+- Dependencies point inward: HTTP calls application operations; application code depends on domain rules and contracts; infrastructure implements repository contracts. Domain code has no NestJS, HTTP, Drizzle, or `pg` dependencies.
 - Use Drizzle for ordinary PostgreSQL reads and writes. Keep PostGIS functions, row locks, advisory-lock operations, and other query-builder gaps in infrastructure using Drizzle SQL support. Do not add generic repositories, CQRS, event buses, or an interface for every query.
-- A small application-level Site–Survey coordinator owns workflows spanning both modules. It owns their transaction boundary and passes the same Drizzle transaction to Site- and Survey-owned persistence ports. Neither feature module accesses the other's tables or infrastructure directly.
+- A small application-level Site–Survey coordinator owns workflows spanning both features. It owns their transaction boundary and passes one opaque application transaction context through Site- and Survey-owned repository contracts. The `SiteSurveyModule` composition root binds their feature-owned repositories; Import infrastructure may compose the same public application operations for the standalone CLI. Other feature application code and controllers do not import peer infrastructure, and there is no circular feature-module dependency.
 - Create one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer CLI owns and closes its own provider. Keep health checks at the pool level.
 - First demonstrate Drizzle with the AuthGuard's active-user/current-role lookup, preserving current authentication behavior.
 - Define request DTOs in each owning module's HTTP layer. Configure one global `ValidationPipe` with transformation, whitelisting, and unknown-field rejection. Explicitly transform query values; do not implicitly coerce request-body values. Map validation errors to the current shared error envelope.
@@ -71,17 +71,17 @@ Use Drizzle for ordinary database operations and its SQL/transaction support for
 - Cover DTO validation through actual HTTP requests, including unknown fields, explicit query transformations, request-body types, shared error mapping, malformed JSON, and guard-before-validation precedence.
 - Exercise the AuthGuard Drizzle pilot through protected HTTP routes. Verify current roles, disabled users, and authentication failures remain unchanged.
 - Preserve existing tests for public Site status, Survey creator fields, spatial distance, species-link atomicity, soft deletion, version conflicts, and concurrent writes. Add tests only for behavior not already covered.
-- Use the TypeScript build and review of module imports to verify dependency direction and framework-independent domain code. Do not add architecture-test infrastructure without a demonstrated need.
+- Use the TypeScript build and review of module imports to verify dependency direction and framework-independent domain code. The physical-layer follow-up establishes the need for one architecture check in the backend test command; restrict concrete cross-feature repository imports to the documented composition roots.
 
 ## Out of Scope
 
 - Step 6 map UI or any Step 7–9 feature.
 - Changes to API routes, response shapes, authorization policy, validation semantics, database constraints, spatial rules, or documented Site and Survey behavior.
 - Replacing PostgreSQL, NestJS, Drizzle migrations, or the separate frontend/backend package setup.
-- Microservices, a monorepo, generic repository frameworks, CQRS, event buses, or pass-through ports.
+- Microservices, a monorepo, generic repository frameworks, CQRS, event buses, or pass-through contracts.
 - Rewriting existing migrations or changing seed source data.
 - Production secret management, deployment hardening, or new product features.
 
 ## Further Notes
 
-This refactor is preparatory work before Step 6 and does not alter Step numbering. Implement the phases as small reviewable changes; do not combine them with Step 6. The current backend already has a Drizzle schema and migration journal, while HTTP controllers and importer operations still use `pg` directly. The agreed test seam is the existing real HTTP/PostGIS suite plus isolated importer CLI tests.
+This preparatory refactor is complete and does not alter Step numbering. Backend build and 73/73 tests pass against disposable PostGIS. It preserves Steps 1–5 and leaves Step 6 out of scope. The agreed test seam is the existing real HTTP/PostGIS suite plus isolated importer CLI tests.

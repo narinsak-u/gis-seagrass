@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [x] A TypeScript-based check validates production file placement and the approved dependency matrix; tests remain outside production layers.
+- [x] A TypeScript-based check validates production file placement and the approved dependency matrix, allowing concrete cross-feature repository imports only from `SiteSurveyModule` and Import CLI composition; tests remain outside production layers.
 - [x] The check runs as part of the backend test command without adding a dependency.
 - [x] `DESIGN.md` records ownership, allowed imports, public module exports, the opaque transaction seam, provider lifecycle, and trade-offs.
 - [x] Full backend build and tests pass against disposable PostGIS; no schema, migration, seed, API, or Step 6 behavior changes.

@@ -7,6 +7,6 @@
 **Status:** resolved
 
 - [x] Surveys owns its module and four physical layers; HTTP DTOs map to application inputs, and Survey rules remain framework-independent.
-- [x] A dedicated Site–Survey application module owns cross-feature workflows and shares an opaque transaction context through module-owned ports.
+- [x] A dedicated `site-survey-workflows` module owns cross-feature workflows, passes one opaque transaction context through repository contracts, and binds feature-owned repositories only at its root composition module.
 - [x] Only infrastructure knows Drizzle transaction types; per-Site locking, 50-meter distance rules, species atomicity, actor attribution, and per-Survey rollback remain unchanged.
 - [x] Existing Survey and Site/Survey concurrency tests and backend build pass.

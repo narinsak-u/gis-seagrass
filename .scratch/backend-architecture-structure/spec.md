@@ -1,6 +1,6 @@
 # Backend Physical Layer Refactor
 
-Status: ready-for-agent
+Status: implemented and verified
 
 ## Problem Statement
 
@@ -24,24 +24,24 @@ Restructure backend production code into explicit physical modules and Clean Arc
 10. As a backend maintainer, I want Site–Survey workflows to share one transaction through an opaque application context, so that the application layer does not depend on Drizzle transaction types.
 11. As an importer operator, I want CLI parsing, orchestration, Province/Species persistence, and reports to remain independent of HTTP DTOs and Nest startup, so that the standalone importer remains usable.
 12. As an importer operator, I want Site and Survey imports to use their owning application operations, so that imports preserve the same invariants as API writes.
-13. As a backend maintainer, I want Drizzle repositories and SQL in infrastructure adapters, so that database details stay at the outer layer.
-14. As a backend maintainer, I want only real persistence and collaboration seams to have ports, so that the refactor avoids pass-through abstractions.
+13. As a backend maintainer, I want Drizzle repositories and SQL in infrastructure repositories, so that database details stay at the outer layer.
+14. As a backend maintainer, I want only real persistence and collaboration seams to have application contracts, so that the refactor avoids pass-through abstractions.
 15. As a project maintainer, I want an automated architecture check, so that file placement and dependency rules cannot silently regress.
 16. As a project maintainer, I want the architecture decision and trade-offs recorded, so that future changes preserve the intended module relationships.
 
 ## Implementation Decisions
 
 - Keep `app.module.ts` and `main.ts` as the composition root. Add a `PlatformModule` for database provider, health endpoint, and global HTTP error mapping.
-- Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, DTOs, guards, and OpenAPI in `http`; use cases and their required ports in `application`; business rules and types in `domain`; concrete Drizzle repositories/adapters and SQL in `infrastructure`.
-- Keep application classes plain TypeScript. Nest provider factories compose application use cases and infrastructure adapters. The HTTP layer calls application interfaces and does not query persistence directly.
-- Move active-user and current-role lookup behind an Auth application port implemented by a Drizzle adapter. The AuthGuard preserves per-request status and role checks.
-- Keep Site–Survey coordination in a dedicated application module. It owns cross-feature workflows and transaction sequencing. Site and Survey persistence adapters remain owned by their feature modules.
-- Define an opaque Site–Survey transaction context and transaction-runner port. A Drizzle infrastructure adapter opens one transaction and passes the context through feature-owned ports; only infrastructure unwraps the Drizzle transaction.
+- Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, guards, OpenAPI, and DTOs in `http/dto`; group use cases and contracts under `application/use-cases` and `application/contracts`; keep business rules in `domain`; put concrete `Drizzle*Repository` classes under `infrastructure/repositories`.
+- Keep application classes plain TypeScript. Nest providers wire application use cases to infrastructure implementations. The HTTP layer calls application contracts and does not query persistence directly.
+- Move active-user and current-role lookup behind an Auth application repository contract implemented by a Drizzle repository. The AuthGuard preserves per-request status and role checks.
+- Keep Site–Survey coordination in the dedicated `site-survey-workflows` module. Its single root `SiteSurveyModule` binds feature-owned repositories to public application contracts; Import infrastructure may compose those operations for its standalone CLI. Application workflows use contracts, not peer infrastructure.
+- Define an opaque Site–Survey transaction context and role-named transaction-runner contract. The Drizzle transaction runner opens one transaction and passes the context through feature-owned repository contracts; only infrastructure unwraps the Drizzle transaction.
 - Put the plain shared application-error contract outside `domain`; `PlatformModule` maps its stable codes to existing HTTP statuses and envelopes.
 - Put Site status and geometry policies with Site ownership; put Survey date rules with Survey ownership. Keep shared WGS84 geometry rules in a narrow geospatial domain module and generic object-shape checks in shared input parsing. Expose cross-module rules through explicit public exports, not private deep imports.
 - Keep Import as a standalone CLI module with parser, application, and infrastructure layers. It does not become a Nest feature module or depend on HTTP DTOs. It calls Sites and Surveys through their public application operations.
 - Keep the per-process Drizzle provider lifecycle, pinned importer advisory lock, per-Survey transactions, migration ordering, database constraints, source data, and API behavior unchanged.
-- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks production file placement and the approved import matrix without a new package.
+- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks layer placement, DTO/repository folders, and public imports, allowing concrete cross-feature repositories only in `SiteSurveyModule` and Import CLI composition.
 - Update `DESIGN.md` with physical ownership, allowed dependencies, public module exports, opaque transaction context, provider lifecycle, and material trade-offs.
 
 ## Testing Decisions
@@ -61,7 +61,7 @@ Restructure backend production code into explicit physical modules and Clean Arc
 - [ ] Application and domain code import no NestJS, HTTP, Drizzle, or `pg` symbols.
 - [ ] HTTP controllers and guards access persistence only through application interfaces; AuthGuard still resolves active users and current roles on every protected request.
 - [ ] Drizzle repositories, SQL, and database-provider details stay in platform or feature infrastructure.
-- [ ] The Site–Survey coordinator shares one opaque transaction context across module-owned persistence ports, with no circular feature-module dependency.
+- [ ] The Site–Survey coordinator shares one opaque transaction context across module-owned repository contracts, with no circular feature-module dependency.
 - [ ] Shared rules and application errors live in explicit shared ownership areas and cross-module imports use public exports.
 - [ ] The architecture check fails on forbidden file placement or dependency direction and runs as part of backend tests.
 - [ ] Existing API, database, migration, spatial, authorization, import, and concurrency behavior remains unchanged.
@@ -73,9 +73,9 @@ Restructure backend production code into explicit physical modules and Clean Arc
 - New Site, Survey, Auth, Import, or frontend features.
 - Changes to API routes, response contracts, status policy, database schema, migrations, seed data, or authorization policy.
 - Replacing PostgreSQL, NestJS, Drizzle, or the separate frontend/backend packages.
-- Microservices, a monorepo, generic repository bases, CQRS, event buses, or a port for every query.
+- Microservices, a monorepo, generic repository bases, CQRS, event buses, or a contract for every query.
 - Production deployment or security-hardening work.
 
 ## Further Notes
 
-This is a follow-up to the earlier backend architecture refactor. It makes the physical layout and dependency rules mandatory, rather than accepting semantic layering at feature roots. Use `refactor:` for every commit; do not change Step numbering or begin Step 6.
+This physical-layer follow-up is complete. It aligns the module tree, folder conventions, and allowed imports with the implemented architecture. Use `refactor:` for this work; do not change Step numbering or begin Step 6.

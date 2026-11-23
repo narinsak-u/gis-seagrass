@@ -26,8 +26,8 @@ Restructure backend production code into explicit physical modules and Clean Arc
 10. As a backend maintainer, I want Site–Survey workflows to share one transaction through an opaque application context, so that the application layer does not depend on Drizzle transaction types.
 11. As an importer operator, I want CLI parsing, orchestration, Province/Species persistence, and reports to remain independent of HTTP DTOs and Nest startup, so that the standalone importer remains usable.
 12. As an importer operator, I want Site and Survey imports to use their owning application operations, so that imports preserve the same invariants as API writes.
-13. As a backend maintainer, I want Drizzle repositories and SQL in infrastructure adapters, so that database details stay at the outer layer.
-14. As a backend maintainer, I want only real persistence and collaboration seams to have ports, so that the refactor avoids pass-through abstractions.
+13. As a backend maintainer, I want Drizzle repositories and SQL in infrastructure repositories, so that database details stay at the outer layer.
+14. As a backend maintainer, I want only real persistence and collaboration seams to have application contracts, so that the refactor avoids pass-through abstractions.
 15. As a project maintainer, I want an automated architecture check, so that file placement and dependency rules cannot silently regress.
 16. As a project maintainer, I want the architecture decision and trade-offs recorded, so that future changes preserve the intended module relationships.
 
@@ -35,15 +35,15 @@ Restructure backend production code into explicit physical modules and Clean Arc
 
 - Keep `app.module.ts` and `main.ts` as the composition root. Add a `PlatformModule` for database provider, health endpoint, and global HTTP error mapping.
 - Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, guards, OpenAPI, and DTOs in `http`, with DTO classes under `http/dto`; group application operations under `application/use-cases` and persistence contracts under `application/contracts`; keep business rules and types in `domain`; put concrete `Drizzle*Repository` classes under `infrastructure/repositories`.
-- Keep application classes plain TypeScript. Nest provider factories compose application use cases and infrastructure adapters. The HTTP layer calls application interfaces and does not query persistence directly.
+- Keep application classes plain TypeScript. Nest providers wire application use cases to infrastructure implementations. The HTTP layer calls application contracts and does not query persistence directly.
 - Move active-user and current-role lookup behind the Auth application repository contract, implemented by a Drizzle repository. The AuthGuard preserves per-request status and role checks.
-- Keep cross-feature Site–Survey coordination in the dedicated `site-survey-workflows` module. Its single root `SiteSurveyModule` composes the workflow and transaction adapters; do not create duplicate feature submodules or infrastructure Nest modules.
+- Keep cross-feature Site–Survey coordination in the dedicated `site-survey-workflows` module. Its single root `SiteSurveyModule` binds Site- and Survey-owned Drizzle repositories to public application contracts. Import infrastructure may bind those repositories when composing its standalone CLI operations. These are the only composition-root exceptions to the public-import rule; they do not implement Site/Survey SQL, which stays in their owning repositories. Import may keep SQL for its own persistence.
 - Name persistence contracts `*Repository` and their Drizzle implementations `Drizzle*Repository`. Keep non-persistence contracts named for their role, such as `SiteSurveyTransactionRunner`; avoid generic service wrappers and endpoint-per-file use cases.
 - Put the plain shared application-error contract outside `domain`; `PlatformModule` maps its stable codes to existing HTTP statuses and envelopes.
 - Put Site status and geometry policies with Site ownership; put Survey date rules with Survey ownership. Keep shared WGS84 geometry rules in a narrow geospatial domain module and generic object-shape checks in shared input parsing. Expose cross-module rules through explicit public exports, not private deep imports.
 - Keep Import as a standalone CLI module with parser, application use cases, and infrastructure. It does not become a Nest feature module or depend on HTTP DTOs. It calls Sites and Surveys through their public application operations.
 - Keep the per-process Drizzle provider lifecycle, pinned importer advisory lock, per-Survey transactions, migration ordering, database constraints, source data, and API behavior unchanged.
-- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks physical layers, application folder conventions, DTO and repository placement, public module exports, and the approved composition-root adapter imports.
+- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks physical layers, application folder conventions, DTO and repository placement, public module exports, and permits concrete cross-feature repository imports only from the `SiteSurveyModule` and Import CLI composition roots.
 - Update `DESIGN.md` with physical ownership, allowed dependencies, public module exports, opaque transaction context, provider lifecycle, and material trade-offs.
 
 ## Testing Decisions
@@ -76,7 +76,7 @@ Restructure backend production code into explicit physical modules and Clean Arc
 - New Site, Survey, Auth, Import, or frontend features.
 - Changes to API routes, response contracts, status policy, database schema, migrations, seed data, or authorization policy.
 - Replacing PostgreSQL, NestJS, Drizzle, or the separate frontend/backend packages.
-- Microservices, a monorepo, generic repository bases, CQRS, event buses, or a port for every query.
+- Microservices, a monorepo, generic repository bases, CQRS, event buses, or a contract for every query.
 - Production deployment or security-hardening work.
 
 ## Further Notes

@@ -8,5 +8,5 @@
 
 - [ ] Public Site list, GeoJSON, and detail routes preserve their existing filters, pagination, response shapes, and active-Site visibility.
 - [ ] Every public Site read includes current derived `siteStatus`, including `no_data`; latest-date averaging and recomputation after Survey changes remain intact.
-- [ ] Site-status reads use the agreed Site–Survey application seam without direct cross-module table or infrastructure access.
+- [ ] Site-status reads use the agreed Site–Survey application seam; feature application code and controllers do not directly access peer tables or infrastructure.
 - [ ] Real HTTP/PostGIS tests cover all public response shapes and status edge cases; OpenAPI remains accurate.
