@@ -32,6 +32,14 @@ Site PATCH locks the Site row and compares the client's version within the updat
 
 Development account seeding requires an explicit flag and inserts only missing accounts. API startup requires a deployment-specific `JWT_SECRET`; the example signing secret and credentials are for local development only.
 
+## Backend architecture refactor
+
+Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest; the standalone importer CLI owns its provider. Health retains a pool-level PostGIS check. This avoids separate connection owners in the API while keeping health independent of ORM behavior.
+
+Route workflows spanning Sites and Surveys through a small application-level coordinator. It owns the transaction boundary and passes one Drizzle transaction to both modules' persistence ports. This avoids circular module dependencies and direct cross-module data access while preserving per-Site locking and atomicity.
+
+Use a global transforming, whitelisting `ValidationPipe` with explicit query transforms and no implicit body coercion. Map validation errors to the existing API envelope; preserve parser-before-guard and guard-before-DTO-validation ordering. Keep Import orchestration and seed-only Province/Species persistence separate from HTTP DTOs; delegate Site and Survey writes to their owning application operations.
+
 ## Migration ordering
 
 Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. Step 5 adds `0003_add_active_users.sql`, defaulting existing users to active. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
