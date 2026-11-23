@@ -1,3 +1,6 @@
+import type { SiteStatus } from '../domain/site-status';
+export type { SiteStatus } from '../domain/site-status';
+
 export interface SiteSummary {
   code: string;
   name: string;
@@ -6,7 +9,6 @@ export interface SiteSummary {
   version: number;
 }
 
-export type SiteStatus = 'very_good' | 'good' | 'fair' | 'poor' | 'no_data';
 
 export interface PublicSiteSummary extends SiteSummary {
   siteStatus: SiteStatus;
