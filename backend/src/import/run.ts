@@ -3,9 +3,10 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { PoolClient } from 'pg';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
-import { parseProvinceCollection, parseProvinceFeature, ProvinceValidationError, type ProvinceRecord } from './province';
+import { parseProvinceCollection } from './province';
 import { importSiteFeatures, parseSiteCollection } from './sites';
-import { importSpecies, parseSpeciesArray } from './species';
+import { parseSpeciesArray } from './species';
+import { importProvinces, importSpecies } from './infrastructure/reference-data';
 import { importSurveys, parseSurveysCsv } from './surveys';
 
 export interface ImportSummary {
@@ -50,56 +51,18 @@ export async function runImport(provider?: DatabaseProvider): Promise<ImportSumm
     surveys: { inserted: 0, skipped_existing: 0, rejected: 0 },
   };
   const report: Array<[string, number, string]> = [];
-  const seen = new Set<string>();
   let client: PoolClient | undefined;
   let locked = false;
   try {
     client = await pool.connect();
     await client.query('SELECT pg_advisory_lock($1)', [192837465]);
     locked = true;
-    for (const [index, feature] of provinceFeatures.entries()) {
-      let province: ProvinceRecord;
-      try {
-        province = parseProvinceFeature(feature);
-      } catch (error) {
-        const reason = error instanceof ProvinceValidationError ? error.message : 'INVALID_FEATURE';
-        report.push(['provinces.geojson', index + 1, reason]);
-        summary.provinces.rejected++;
-        continue;
-      }
-      if (seen.has(province.code)) {
-        report.push(['provinces.geojson', index + 1, 'DUPLICATE_CODE']);
-        summary.provinces.rejected++;
-        continue;
-      }
-      const geometry = JSON.stringify(province.geometry);
-      const validation = await client.query<{ valid: boolean; empty: boolean }>(
-        `SELECT ST_IsValid(g.geom) AS valid, ST_IsEmpty(g.geom) AS empty
-           FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) AS g`,
-        [geometry],
-      );
-      if (!validation.rows[0].valid || validation.rows[0].empty) {
-        report.push(['provinces.geojson', index + 1, 'INVALID_GEOMETRY']);
-        summary.provinces.rejected++;
-        continue;
-      }
-      seen.add(province.code);
-      const result = await client.query(
-        `INSERT INTO provinces (code, name_th, geom)
-         VALUES ($1, $2, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)))
-         ON CONFLICT (code) DO NOTHING`,
-        [province.code, province.nameTh, geometry],
-      );
-      if (result.rowCount) summary.provinces.inserted++;
-      else summary.provinces.skipped_existing++;
-    }
+    const provinces = await importProvinces(client, provinceFeatures);
+    summary.provinces = provinces.summary;
+    report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
     const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
     const species = await importSpecies(client, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
-    summary.species = {
-      inserted: species.inserted,
-      skipped_existing: species.skipped_existing,
-      rejected: species.rejected,
-    };
+    summary.species = species.summary;
     report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
     const siteResult = await importSiteFeatures(client, siteFeatures);
     summary.sites = siteResult.summary;
