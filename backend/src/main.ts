@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { createDatabaseProvider } from './database/provider';
-import { runMigrations } from './database/migrate';
+import { createDatabaseProvider } from './platform/database';
+import { runMigrations } from './platform/database';
 import { runImport } from './import/run';
 import { requireJwtSecret, seedDevelopmentAccounts } from './auth/auth.module';
 import { setupSwagger } from './swagger';

@@ -2,14 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
-import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
-import { parseProvinceCollection } from './province';
-import { importSiteFeatures, parseSiteCollection } from './sites';
-import { parseSpeciesArray } from './species';
+import { parseProvinceCollection } from './domain/province';
+import { importSiteFeatures } from './application/sites';
+import { parseSiteCollection } from './domain/sites';
+import { parseSpeciesArray } from './domain/species';
 import { importProvinces, importSpecies } from './infrastructure/reference-data';
-import { importSurveys, parseSurveysCsv } from './surveys';
+import { importSurveys } from './application/surveys';
+import { parseSurveysCsv } from './domain/surveys';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };

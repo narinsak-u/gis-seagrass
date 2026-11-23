@@ -1,19 +1,32 @@
 import { Module } from '@nestjs/common';
-import type { DatabaseProvider } from '../database/provider';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth-service';
+import type { DatabaseProvider } from '../platform/database';
+import { AuthService } from './application/auth-service';
+import { requireJwtSecret } from './application/auth-token';
+import { AUTH_STORE_PORT, type AuthStorePort } from './application/auth-store.port';
+import { AuthGuard } from './http/auth.guard';
+import { AuthController } from './http/auth.controller';
 import { DrizzleAuthStore } from './infrastructure/drizzle-auth-store';
-import { AuthGuard } from './auth.guard';
-import { AUTH_STORE_PORT } from './auth-store.port';
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthGuard, AuthService, DrizzleAuthStore, { provide: AUTH_STORE_PORT, useExisting: DrizzleAuthStore }],
+  providers: [
+    AuthGuard,
+    DrizzleAuthStore,
+    { provide: AUTH_STORE_PORT, useExisting: DrizzleAuthStore },
+    {
+      provide: AuthService,
+      useFactory: (users: AuthStorePort) => new AuthService(users),
+      inject: [AUTH_STORE_PORT],
+    },
+  ],
   exports: [AuthGuard, AuthService],
 })
 export class AuthModule {}
 
-export { requireJwtSecret } from './auth-token';
+export { AuthGuard, Roles } from './http/auth.guard';
+export type { AuthenticatedRequest } from './http/auth.guard';
+export type { ActorRole, AuthenticatedActor } from './domain/actor';
+export { requireJwtSecret };
 
 export async function seedDevelopmentAccounts(database: DatabaseProvider, enabled: boolean): Promise<void> {
   if (!enabled) return;

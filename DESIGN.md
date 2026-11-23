@@ -34,13 +34,15 @@ Development account seeding requires an explicit flag and inserts only missing a
 
 ## Backend architecture refactor
 
-Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer CLI owns and closes its provider without starting Nest. Its session advisory lock stays pinned to one pool client; Sites and Surveys use that same pool through their module-owned Drizzle adapters.
+Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer owns and closes its provider without starting Nest. Its session advisory lock stays pinned to one pool client.
 
-Route workflows spanning Sites and Surveys through the application-level `SiteSurveyCoordinator`. It owns the transaction boundary and passes one Drizzle transaction to Site- and Survey-owned persistence ports. Survey writes use `SurveyWriter`, including imports, so site locking, distance checks, species association atomicity, and per-Survey rollback remain shared with API behavior. Imports keep null actor history.
+Sites, Surveys, and Auth each own `http`, `application`, `domain`, and `infrastructure` layers. Platform owns database schema and migrations, health checks, and global HTTP error mapping. Shared application errors, generic input checks, and WGS84 geometry rules live outside feature modules. Feature and cross-feature rules cross modules through explicit public exports.
 
-Site, Survey, and Auth modules own their HTTP, application, domain, and infrastructure responsibilities. Import owns source parsing, reporting, CLI orchestration, and Province/Species seed persistence; it composes the existing Site and Survey application operations without starting the HTTP application. Auth login and account seeding use an Auth application operation and Drizzle-owned persistence. HTTP controllers contain no database queries.
+Workflows spanning Sites and Surveys go through the application-level `SiteSurveyCoordinator`. It owns transaction sequencing and passes one opaque `SiteWriteTransaction` context through Site- and Survey-owned persistence ports. The Drizzle transaction runner and adapters alone unwrap that context. Survey writes use `SurveyWriter`, including imports, so site locking, distance checks, species association atomicity, and per-Survey rollback remain shared with API behavior. Imports keep null actor history.
 
-Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, advisory locks, and query-builder gaps as explicit SQL in module-owned infrastructure. Health retains its pool-level PostGIS check. This keeps spatial behavior visible without adding generic repositories or hiding transaction boundaries.
+Import owns parser, application, and infrastructure responsibilities while remaining a standalone CLI. It composes the Site and Survey application operations without starting the HTTP application. Auth login and active-user/current-role lookups use application ports with Drizzle-owned persistence. HTTP controllers contain no database queries.
+
+Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, advisory locks, and query-builder gaps as explicit SQL in infrastructure. Health retains its pool-level PostGIS check. This keeps spatial behavior visible without adding generic repositories or hiding transaction boundaries.
 
 HTTP request DTOs use one global transforming, whitelisting `ValidationPipe`; query conversion is explicit and request bodies are not coerced. `ApiErrorFilter` maps framework-independent application errors to HTTP statuses and preserves the shared error envelope.
 

@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { provinces, species as speciesTable } from '../../database/schema';
-import type { DatabaseProvider } from '../../database/provider';
-import { ProvinceValidationError, parseProvinceFeature, type ProvinceRecord } from '../province';
-import { parseSpeciesRecord, SpeciesValidationError, type SpeciesRecord } from '../species';
+import { provinces, species as speciesTable } from '../../platform/database';
+import type { DatabaseProvider } from '../../platform/database';
+import { ProvinceValidationError, parseProvinceFeature, type ProvinceRecord } from '../domain/province';
+import { parseSpeciesRecord, SpeciesValidationError, type SpeciesRecord } from '../domain/species';
 
 export interface ReferenceImportResult {
   summary: { inserted: number; skipped_existing: number; rejected: number };

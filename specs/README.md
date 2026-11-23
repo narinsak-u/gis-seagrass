@@ -6,7 +6,7 @@ These specifications define the implementation plan for the **Seagrass Monitorin
 
 ## Roadmap
 
-Before beginning Step 6, the backend architecture refactor described in [`backend-architecture-refactor.md`](backend-architecture-refactor.md) is a confirmed preparatory unit of work. It does not add Step 6 requirements or change the Step numbering.
+Before beginning Step 6, the backend architecture refactor and its physical-layer follow-up in [`backend-architecture-refactor.md`](backend-architecture-refactor.md) and [`backend-architecture-structure.md`](backend-architecture-structure.md) are confirmed preparatory work. Neither adds Step 6 requirements or changes Step numbering.
 
 | File | Scope | Priority | Status |
 | --- | --- | --- | --- |

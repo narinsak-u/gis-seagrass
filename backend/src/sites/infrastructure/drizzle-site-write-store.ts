@@ -1,16 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { ApplicationError } from '../../domain/application-error';
+import { ApplicationError } from '../../shared';
 import { sql } from 'drizzle-orm';
-import type { SiteWriteTransaction } from '../../site-survey/transaction';
-import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort } from '../site-write.port';
+import type { SiteWriteTransaction } from '../../site-survey';
+import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort } from '../application/site-write.port';
+import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure';
 
 @Injectable()
 export class DrizzleSiteWriteStore implements SiteWritePort {
   deriveSpatial(tx: SiteWriteTransaction, source: string) {
-    return deriveSiteSpatial(tx, source);
+    return deriveSiteSpatial(asDrizzleTransaction(tx), source);
   }
 
-  async create(tx: SiteWriteTransaction, site: SiteWriteInput, actorId: string): Promise<SiteFeature> {
+  async create(context: SiteWriteTransaction, site: SiteWriteInput, actorId: string): Promise<SiteFeature> {
+    const tx = asDrizzleTransaction(context);
     const source = JSON.stringify(site.geometry);
     const spatial = await deriveSiteSpatial(tx, source);
     const result = await tx.execute<{ version: number; geometry: SiteFeature['geometry'] }>(sql`
@@ -21,13 +23,15 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     `);
     return feature(site.code, site.name, spatial.provinceCode, spatial.areaRai, result.rows[0].version, result.rows[0].geometry);
   }
-  async hasCode(tx: SiteWriteTransaction, code: string): Promise<boolean> {
+  async hasCode(context: SiteWriteTransaction, code: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${code} LIMIT 1`);
     return result.rows.length > 0;
   }
 
 
-  async import(tx: SiteWriteTransaction, site: SiteWriteInput): Promise<boolean> {
+  async import(context: SiteWriteTransaction, site: SiteWriteInput): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const existing = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${site.code} LIMIT 1`);
     if (existing.rows.length) return false;
     const source = JSON.stringify(site.geometry);
@@ -42,7 +46,8 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
   }
 
 
-  async lock(tx: SiteWriteTransaction, code: string): Promise<LockedSite | null> {
+  async lock(context: SiteWriteTransaction, code: string): Promise<LockedSite | null> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ id: string; version: number; name: string; province_code: string; area_rai: string; geometry: SiteFeature['geometry'] }>(sql`
       SELECT id::text, version, name, province_code, area_rai::text,
              ST_AsGeoJSON(geom, 15)::jsonb AS geometry
@@ -60,7 +65,8 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     };
   }
 
-  async lockForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number): Promise<{ id: string; within: boolean } | null> {
+  async lockForSurvey(context: SiteWriteTransaction, code: string, lon: number, lat: number): Promise<{ id: string; within: boolean } | null> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ id: string; within: boolean }>(sql`
       SELECT id::text, ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, geom::geography, 50) AS within
         FROM sites WHERE code = ${code} AND deleted_at IS NULL FOR UPDATE
@@ -68,14 +74,16 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     return result.rows[0] ?? null;
   }
 
-  async lockActive(tx: SiteWriteTransaction, id: string): Promise<boolean> {
+  async lockActive(context: SiteWriteTransaction, id: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute(sql`
       SELECT id FROM sites WHERE id = ${id}::bigint AND deleted_at IS NULL FOR UPDATE
     `);
     return result.rows.length > 0;
   }
 
-  async withinDistance(tx: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean> {
+  async withinDistance(context: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ within: boolean }>(sql`
       SELECT ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, geom::geography, 50) AS within
         FROM sites WHERE id = ${id}::bigint AND deleted_at IS NULL
@@ -83,7 +91,8 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     return result.rows[0]?.within ?? false;
   }
 
-  async update(tx: SiteWriteTransaction, site: LockedSite, patch: SitePatch, actorId: string, spatial?: SiteSpatial): Promise<SiteFeature> {
+  async update(context: SiteWriteTransaction, site: LockedSite, patch: SitePatch, actorId: string, spatial?: SiteSpatial): Promise<SiteFeature> {
+    const tx = asDrizzleTransaction(context);
     const result = spatial
       ? await tx.execute<{ version: number; name: string; province_code: string; area_rai: string; geometry: SiteFeature['geometry'] }>(sql`
           UPDATE sites SET name = COALESCE(${patch.name ?? null}, name), province_code = ${spatial.provinceCode}, area_rai = ${spatial.areaRai},
@@ -101,7 +110,8 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     return feature(site.code, row.name, row.province_code, row.area_rai, row.version, row.geometry);
   }
 
-  async retire(tx: SiteWriteTransaction, site: LockedSite, actorId: string): Promise<void> {
+  async retire(context: SiteWriteTransaction, site: LockedSite, actorId: string): Promise<void> {
+    const tx = asDrizzleTransaction(context);
     await tx.execute(sql`
       UPDATE sites SET deleted_at = CURRENT_TIMESTAMP, updated_by = ${actorId}, updated_at = CURRENT_TIMESTAMP
       WHERE id = ${site.id}::bigint
@@ -109,7 +119,7 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
   }
 }
 
-async function deriveSiteSpatial(tx: SiteWriteTransaction, source: string): Promise<{ provinceCode: string; areaRai: string }> {
+async function deriveSiteSpatial(tx: DrizzleTransaction, source: string): Promise<{ provinceCode: string; areaRai: string }> {
   const result = await tx.execute<{ valid: boolean; empty: boolean; province_code: string | null; area_rai: string | null }>(sql`
     WITH candidate AS MATERIALIZED (
       SELECT ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326) AS geom

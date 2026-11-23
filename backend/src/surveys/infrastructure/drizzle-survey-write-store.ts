@@ -1,16 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
-import type { SiteWriteTransaction } from '../../site-survey/transaction';
-import type { SurveyInput, SurveyWritePort, SurveyWriteResponse } from '../survey-write.port';
+import type { SiteWriteTransaction } from '../../site-survey';
+import type { SurveyInput, SurveyWritePort, SurveyWriteResponse } from '../application/survey-write.port';
+import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure';
 
 @Injectable()
 export class DrizzleSurveyWriteStore implements SurveyWritePort {
-  async existsRef(tx: SiteWriteTransaction, ref: string): Promise<boolean> {
+  async existsRef(context: SiteWriteTransaction, ref: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute(sql`SELECT 1 FROM surveys WHERE survey_ref = ${ref}`);
     return result.rows.length > 0;
   }
 
-  async import(tx: SiteWriteTransaction, siteId: string, ref: string, input: SurveyInput): Promise<boolean> {
+  async import(context: SiteWriteTransaction, siteId: string, ref: string, input: SurveyInput): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
       VALUES (${siteId}::bigint, ${ref}, ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326),
@@ -26,35 +29,41 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
   }
 
 
-  async siteId(tx: SiteWriteTransaction, id: string): Promise<string | null> {
+  async siteId(context: SiteWriteTransaction, id: string): Promise<string | null> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ site_id: string }>(sql`SELECT site_id::text FROM surveys WHERE id = ${id}::bigint`);
     return result.rows[0]?.site_id ?? null;
   }
 
-  async lock(tx: SiteWriteTransaction, id: string, siteId: string): Promise<boolean> {
+  async lock(context: SiteWriteTransaction, id: string, siteId: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute(sql`SELECT id FROM surveys WHERE id = ${id}::bigint AND site_id = ${siteId}::bigint FOR UPDATE`);
     return result.rows.length > 0;
   }
 
-  async today(tx: SiteWriteTransaction): Promise<string> {
+  async today(context: SiteWriteTransaction): Promise<string> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ today: string }>(sql`SELECT (clock_timestamp() AT TIME ZONE 'Asia/Bangkok')::date::text AS today`);
     return result.rows[0].today;
   }
 
-  async hasSpecies(tx: SiteWriteTransaction, codes: string[]): Promise<boolean> {
+  async hasSpecies(context: SiteWriteTransaction, codes: string[]): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     if (codes.length === 0) return true;
     const result = await tx.execute<{ code: string }>(sql`SELECT code FROM species WHERE code IN (${sql.join(codes.map((code) => sql`${code}`), sql`, `)})`);
     return result.rows.length === codes.length;
   }
 
-  async species(tx: SiteWriteTransaction, id: string): Promise<string[]> {
+  async species(context: SiteWriteTransaction, id: string): Promise<string[]> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ species: string[] }>(sql`
       SELECT COALESCE(array_agg(species_code), ARRAY[]::text[]) AS species FROM survey_species WHERE survey_id = ${id}::bigint
     `);
     return result.rows[0].species;
   }
 
-  async create(tx: SiteWriteTransaction, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
+  async create(context: SiteWriteTransaction, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
+    const tx = asDrizzleTransaction(context);
     const inserted = await tx.execute<{ id: string }>(sql`
       INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, note, created_by, updated_by)
       VALUES (${siteId}::bigint, ST_SetSRID(ST_MakePoint(${input.lon!}, ${input.lat!}), 4326), ${input.surveyed_on}::date,
@@ -65,7 +74,8 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
     return this.response(tx, inserted.rows[0].id);
   }
 
-  async update(tx: SiteWriteTransaction, id: string, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
+  async update(context: SiteWriteTransaction, id: string, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
+    const tx = asDrizzleTransaction(context);
     const updates: SQL[] = [];
     if (input.lon !== undefined) updates.push(sql`geom = ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)`);
     if (input.surveyed_on !== undefined) updates.push(sql`surveyed_on = ${input.surveyed_on}::date`);
@@ -81,19 +91,20 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
   }
 
 
-  async remove(tx: SiteWriteTransaction, id: string): Promise<void> {
+  async remove(context: SiteWriteTransaction, id: string): Promise<void> {
+    const tx = asDrizzleTransaction(context);
     await tx.execute(sql`DELETE FROM survey_species WHERE survey_id = ${id}::bigint`);
     await tx.execute(sql`DELETE FROM surveys WHERE id = ${id}::bigint`);
   }
 
-  private async replaceSpecies(tx: SiteWriteTransaction, id: string, codes: string[]): Promise<void> {
+  private async replaceSpecies(tx: DrizzleTransaction, id: string, codes: string[]): Promise<void> {
     await tx.execute(sql`DELETE FROM survey_species WHERE survey_id = ${id}::bigint`);
     for (const code of codes) {
       await tx.execute(sql`INSERT INTO survey_species (survey_id, species_code) VALUES (${id}::bigint, ${code})`);
     }
   }
 
-  private async response(tx: SiteWriteTransaction, id: string): Promise<SurveyWriteResponse> {
+  private async response(tx: DrizzleTransaction, id: string): Promise<SurveyWriteResponse> {
     const result = await tx.execute<Omit<SurveyWriteResponse, 'siteStatus'> & { site_id: string }>(sql`
       SELECT s.id::text, s.site_id::text, ST_X(s.geom)::float8 AS lon, ST_Y(s.geom)::float8 AS lat,
              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note,

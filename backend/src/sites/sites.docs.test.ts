@@ -3,8 +3,8 @@ import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
-import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
+import { runMigrations } from '../platform/database';
 import { setupSwagger } from '../swagger';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;

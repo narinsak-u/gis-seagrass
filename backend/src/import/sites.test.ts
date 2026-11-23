@@ -7,11 +7,11 @@ import { spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import * as schema from '../database/schema';
-import { runMigrations } from '../database/migrate';
+import * as schema from '../platform/database';
+import { runMigrations } from '../platform/database';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
-import { importSiteFeatures } from './sites';
-import { parseSiteFeature } from '../sites/site-feature';
+import { importSiteFeatures } from './application/sites';
+import { parseSiteFeature } from '../sites';
 
 test('Site parser requires nonempty identity and finite in-range lon/lat polygon coordinates', () => {
   const feature = (coordinates: unknown) => ({

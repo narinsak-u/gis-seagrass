@@ -7,10 +7,10 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
-import { runMigrations } from '../database/migrate';
-import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
+import { runMigrations } from '../platform/database';
+import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { setupSwagger } from '../swagger';
-import { hashPassword, signAccessToken, verifyAccessToken } from './auth-token';
+import { hashPassword, signAccessToken, verifyAccessToken } from './application/auth-token';
 import { seedDevelopmentAccounts } from './auth.module';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;

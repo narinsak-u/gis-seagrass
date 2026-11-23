@@ -17,7 +17,7 @@ WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=production-dependencies --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/src/database/migrations ./src/database/migrations
+COPY --from=build --chown=node:node /app/src/platform/database/migrations ./src/platform/database/migrations
 USER node
 EXPOSE 3000
 CMD ["npm", "run", "start:prod"]

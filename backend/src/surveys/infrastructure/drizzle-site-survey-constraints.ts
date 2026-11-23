@@ -1,18 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { SiteWriteTransaction } from '../../site-survey/transaction';
-import type { SiteSurveyConstraintsPort } from '../site-survey-constraints.port';
+import type { SiteWriteTransaction } from '../../site-survey';
+import type { SiteSurveyConstraintsPort } from '../application/site-survey-constraints.port';
+import { asDrizzleTransaction } from '../../site-survey/infrastructure';
 
 @Injectable()
 export class DrizzleSiteSurveyConstraints implements SiteSurveyConstraintsPort {
-  async hasSurveys(tx: SiteWriteTransaction, siteId: string): Promise<boolean> {
+  async hasSurveys(context: SiteWriteTransaction, siteId: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ exists: boolean }>(sql`
       SELECT EXISTS (SELECT 1 FROM surveys WHERE site_id = ${siteId}::bigint) AS exists
     `);
     return result.rows[0].exists;
   }
 
-  async hasSurveysOutside(tx: SiteWriteTransaction, siteId: string, geometry: string): Promise<boolean> {
+  async hasSurveysOutside(context: SiteWriteTransaction, siteId: string, geometry: string): Promise<boolean> {
+    const tx = asDrizzleTransaction(context);
     const result = await tx.execute<{ exists: boolean }>(sql`
       SELECT EXISTS (
         SELECT 1 FROM surveys

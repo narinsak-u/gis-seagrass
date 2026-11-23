@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
-import { runMigrations } from '../database/migrate';
-import { parseProvinceCollection, parseProvinceFeature } from './province';
+import { runMigrations } from '../platform/database';
+import { parseProvinceCollection, parseProvinceFeature } from './domain/province';
 
 
 test('province parser rejects malformed collections and invalid WGS84 coordinates', () => {
