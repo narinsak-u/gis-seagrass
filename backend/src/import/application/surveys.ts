@@ -1,7 +1,7 @@
-import { isStrictCalendarDate } from '../../surveys/domain';
+import { isStrictCalendarDate } from '../../surveys';
 import type { SurveyInput } from '../../surveys';
 import type { SurveyWriter } from '../../surveys';
-import type { ParsedSurvey } from '../domain/surveys';
+import type { ParsedSurvey } from '../parser/surveys';
 
 export interface SurveyImportResult {
   summary: { inserted: number; skipped_existing: number; rejected: number };

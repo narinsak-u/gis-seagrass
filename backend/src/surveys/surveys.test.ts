@@ -158,7 +158,7 @@ async function waitForSiteLock(): Promise<boolean> {
   while (Date.now() < deadline) {
     const result = await pool!.query<{ blocked: boolean }>(
       `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-       AND wait_event_type = 'Lock' AND query LIKE '%SELECT%sites%FOR%UPDATE%') AS blocked`,
+       AND wait_event_type = 'Lock' AND query ILIKE '%select%sites%for%update%') AS blocked`,
     );
     if (result.rows[0].blocked) return true;
     // PostgreSQL lock scheduling uses the real database clock.

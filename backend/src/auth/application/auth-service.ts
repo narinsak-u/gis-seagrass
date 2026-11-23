@@ -2,9 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ApplicationError } from '../../shared';
 import type { AuthenticatedActor } from '../domain/actor';
 import type { AuthStorePort } from './auth-store.port';
-import { hashPassword, signAccessToken, verifyAccessToken, verifyPassword } from './auth-token';
-
-const TOKEN_LIFETIME_SECONDS = 900;
+import { hashPassword, signAccessToken, TOKEN_LIFETIME_SECONDS, verifyAccessToken, verifyPassword } from './auth-token';
 const DEVELOPMENT_ACCOUNTS = [
   { role: 'viewer', password: 'dev-viewer-password' },
   { role: 'editor', password: 'dev-editor-password' },

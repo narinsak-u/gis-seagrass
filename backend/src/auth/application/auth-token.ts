@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { isRecord } from '../../shared';
 
 const scrypt = promisify(scryptCallback);
-const TOKEN_LIFETIME_SECONDS = 900;
+export const TOKEN_LIFETIME_SECONDS = 900;
 
 export interface AccessTokenClaims {
   sub: string;

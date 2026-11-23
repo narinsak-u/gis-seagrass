@@ -1,11 +1,11 @@
 import { ApplicationError } from '../../shared';
-import { SurveyStatusReader, type LatestSurveySummary, type SiteSurveyConstraintsPort } from '../../surveys';
+import type { LatestSurveySummary, SiteSurveyConstraintsPort, SurveyStatusReaderPort } from '../../surveys';
 import { deriveSiteStatus, type SitePatch, type SiteSpatial, type SiteStatus, type SiteWriteInput, type SiteWritePort } from '../../sites';
 import type { SiteWriteTransaction, SiteSurveyTransactionRunner } from './transaction';
 
 export class SiteSurveyCoordinator {
   constructor(
-    private readonly surveys: SurveyStatusReader,
+    private readonly surveys: SurveyStatusReaderPort,
     private readonly transactions: SiteSurveyTransactionRunner,
     private readonly sites: SiteWritePort,
     private readonly surveyConstraints: SiteSurveyConstraintsPort,

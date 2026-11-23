@@ -1,15 +1,16 @@
+import { deriveSiteStatus } from '../../sites';
 import { Injectable } from '@nestjs/common';
-import { sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { species, surveySpecies, surveys } from '../../platform/database';
 import type { SiteWriteTransaction } from '../../site-survey';
 import type { SurveyInput, SurveyWritePort, SurveyWriteResponse } from '../application/survey-write.port';
-import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure';
+import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure/drizzle-transaction';
 
 @Injectable()
 export class DrizzleSurveyWriteStore implements SurveyWritePort {
   async existsRef(context: SiteWriteTransaction, ref: string): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute(sql`SELECT 1 FROM surveys WHERE survey_ref = ${ref}`);
-    return result.rows.length > 0;
+    return (await tx.select({ id: surveys.id }).from(surveys).where(eq(surveys.surveyRef, ref)).limit(1)).length > 0;
   }
 
   async import(context: SiteWriteTransaction, siteId: string, ref: string, input: SurveyInput): Promise<boolean> {
@@ -22,8 +23,11 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
       RETURNING id::text
     `);
     if (!inserted.rows.length) return false;
-    for (const code of new Set(input.species!)) {
-      await tx.execute(sql`INSERT INTO survey_species (survey_id, species_code) VALUES (${inserted.rows[0].id}::bigint, ${code})`);
+    const speciesCodes = [...new Set(input.species!)];
+    if (speciesCodes.length) {
+      await tx.insert(surveySpecies).values(speciesCodes.map((speciesCode) => ({
+        surveyId: BigInt(inserted.rows[0].id), speciesCode,
+      })));
     }
     return true;
   }
@@ -31,35 +35,37 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
 
   async siteId(context: SiteWriteTransaction, id: string): Promise<string | null> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute<{ site_id: string }>(sql`SELECT site_id::text FROM surveys WHERE id = ${id}::bigint`);
-    return result.rows[0]?.site_id ?? null;
+    const result = await tx.select({ siteId: surveys.siteId }).from(surveys).where(eq(surveys.id, BigInt(id))).limit(1);
+    return result[0] ? String(result[0].siteId) : null;
   }
 
   async lock(context: SiteWriteTransaction, id: string, siteId: string): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute(sql`SELECT id FROM surveys WHERE id = ${id}::bigint AND site_id = ${siteId}::bigint FOR UPDATE`);
-    return result.rows.length > 0;
+    const result = await tx.select({ id: surveys.id }).from(surveys)
+      .where(and(eq(surveys.id, BigInt(id)), eq(surveys.siteId, BigInt(siteId)))).for('update');
+    return result.length > 0;
   }
 
   async today(context: SiteWriteTransaction): Promise<string> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute<{ today: string }>(sql`SELECT (clock_timestamp() AT TIME ZONE 'Asia/Bangkok')::date::text AS today`);
+    const result = await tx.execute<{ today: string }>(sql`
+      SELECT (clock_timestamp() AT TIME ZONE 'Asia/Bangkok')::date::text AS today
+    `);
     return result.rows[0].today;
   }
-
   async hasSpecies(context: SiteWriteTransaction, codes: string[]): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
     if (codes.length === 0) return true;
-    const result = await tx.execute<{ code: string }>(sql`SELECT code FROM species WHERE code IN (${sql.join(codes.map((code) => sql`${code}`), sql`, `)})`);
-    return result.rows.length === codes.length;
+    const result = await tx.select({ code: species.code }).from(species).where(inArray(species.code, codes));
+    return result.length === codes.length;
   }
 
   async species(context: SiteWriteTransaction, id: string): Promise<string[]> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute<{ species: string[] }>(sql`
-      SELECT COALESCE(array_agg(species_code), ARRAY[]::text[]) AS species FROM survey_species WHERE survey_id = ${id}::bigint
-    `);
-    return result.rows[0].species;
+    const result = await tx.select({
+      species: sql<string[]>`COALESCE(array_agg(${surveySpecies.speciesCode}), ARRAY[]::text[])`,
+    }).from(surveySpecies).where(eq(surveySpecies.surveyId, BigInt(id)));
+    return result[0].species;
   }
 
   async create(context: SiteWriteTransaction, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
@@ -76,16 +82,14 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
 
   async update(context: SiteWriteTransaction, id: string, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
     const tx = asDrizzleTransaction(context);
-    const updates: SQL[] = [];
-    if (input.lon !== undefined) updates.push(sql`geom = ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)`);
-    if (input.surveyed_on !== undefined) updates.push(sql`surveyed_on = ${input.surveyed_on}::date`);
-    if (input.cover_percent !== undefined) updates.push(sql`cover_percent = ${input.cover_percent}::numeric`);
-    if (input.note !== undefined) updates.push(sql`note = ${input.note}`);
-    updates.push(sql`updated_by = ${actorId}::uuid`);
-    await tx.execute(sql`
-      UPDATE surveys SET ${sql.join(updates, sql`, `)}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ${id}::bigint AND site_id = ${siteId}::bigint
-    `);
+    await tx.update(surveys).set({
+      geom: input.lon === undefined ? undefined : sql`ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)`,
+      surveyedOn: input.surveyed_on,
+      coverPercent: input.cover_percent === undefined ? undefined : String(input.cover_percent),
+      note: input.note,
+      updatedBy: actorId,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    }).where(and(eq(surveys.id, BigInt(id)), eq(surveys.siteId, BigInt(siteId))));
     if (input.species !== undefined) await this.replaceSpecies(tx, id, input.species);
     return this.response(tx, id);
   }
@@ -93,14 +97,16 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
 
   async remove(context: SiteWriteTransaction, id: string): Promise<void> {
     const tx = asDrizzleTransaction(context);
-    await tx.execute(sql`DELETE FROM survey_species WHERE survey_id = ${id}::bigint`);
-    await tx.execute(sql`DELETE FROM surveys WHERE id = ${id}::bigint`);
+    await tx.delete(surveySpecies).where(eq(surveySpecies.surveyId, BigInt(id)));
+    await tx.delete(surveys).where(eq(surveys.id, BigInt(id)));
   }
 
   private async replaceSpecies(tx: DrizzleTransaction, id: string, codes: string[]): Promise<void> {
-    await tx.execute(sql`DELETE FROM survey_species WHERE survey_id = ${id}::bigint`);
-    for (const code of codes) {
-      await tx.execute(sql`INSERT INTO survey_species (survey_id, species_code) VALUES (${id}::bigint, ${code})`);
+    await tx.delete(surveySpecies).where(eq(surveySpecies.surveyId, BigInt(id)));
+    if (codes.length) {
+      await tx.insert(surveySpecies).values([...new Set(codes)].map((speciesCode) => ({
+        surveyId: BigInt(id), speciesCode,
+      })));
     }
   }
 
@@ -114,17 +120,12 @@ export class DrizzleSurveyWriteStore implements SurveyWritePort {
        GROUP BY s.id
     `);
     const row = result.rows[0];
-    const status = await tx.execute<{ status: string }>(sql`
-      SELECT CASE
-        WHEN avg(cover_percent) >= 75 THEN 'very_good'
-        WHEN avg(cover_percent) >= 50 THEN 'good'
-        WHEN avg(cover_percent) >= 25 THEN 'fair'
-        ELSE 'poor'
-      END AS status
+    const status = await tx.execute<{ cover_percentages: number[] }>(sql`
+      SELECT COALESCE(array_agg(cover_percent::float8), ARRAY[]::float8[]) AS cover_percentages
       FROM surveys WHERE site_id = ${row.site_id}::bigint
         AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = ${row.site_id}::bigint)
     `);
     const { site_id: _siteId, ...survey } = row;
-    return { ...survey, siteStatus: status.rows[0].status };
+    return { ...survey, siteStatus: deriveSiteStatus(status.rows[0].cover_percentages) };
   }
 }

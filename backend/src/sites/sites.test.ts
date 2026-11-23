@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../platform/database';
 import { createSiteSurveyImportOperations } from '../import/infrastructure/site-survey-operations';
 import { importSurveys, type SurveyImportResult } from '../import/application/surveys';
-import type { ParsedSurvey } from '../import/domain/surveys';
+import type { ParsedSurvey } from '../import/parser/surveys';
 import { AppModule } from '../app.module';
 import { signAccessToken } from '../auth/application/auth-token';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';

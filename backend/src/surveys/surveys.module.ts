@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { SiteSurveyModule } from '../site-survey/site-survey.module';
-import { SURVEY_LIST_READER_PORT, type SurveyListReaderPort } from './application/survey-list-reader.port';
-import { SurveyListReader } from './application/survey-list-reader';
+import { SURVEY_LIST_READER_PORT } from './application/survey-list-reader.port';
 import { DrizzleSurveyListReader } from './infrastructure/drizzle-survey-list-reader';
 import { SurveysController } from './http/surveys.controller';
 
@@ -12,11 +11,6 @@ import { SurveysController } from './http/surveys.controller';
   providers: [
     DrizzleSurveyListReader,
     { provide: SURVEY_LIST_READER_PORT, useExisting: DrizzleSurveyListReader },
-    {
-      provide: SurveyListReader,
-      useFactory: (reader: SurveyListReaderPort) => new SurveyListReader(reader),
-      inject: [SURVEY_LIST_READER_PORT],
-    },
   ],
 })
 export class SurveysModule {}

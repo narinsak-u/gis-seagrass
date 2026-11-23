@@ -1,19 +1,19 @@
 import type { DatabaseProvider } from '../../platform/database';
 import { SiteSurveyCoordinator } from '../../site-survey';
-import { DrizzleSiteSurveyTransactionRunner } from '../../site-survey/infrastructure';
-import { DrizzleSiteWriteStore } from '../../sites/infrastructure';
-import { DrizzleSiteSurveyConstraints, DrizzleSurveyStatusReader, DrizzleSurveyWriteStore } from '../../surveys/infrastructure';
-import { SurveyStatusReader, SurveyWriter } from '../../surveys';
-
+import { createSiteSurveyTransactionRunner } from '../../site-survey/infrastructure/drizzle-transaction-runner';
+import { createSiteWritePort } from '../../sites/infrastructure/sites-infrastructure.module';
+import { createSurveyWriteAdapters } from '../../surveys/infrastructure/surveys-infrastructure.module';
+import { SurveyWriter } from '../../surveys';
 export function createSiteSurveyImportOperations(db: DatabaseProvider['db']): {
   coordinator: SiteSurveyCoordinator;
   surveyWriter: SurveyWriter;
 } {
+  const adapters = createSurveyWriteAdapters(db);
   const coordinator = new SiteSurveyCoordinator(
-    new SurveyStatusReader(new DrizzleSurveyStatusReader(db)),
-    new DrizzleSiteSurveyTransactionRunner(db),
-    new DrizzleSiteWriteStore(),
-    new DrizzleSiteSurveyConstraints(),
+    adapters.statusReader,
+    createSiteSurveyTransactionRunner(db),
+    createSiteWritePort(),
+    adapters.constraints,
   );
-  return { coordinator, surveyWriter: new SurveyWriter(coordinator, new DrizzleSurveyWriteStore()) };
+  return { coordinator, surveyWriter: new SurveyWriter(coordinator, adapters.surveyWriter) };
 }

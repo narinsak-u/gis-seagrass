@@ -5,13 +5,13 @@ import { dirname, resolve } from 'node:path';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
-import { parseProvinceCollection } from './domain/province';
+import { parseProvinceCollection } from './parser/province';
 import { importSiteFeatures } from './application/sites';
-import { parseSiteCollection } from './domain/sites';
-import { parseSpeciesArray } from './domain/species';
+import { parseSiteCollection } from './parser/sites';
+import { parseSpeciesArray } from './parser/species';
 import { importProvinces, importSpecies } from './infrastructure/reference-data';
 import { importSurveys } from './application/surveys';
-import { parseSurveysCsv } from './domain/surveys';
+import { parseSurveysCsv } from './parser/surveys';
 
 export interface ImportSummary {
   provinces: { inserted: number; skipped_existing: number; rejected: number };

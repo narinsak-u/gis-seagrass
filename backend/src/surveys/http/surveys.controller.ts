@@ -1,10 +1,10 @@
-import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Patch, Post, Query, Body, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ApiErrorEnvelope } from '../../platform/http';
 import { parseSurveyId, parseSurveyInput } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.module';
-import { SurveyListReader } from '../application/survey-list-reader';
+import { SURVEY_LIST_READER_PORT, type SurveyListReaderPort } from '../application/survey-list-reader.port';
 import { SurveyWriter } from '../application/survey-writer';
 import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './survey.dto';
 
@@ -12,7 +12,10 @@ import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './survey.dt
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
 @Controller()
 export class SurveysController {
-  constructor(private readonly surveyLists: SurveyListReader, private readonly surveyWriter: SurveyWriter) {}
+  constructor(
+    @Inject(SURVEY_LIST_READER_PORT) private readonly surveyLists: SurveyListReaderPort,
+    private readonly surveyWriter: SurveyWriter,
+  ) {}
 
 
   @Get('sites/:code/surveys')

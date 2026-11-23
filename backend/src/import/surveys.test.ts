@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
-import { parseSurveysCsv } from './domain/surveys';
+import { parseSurveysCsv } from './parser/surveys';
 
 const header = 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species';
 

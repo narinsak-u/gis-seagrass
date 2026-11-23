@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { SiteWriteTransaction } from '../../site-survey';
 import type { SiteSurveyConstraintsPort } from '../application/site-survey-constraints.port';
-import { asDrizzleTransaction } from '../../site-survey/infrastructure';
+import { asDrizzleTransaction } from '../../site-survey/infrastructure/drizzle-transaction';
 
 @Injectable()
 export class DrizzleSiteSurveyConstraints implements SiteSurveyConstraintsPort {

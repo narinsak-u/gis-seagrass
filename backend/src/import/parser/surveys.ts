@@ -1,5 +1,5 @@
 import { parse } from 'csv-parse/sync';
-import { isStrictCalendarDate } from '../../surveys/domain';
+import { isStrictCalendarDate } from '../../surveys';
 const columns = ['survey_ref', 'site_code', 'lon', 'lat', 'surveyed_on', 'cover_percent', 'species'] as const;
 
 type SurveyRow = Record<(typeof columns)[number], string>;

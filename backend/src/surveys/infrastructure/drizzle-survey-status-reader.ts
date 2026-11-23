@@ -1,8 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
-import type { LatestSurveySummary } from '../application/survey-status-reader';
-import type { SurveyStatusReaderPort } from '../application/survey-status-reader.port';
+import type { LatestSurveySummary, SurveyStatusReaderPort } from '../application/survey-status-reader.port';
 
 interface SurveyReadRow extends Record<string, unknown> {
   site_id: string;

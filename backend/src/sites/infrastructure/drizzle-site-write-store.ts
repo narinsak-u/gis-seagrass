@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ApplicationError } from '../../shared';
-import { sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { sites } from '../../platform/database';
 import type { SiteWriteTransaction } from '../../site-survey';
 import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort } from '../application/site-write.port';
-import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure';
+import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey/infrastructure/drizzle-transaction';
 
 @Injectable()
 export class DrizzleSiteWriteStore implements SiteWritePort {
@@ -25,15 +26,15 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
   }
   async hasCode(context: SiteWriteTransaction, code: string): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${code} LIMIT 1`);
-    return result.rows.length > 0;
+    const existing = await tx.select({ id: sites.id }).from(sites).where(eq(sites.code, code)).limit(1);
+    return existing.length > 0;
   }
 
 
   async import(context: SiteWriteTransaction, site: SiteWriteInput): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
-    const existing = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${site.code} LIMIT 1`);
-    if (existing.rows.length) return false;
+    const existing = await tx.select({ id: sites.id }).from(sites).where(eq(sites.code, site.code)).limit(1);
+    if (existing.length) return false;
     const source = JSON.stringify(site.geometry);
     const spatial = await deriveSiteSpatial(tx, source);
     const inserted = await tx.execute(sql`
@@ -76,10 +77,9 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
 
   async lockActive(context: SiteWriteTransaction, id: string): Promise<boolean> {
     const tx = asDrizzleTransaction(context);
-    const result = await tx.execute(sql`
-      SELECT id FROM sites WHERE id = ${id}::bigint AND deleted_at IS NULL FOR UPDATE
-    `);
-    return result.rows.length > 0;
+    const result = await tx.select({ id: sites.id }).from(sites)
+      .where(and(eq(sites.id, BigInt(id)), isNull(sites.deletedAt))).for('update');
+    return result.length > 0;
   }
 
   async withinDistance(context: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean> {
@@ -112,10 +112,11 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
 
   async retire(context: SiteWriteTransaction, site: LockedSite, actorId: string): Promise<void> {
     const tx = asDrizzleTransaction(context);
-    await tx.execute(sql`
-      UPDATE sites SET deleted_at = CURRENT_TIMESTAMP, updated_by = ${actorId}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${site.id}::bigint
-    `);
+    await tx.update(sites).set({
+      deletedAt: sql`CURRENT_TIMESTAMP`,
+      updatedBy: actorId,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    }).where(eq(sites.id, BigInt(site.id)));
   }
 }
 
