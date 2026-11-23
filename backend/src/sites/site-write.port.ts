@@ -1,11 +1,12 @@
-import type { DatabaseProvider } from '../database/provider';
-
-export type SiteWriteTransaction = Parameters<Parameters<DatabaseProvider['db']['transaction']>[0]>[0];
+import type { SiteWriteTransaction } from '../site-survey/transaction';
 
 export interface SiteWritePort {
   create(tx: SiteWriteTransaction, site: SiteWriteInput, actorId: string): Promise<SiteFeature>;
   deriveSpatial(tx: SiteWriteTransaction, source: string): Promise<Omit<SiteSpatial, 'source'>>;
   lock(tx: SiteWriteTransaction, code: string): Promise<LockedSite | null>;
+  lockForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number): Promise<{ id: string; within: boolean } | null>;
+  lockActive(tx: SiteWriteTransaction, id: string): Promise<boolean>;
+  withinDistance(tx: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean>;
   update(tx: SiteWriteTransaction, site: LockedSite, patch: SitePatch, actorId: string, spatial?: SiteSpatial): Promise<SiteFeature>;
   retire(tx: SiteWriteTransaction, site: LockedSite, actorId: string): Promise<void>;
 }

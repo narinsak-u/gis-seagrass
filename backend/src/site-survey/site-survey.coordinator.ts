@@ -3,7 +3,8 @@ import { DRIZZLE_DATABASE, type DatabaseProvider } from '../database/provider';
 import { SurveyStatusReader, type LatestSurveySummary } from '../surveys/survey-status-reader';
 import { SITE_SURVEY_CONSTRAINTS_PORT, type SiteSurveyConstraintsPort } from '../surveys/site-survey-constraints.port';
 import { deriveSiteStatus, type SiteStatus } from '../domain/site-status';
-import { SITE_WRITE_PORT, type SitePatch, type SiteSpatial, type SiteWriteInput, type SiteWritePort, type SiteWriteTransaction } from './site-write.port';
+import { SITE_WRITE_PORT, type SitePatch, type SiteSpatial, type SiteWriteInput, type SiteWritePort } from '../sites/site-write.port';
+import type { SiteWriteTransaction } from './transaction';
 
 @Injectable()
 export class SiteSurveyCoordinator {
@@ -30,6 +31,18 @@ export class SiteSurveyCoordinator {
   transaction<T>(work: (tx: SiteWriteTransaction) => Promise<T>): Promise<T> {
     return this.db.transaction(work);
   }
+  lockSiteForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number) {
+    return this.sites.lockForSurvey(tx, code, lon, lat);
+  }
+
+  lockActiveSite(tx: SiteWriteTransaction, id: string): Promise<boolean> {
+    return this.sites.lockActive(tx, id);
+  }
+
+  siteWithinDistance(tx: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean> {
+    return this.sites.withinDistance(tx, id, lon, lat);
+  }
+
 
   update(code: string, patch: SitePatch, actorId: string) {
     return this.transaction(async (tx) => {

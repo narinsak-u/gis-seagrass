@@ -6,7 +6,7 @@ import { isRecord } from '../domain/guards';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
 import type { PublicSiteSummary, SiteSummary } from './site.types';
-import { SiteSurveyCoordinator } from './site-survey.coordinator';
+import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
 
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
 

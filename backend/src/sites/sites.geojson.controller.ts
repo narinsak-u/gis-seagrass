@@ -3,7 +3,7 @@ import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
 import type { PublicSiteSummary } from './site.types';
-import { SiteSurveyCoordinator } from './site-survey.coordinator';
+import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
 
 
 

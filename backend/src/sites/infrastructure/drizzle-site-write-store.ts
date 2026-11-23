@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort, SiteWriteTransaction } from '../site-write.port';
+import type { SiteWriteTransaction } from '../../site-survey/transaction';
+import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort } from '../site-write.port';
 
 @Injectable()
 export class DrizzleSiteWriteStore implements SiteWritePort {
@@ -36,6 +37,29 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
       version: row.version,
       geometry: row.geometry,
     };
+  }
+
+  async lockForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number): Promise<{ id: string; within: boolean } | null> {
+    const result = await tx.execute<{ id: string; within: boolean }>(sql`
+      SELECT id::text, ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, geom::geography, 50) AS within
+        FROM sites WHERE code = ${code} AND deleted_at IS NULL FOR UPDATE
+    `);
+    return result.rows[0] ?? null;
+  }
+
+  async lockActive(tx: SiteWriteTransaction, id: string): Promise<boolean> {
+    const result = await tx.execute(sql`
+      SELECT id FROM sites WHERE id = ${id}::bigint AND deleted_at IS NULL FOR UPDATE
+    `);
+    return result.rows.length > 0;
+  }
+
+  async withinDistance(tx: SiteWriteTransaction, id: string, lon: number, lat: number): Promise<boolean> {
+    const result = await tx.execute<{ within: boolean }>(sql`
+      SELECT ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, geom::geography, 50) AS within
+        FROM sites WHERE id = ${id}::bigint AND deleted_at IS NULL
+    `);
+    return result.rows[0]?.within ?? false;
   }
 
   async update(tx: SiteWriteTransaction, site: LockedSite, patch: SitePatch, actorId: string, spatial?: SiteSpatial): Promise<SiteFeature> {

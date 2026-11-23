@@ -648,15 +648,19 @@ integration('DELETE /surveys/:id authorizes before ID validation or lookup', asy
   assert.equal((missing.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
 });
 
-integration('DELETE hard-deletes Survey and species links; unknown IDs use shared envelope', async () => {
+integration('DELETE hard-deletes Survey and species links, recomputes Site status, and preserves the shared error envelope', async () => {
   await resetSurveys();
   const created = await create(await validSurvey({ species: [...speciesCodes] }));
   const id = created.body.id as string;
+  const populatedSite = await request(`/sites/${siteCode}`);
+  assert.equal(((populatedSite.body.properties as Record<string, unknown>)).siteStatus, 'fair');
   const deleted = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleted.response.status, 204);
   assert.equal(await deleted.response.text(), '');
   assert.equal((await pool!.query('SELECT 1 FROM surveys WHERE id = $1', [id])).rowCount, 0);
   assert.equal((await pool!.query('SELECT 1 FROM survey_species WHERE survey_id = $1', [id])).rowCount, 0);
+  const emptySite = await request(`/sites/${siteCode}`);
+  assert.equal(((emptySite.body.properties as Record<string, unknown>)).siteStatus, 'no_data');
   const unknown = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');

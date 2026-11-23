@@ -1,4 +1,4 @@
-import type { SiteWriteTransaction } from '../sites/site-write.port';
+import type { SiteWriteTransaction } from '../site-survey/transaction';
 
 export interface SiteSurveyConstraintsPort {
   hasSurveys(tx: SiteWriteTransaction, siteId: string): Promise<boolean>;

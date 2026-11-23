@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { SiteWriteTransaction } from '../../sites/site-write.port';
+import type { SiteWriteTransaction } from '../../site-survey/transaction';
 import type { SiteSurveyConstraintsPort } from '../site-survey-constraints.port';
 
 @Injectable()
