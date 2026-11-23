@@ -4,7 +4,7 @@ import { AppModule } from './app.module';
 import { createDatabaseProvider } from './database/provider';
 import { runMigrations } from './database/migrate';
 import { runImport } from './import/run';
-import { requireJwtSecret, seedDevelopmentAccounts } from './auth/auth.controller';
+import { requireJwtSecret, seedDevelopmentAccounts } from './auth/auth.module';
 import { setupSwagger } from './swagger';
 
 async function bootstrap(): Promise<void> {

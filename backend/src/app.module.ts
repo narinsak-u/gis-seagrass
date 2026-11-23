@@ -1,10 +1,9 @@
-import { Inject, Injectable, type DynamicModule, Module, type OnApplicationShutdown } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
-import { Pool } from 'pg';
-import { AuthController } from './auth/auth.controller';
-import { AuthGuard } from './auth/auth.guard';
+import { BadRequestException, Inject, Injectable, type DynamicModule, Module, type OnApplicationShutdown, ValidationPipe } from '@nestjs/common';
+import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { AuthModule } from './auth/auth.module';
 import { ApiErrorFilter } from './errors/error.filter';
-import { DATABASE_PROVIDER, DRIZZLE_DATABASE, type DatabaseProvider } from './database/provider';
+import { DatabaseModule } from './database/database.module';
+import { DATABASE_PROVIDER, type DatabaseProvider } from './database/provider';
 import { HealthController } from './health/health.controller';
 import { SitesController } from './sites/sites.controller';
 import { SitesGeoJsonController } from './sites/sites.geojson.controller';
@@ -24,13 +23,24 @@ export class AppModule {
   static register(database: DatabaseProvider): DynamicModule {
     return {
       module: AppModule,
-      controllers: [AuthController, HealthController, SitesController, SitesGeoJsonController, SurveysController],
+      imports: [DatabaseModule.register(database), AuthModule],
+      controllers: [HealthController, SitesController, SitesGeoJsonController, SurveysController],
       providers: [
-        { provide: Pool, useValue: database.pool },
-        { provide: DRIZZLE_DATABASE, useValue: database.db },
-        { provide: DATABASE_PROVIDER, useValue: database },
         { provide: APP_FILTER, useClass: ApiErrorFilter },
-        AuthGuard,
+        {
+          provide: APP_PIPE,
+          useFactory: () => new ValidationPipe({
+            transform: true,
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transformOptions: { enableImplicitConversion: false },
+            exceptionFactory: () => new BadRequestException({
+              code: 'VALIDATION_ERROR',
+              message: 'Validation failed',
+              details: {},
+            }),
+          }),
+        },
         CloseDatabaseOnShutdown,
       ],
     };

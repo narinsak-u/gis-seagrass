@@ -99,6 +99,46 @@ integration('POST /auth/login rejects malformed and extra credential fields', as
     assert.equal((error.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
 });
+integration('protected request parsing precedes guards, and guards precede request validation', async () => {
+  const malformed = await fetch(`${origin}/sites`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{',
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), {
+    error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} },
+  });
+
+  const unauthorized = await fetch(`${origin}/sites`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.deepEqual(await unauthorized.json(), {
+    error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: {} },
+  });
+
+  const validationUserId = randomUUID();
+  await pool!.query(
+    'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
+    [validationUserId, `${generatedEmailPrefix}-validation@example.test`, 'unused', 'admin'],
+  );
+  try {
+    const invalid = await fetch(`${origin}/sites`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${signAccessToken(validationUserId)}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(await invalid.json(), {
+      error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} },
+    });
+  } finally {
+    await pool!.query('DELETE FROM users WHERE id = $1', [validationUserId]);
+  }
+});
 
 integration('development accounts seed only when enabled and preserve existing accounts', async () => {
   const accountEmail = `${generatedEmailPrefix}-viewer@example.test`;

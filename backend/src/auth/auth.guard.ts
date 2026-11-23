@@ -1,3 +1,4 @@
+import { type AccessTokenClaims, verifyAccessToken } from './auth.controller';
 import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { and, eq } from 'drizzle-orm';
