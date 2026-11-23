@@ -44,7 +44,8 @@ export class SitesController {
     try {
       return await this.siteSurvey.create(site, request.user.id);
     } catch (error) {
-      if (isRecord(error) && error.code === '23505' && error.constraint === 'uq_sites_code') {
+      const databaseError = isRecord(error) && isRecord(error.cause) ? error.cause : error;
+      if (isRecord(databaseError) && databaseError.code === '23505' && databaseError.constraint === 'uq_sites_code') {
         throw new ConflictException({ code: 'DUPLICATE_CODE', message: 'Site code already exists', details: {} });
       }
       throw error;

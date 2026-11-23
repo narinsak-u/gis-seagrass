@@ -12,6 +12,8 @@ const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
 let database: DatabaseProvider | undefined;
 
+let origin = '';
+
 before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
