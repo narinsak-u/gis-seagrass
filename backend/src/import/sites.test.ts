@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { after, before, test } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../database/schema';
 import { runMigrations } from '../database/migrate';
+import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
 import { importSiteFeatures } from './sites';
 import { parseSiteFeature } from '../sites/site-feature';
 
@@ -20,6 +27,10 @@ test('Site parser requires nonempty identity and finite in-range lon/lat polygon
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let pool: Pool | undefined;
+let cliSiteCode = '';
+let cliSurveyRef = '';
+let cliSpeciesCode = '';
+let cliDirectory = '';
 let provinceCodes: string[] = [];
 let siteCodes: string[] = [];
 let client: PoolClient | undefined;
@@ -69,10 +80,16 @@ before(async () => {
 after(async () => {
   client?.release();
   if (pool) {
+    if (cliSurveyRef) {
+      await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = $1)', [cliSurveyRef]);
+      await pool.query('DELETE FROM surveys WHERE survey_ref = $1', [cliSurveyRef]);
+    }
+    if (cliSpeciesCode) await pool.query('DELETE FROM species WHERE code = $1', [cliSpeciesCode]);
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [siteCodes]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.end();
   }
+  if (cliDirectory) await rm(cliDirectory, { recursive: true, force: true });
 });
 
 integration('Site import validates shapes, reserves existing codes, and preserves existing values on changed source data', async () => {
@@ -89,7 +106,8 @@ integration('Site import validates shapes, reserves existing codes, and preserve
     type: 'Polygon',
     coordinates: [[[100.2, 10.2], [100.8, 10.8], [100.2, 10.8], [100.8, 10.2], [100.2, 10.2]]],
   }, 'Invalid bowtie');
-  const first = await importSiteFeatures(client!, features);
+  const coordinator = createSiteSurveyImportOperations(drizzle(pool!, { schema })).coordinator;
+  const first = await importSiteFeatures(coordinator, features);
   assert.deepEqual(first.summary, { inserted: 3, skipped_existing: 1, rejected: 3 });
   assert.deepEqual(first.rejections.map(({ row, reason }) => [row, reason]), [
     [3, 'OUTSIDE_COVERAGE'], [4, 'INVALID_GEOMETRY'], [6, 'DUPLICATE_CODE'],
@@ -125,10 +143,56 @@ integration('Site import validates shapes, reserves existing codes, and preserve
     'SELECT code,name,province_code,area_rai,version,created_at,updated_at,deleted_at FROM sites WHERE code = ANY($1::text[]) ORDER BY code',
     [siteCodes],
   );
-  const second = await importSiteFeatures(client!, features);
+  const second = await importSiteFeatures(coordinator, features);
   assert.deepEqual(second.summary, { inserted: 0, skipped_existing: 4, rejected: 3 });
   const afterRerun = await pool!.query(
     'SELECT code,name,province_code,area_rai,version,created_at,updated_at,deleted_at FROM sites WHERE code = ANY($1::text[]) ORDER BY code', [siteCodes],
   );
   assert.deepEqual(afterRerun.rows, beforeRerun.rows);
+});
+integration('standalone CLI imports Sites and Surveys through module operations idempotently', async () => {
+  const token = randomUUID().replaceAll('-', '').toUpperCase();
+  cliSiteCode = `CLI-${token}`;
+  cliSurveyRef = `cli-survey-${token}`;
+  cliSpeciesCode = `CLI-${token}`;
+  siteCodes.push(cliSiteCode);
+  cliDirectory = await mkdtemp(join(tmpdir(), 'site-survey-import-'));
+  await pool!.query('INSERT INTO species (code,name_th,name_sci) VALUES ($1,$1,$1)', [cliSpeciesCode]);
+  const today = await pool!.query<{ today: string }>(
+    "SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today",
+  );
+  await writeFile(join(cliDirectory, 'provinces.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
+  await writeFile(join(cliDirectory, 'species.json'), '[]');
+  await writeFile(join(cliDirectory, 'seagrass_sites.geojson'), JSON.stringify({
+    type: 'FeatureCollection',
+    features: [site(cliSiteCode, polygon(100.3, 10.3, 100.4, 10.4))],
+  }));
+  await writeFile(join(cliDirectory, 'surveys.csv'), [
+    'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species',
+    `${cliSurveyRef},${cliSiteCode},100.35,10.35,${today.rows[0].today},40,${cliSpeciesCode}`,
+  ].join('\n'));
+  const run = () => spawnSync('npm', ['run', 'import'], {
+    cwd: join(__dirname, '../..'),
+    encoding: 'utf8',
+    env: { ...process.env, SEED_DATA_DIR: cliDirectory, IMPORT_REPORT_PATH: join(cliDirectory, 'report.csv') },
+  });
+  const first = run();
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+  assert.match(first.stdout, /"sites":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
+  assert.match(first.stdout, /"surveys":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
+  const rows = await pool!.query<{ created_by: string | null; updated_by: string | null; species_count: string }>(
+    `SELECT s.created_by, s.updated_by, count(ss.species_code)::text AS species_count
+       FROM sites s JOIN surveys v ON v.site_id = s.id
+       LEFT JOIN survey_species ss ON ss.survey_id = v.id
+      WHERE s.code = $1 AND v.survey_ref = $2
+      GROUP BY s.created_by, s.updated_by`,
+    [cliSiteCode, cliSurveyRef],
+  );
+  assert.deepEqual(rows.rows, [{ created_by: null, updated_by: null, species_count: '1' }]);
+  const report = await readFile(join(cliDirectory, 'report.csv'), 'utf8');
+  assert.equal(report, 'file,row,reason\r\n');
+  const second = run();
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.match(second.stdout, /"sites":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
+  assert.match(second.stdout, /"surveys":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
 });

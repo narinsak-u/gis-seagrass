@@ -1,7 +1,7 @@
 import { parse } from 'csv-parse/sync';
-import type { PoolClient } from 'pg';
 import { isStrictCalendarDate } from '../domain/guards';
-
+import { SurveyWriter } from '../surveys/survey-writer';
+import type { SurveyInput } from '../surveys/survey-validation';
 const columns = ['survey_ref', 'site_code', 'lon', 'lat', 'surveyed_on', 'cover_percent', 'species'] as const;
 
 type SurveyRow = Record<(typeof columns)[number], string>;
@@ -29,7 +29,7 @@ export function parseSurveysCsv(source: string): ParsedSurvey[] {
   }));
 }
 
-export async function importSurveys(client: PoolClient, records: ParsedSurvey[]): Promise<SurveyImportResult> {
+export async function importSurveys(writer: SurveyWriter, records: ParsedSurvey[]): Promise<SurveyImportResult> {
   const result: SurveyImportResult = { summary: { inserted: 0, skipped_existing: 0, rejected: 0 }, rejections: [] };
   const seen = new Set<string>();
   const reject = (row: number, reason: string) => {
@@ -42,8 +42,7 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     if (!ref.trim() || ref.includes('\0')) { reject(row, 'INVALID_SURVEY_REF'); continue; }
     if (seen.has(ref)) { reject(row, 'DUPLICATE_SURVEY_REF'); continue; }
     seen.add(ref);
-    const existing = await client.query('SELECT 1 FROM surveys WHERE survey_ref = $1', [ref]);
-    if (existing.rowCount) { result.summary.skipped_existing++; continue; }
+    if (await writer.hasReference(ref)) { result.summary.skipped_existing++; continue; }
     const siteCode = values.site_code;
     const lon = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(values.lon.trim()) ? Number(values.lon) : NaN;
     const lat = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(values.lat.trim()) ? Number(values.lat) : NaN;
@@ -54,53 +53,13 @@ export async function importSurveys(client: PoolClient, records: ParsedSurvey[])
     if (!Number.isFinite(cover) || cover < 0 || cover > 100) { reject(row, 'INVALID_COVER'); continue; }
     const date = values.surveyed_on;
     if (!isStrictCalendarDate(date)) { reject(row, 'INVALID_DATE'); continue; }
-
-    const speciesCodes = values.species.split('|');
-    if (speciesCodes.some((code) => !code.trim() || code.includes('\0'))) { reject(row, 'UNKNOWN_SPECIES'); continue; }
-    const foundSpecies = await client.query<{ code: string }>('SELECT code FROM species WHERE code = ANY($1::text[])', [speciesCodes]);
-    if (foundSpecies.rowCount !== new Set(speciesCodes).size) { reject(row, 'UNKNOWN_SPECIES'); continue; }
-
-    const today = await client.query<{ today: string }>("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date::text AS today");
-    if (date > today.rows[0].today) { reject(row, 'FUTURE_DATE'); continue; }
-    await client.query('BEGIN');
-    try {
-      const site = await client.query<{ id: string; within: boolean }>(
-        `SELECT id,
-                ST_DWithin(ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, geom::geography, 50) AS within
-           FROM sites WHERE code = $1 AND deleted_at IS NULL
-           FOR UPDATE`,
-        [siteCode, lon, lat],
-      );
-      if (!site.rowCount) {
-        await client.query('ROLLBACK');
-        reject(row, 'SITE_NOT_FOUND');
-        continue;
-      }
-      if (!site.rows[0].within) {
-        await client.query('ROLLBACK');
-        reject(row, 'OUTSIDE_SITE');
-        continue;
-      }
-      const survey = await client.query<{ id: string }>(
-        `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
-         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
-         ON CONFLICT (survey_ref) WHERE survey_ref IS NOT NULL DO NOTHING RETURNING id`,
-        [site.rows[0].id, ref, lon, lat, date, cover],
-      );
-      if (!survey.rowCount) {
-        await client.query('ROLLBACK');
-        result.summary.skipped_existing++;
-        continue;
-      }
-      for (const code of new Set(speciesCodes)) {
-        await client.query('INSERT INTO survey_species (survey_id, species_code) VALUES ($1, $2)', [survey.rows[0].id, code]);
-      }
-      await client.query('COMMIT');
-      result.summary.inserted++;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    }
+    const species = values.species.split('|');
+    if (species.some((code) => !code.trim() || code.includes('\0'))) { reject(row, 'UNKNOWN_SPECIES'); continue; }
+    const input: SurveyInput = { lon, lat, surveyed_on: date, cover_percent: cover, species: [...new Set(species)] };
+    const outcome = await writer.import(siteCode, ref, input);
+    if (outcome === 'SKIPPED') result.summary.skipped_existing++;
+    else if (outcome === 'INSERTED') result.summary.inserted++;
+    else reject(row, outcome);
   }
   return result;
 }

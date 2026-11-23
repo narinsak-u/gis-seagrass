@@ -9,7 +9,8 @@ import { Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { setupSwagger } from '../swagger';
-import { hashPassword, seedDevelopmentAccounts, signAccessToken, verifyAccessToken } from './auth.controller';
+import { hashPassword, signAccessToken, verifyAccessToken } from './auth-token';
+import { seedDevelopmentAccounts } from './auth.module';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -142,9 +143,9 @@ integration('protected request parsing precedes guards, and guards precede reque
 
 integration('development accounts seed only when enabled and preserve existing accounts', async () => {
   const accountEmail = `${generatedEmailPrefix}-viewer@example.test`;
-  await seedDevelopmentAccounts(pool!, false);
+  await seedDevelopmentAccounts(database!, false);
   assert.equal((await pool!.query('SELECT 1 FROM users WHERE email LIKE $1', [`${generatedEmailPrefix}-%@example.test`])).rowCount, 0);
-  await seedDevelopmentAccounts(pool!, true);
+  await seedDevelopmentAccounts(database!, true);
   const first = await pool!.query('SELECT email, password_hash, role, is_active FROM users WHERE email LIKE $1 ORDER BY email', [`${generatedEmailPrefix}-%@example.test`]);
   assert.equal(first.rowCount, 3);
   for (const role of ['viewer', 'editor', 'admin'] as const) {
@@ -155,7 +156,7 @@ integration('development accounts seed only when enabled and preserve existing a
   }
   await pool!.query('UPDATE users SET role = $1, is_active = false WHERE email = $2', ['admin', accountEmail]);
   await pool!.query('UPDATE users SET password_hash = $1 WHERE email = $2', ['retained-hash', accountEmail]);
-  await seedDevelopmentAccounts(pool!, true);
+  await seedDevelopmentAccounts(database!, true);
   const preserved = await pool!.query('SELECT password_hash, role, is_active FROM users WHERE email = $1', [accountEmail]);
   assert.deepEqual(preserved.rows[0], { password_hash: 'retained-hash', role: 'admin', is_active: false });
 });

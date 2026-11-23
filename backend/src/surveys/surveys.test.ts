@@ -8,7 +8,7 @@ import { Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { runMigrations } from '../database/migrate';
 import { setupSwagger } from '../swagger';
-import { signAccessToken } from '../auth/auth.controller';
+import { signAccessToken } from '../auth/auth-token';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;

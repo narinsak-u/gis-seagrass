@@ -34,11 +34,13 @@ Development account seeding requires an explicit flag and inserts only missing a
 
 ## Backend architecture refactor
 
-Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest; the standalone importer CLI owns its provider. Health retains a pool-level PostGIS check. This avoids separate connection owners in the API while keeping health independent of ORM behavior.
+Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer CLI owns and closes its provider without starting Nest. Its session advisory lock stays pinned to one pool client; Sites and Surveys use that same pool through their module-owned Drizzle adapters.
 
-Route workflows spanning Sites and Surveys through a small application-level coordinator. It owns the transaction boundary and passes one Drizzle transaction to both modules' persistence ports. This avoids circular module dependencies and direct cross-module data access while preserving per-Site locking and atomicity.
+Route workflows spanning Sites and Surveys through the application-level `SiteSurveyCoordinator`. It owns the transaction boundary and passes one Drizzle transaction to Site- and Survey-owned persistence ports. Survey writes use `SurveyWriter`, including imports, so site locking, distance checks, species association atomicity, and per-Survey rollback remain shared with API behavior. Imports keep null actor history.
 
-Use a global transforming, whitelisting `ValidationPipe` with explicit query transforms and no implicit body coercion. Map validation errors to the existing API envelope; preserve parser-before-guard and guard-before-DTO-validation ordering. Keep Import orchestration and seed-only Province/Species persistence separate from HTTP DTOs; delegate Site and Survey writes to their owning application operations.
+Site, Survey, and Auth modules own their HTTP, application, domain, and infrastructure responsibilities. Import owns source parsing, reporting, CLI orchestration, and Province/Species seed persistence; it composes the existing Site and Survey application operations without starting the HTTP application. Auth login and account seeding use an Auth application operation and Drizzle-owned persistence. HTTP controllers contain no database queries.
+
+Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, advisory locks, and query-builder gaps as explicit SQL in module-owned infrastructure. Health retains its pool-level PostGIS check. This keeps spatial behavior visible without adding generic repositories or hiding transaction boundaries.
 
 ## Migration ordering
 

@@ -21,6 +21,24 @@ export class SurveyWriter {
     });
   }
 
+  async import(code: string, ref: string, input: SurveyInput): Promise<'SKIPPED' | 'UNKNOWN_SPECIES' | 'FUTURE_DATE' | 'SITE_NOT_FOUND' | 'OUTSIDE_SITE' | 'INSERTED'> {
+    return this.coordinator.transaction(async (tx) => {
+      if (await this.surveys.existsRef(tx, ref)) return 'SKIPPED';
+      if (!(await this.surveys.hasSpecies(tx, input.species!))) return 'UNKNOWN_SPECIES';
+      if (input.surveyed_on! > await this.surveys.today(tx)) return 'FUTURE_DATE';
+      const site = await this.coordinator.lockSiteForSurvey(tx, code, input.lon!, input.lat!);
+      if (!site) return 'SITE_NOT_FOUND';
+      if (!site.within) return 'OUTSIDE_SITE';
+      return await this.surveys.import(tx, site.id, ref, input) ? 'INSERTED' : 'SKIPPED';
+    });
+  }
+
+  hasReference(ref: string): Promise<boolean> {
+    return this.coordinator.transaction((tx) => this.surveys.existsRef(tx, ref));
+  }
+
+
+
   update(id: string, input: SurveyInput, actorId: string) {
     return this.coordinator.transaction(async (tx) => {
       const siteId = await this.surveys.siteId(tx, id);

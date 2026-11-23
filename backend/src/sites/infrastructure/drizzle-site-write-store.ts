@@ -20,6 +20,26 @@ export class DrizzleSiteWriteStore implements SiteWritePort {
     `);
     return feature(site.code, site.name, spatial.provinceCode, spatial.areaRai, result.rows[0].version, result.rows[0].geometry);
   }
+  async hasCode(tx: SiteWriteTransaction, code: string): Promise<boolean> {
+    const result = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${code} LIMIT 1`);
+    return result.rows.length > 0;
+  }
+
+
+  async import(tx: SiteWriteTransaction, site: SiteWriteInput): Promise<boolean> {
+    const existing = await tx.execute(sql`SELECT 1 FROM sites WHERE code = ${site.code} LIMIT 1`);
+    if (existing.rows.length) return false;
+    const source = JSON.stringify(site.geometry);
+    const spatial = await deriveSiteSpatial(tx, source);
+    const inserted = await tx.execute(sql`
+      INSERT INTO sites (code, name, province_code, geom, area_rai, created_by, updated_by)
+      VALUES (${site.code}, ${site.name}, ${spatial.provinceCode},
+        ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326)), ${spatial.areaRai}, NULL, NULL)
+      ON CONFLICT DO NOTHING RETURNING code
+    `);
+    return inserted.rows.length > 0;
+  }
+
 
   async lock(tx: SiteWriteTransaction, code: string): Promise<LockedSite | null> {
     const result = await tx.execute<{ id: string; version: number; name: string; province_code: string; area_rai: string; geometry: SiteFeature['geometry'] }>(sql`

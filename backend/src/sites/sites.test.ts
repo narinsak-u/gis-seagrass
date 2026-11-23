@@ -3,12 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../database/schema';
+import { createSiteSurveyImportOperations } from '../import/infrastructure/site-survey-operations';
 import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
-import { signAccessToken } from '../auth/auth.controller';
+import { signAccessToken } from '../auth/auth-token';
 import { runMigrations } from '../database/migrate';
-
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
@@ -22,6 +24,11 @@ let siteToken = '';
 let importSpeciesCode = '';
 let postToken = '';
 let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
+
+function importSurveyRecords(client: PoolClient, records: ParsedSurvey[]) {
+  const writer = createSiteSurveyImportOperations(drizzle(client, { schema })).surveyWriter;
+  return importSurveys(writer, records);
+}
 
 before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
@@ -657,7 +664,7 @@ integration('PATCH and Survey import serialize both lock orders without strandin
           species: importSpeciesCode,
         },
       };
-      const importPromise = importSurveys(importer, [record]);
+      const importPromise = importSurveyRecords(importer, [record]);
       const patchPromise = importFirst
         ? undefined
         : patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
@@ -777,7 +784,7 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
         },
       };
       if (importFirst) {
-        const importPromise = importSurveys(importer, [record]);
+        const importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
@@ -790,7 +797,7 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
       } else {
         const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
-        const importPromise = importSurveys(importer, [record]);
+        const importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         await coordinator.query('COMMIT');
         committed = true;

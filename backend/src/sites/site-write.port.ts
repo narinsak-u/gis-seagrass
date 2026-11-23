@@ -2,6 +2,8 @@ import type { SiteWriteTransaction } from '../site-survey/transaction';
 
 export interface SiteWritePort {
   create(tx: SiteWriteTransaction, site: SiteWriteInput, actorId: string): Promise<SiteFeature>;
+  hasCode(tx: SiteWriteTransaction, code: string): Promise<boolean>;
+  import(tx: SiteWriteTransaction, site: SiteWriteInput): Promise<boolean>;
   deriveSpatial(tx: SiteWriteTransaction, source: string): Promise<Omit<SiteSpatial, 'source'>>;
   lock(tx: SiteWriteTransaction, code: string): Promise<LockedSite | null>;
   lockForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number): Promise<{ id: string; within: boolean } | null>;

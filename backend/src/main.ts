@@ -13,7 +13,7 @@ async function bootstrap(): Promise<void> {
   try {
     await runMigrations(database);
     await runImport(database);
-    await seedDevelopmentAccounts(database.pool, process.env.SEED_DEVELOPMENT_ACCOUNTS === 'true');
+    await seedDevelopmentAccounts(database, process.env.SEED_DEVELOPMENT_ACCOUNTS === 'true');
     const app = await NestFactory.create(AppModule.register(database), { rawBody: true });
     app.enableShutdownHooks();
     setupSwagger(app);

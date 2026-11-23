@@ -24,6 +24,18 @@ export class SiteSurveyCoordinator {
     return this.surveys.latestSurvey(siteId);
   }
 
+
+  async importSite(site: SiteWriteInput): Promise<'INSERTED' | 'SKIPPED' | 'INVALID_GEOMETRY' | 'OUTSIDE_COVERAGE'> {
+    try {
+      return await this.transaction(async (tx) => await this.sites.import(tx, site) ? 'INSERTED' : 'SKIPPED');
+    } catch (error) {
+      if (error instanceof BadRequestException) return 'INVALID_GEOMETRY';
+      if (error instanceof UnprocessableEntityException) return 'OUTSIDE_COVERAGE';
+      throw error;
+    }
+  }
+
+
   create(site: SiteWriteInput, actorId: string) {
     return this.transaction((tx) => this.sites.create(tx, site, actorId));
   }

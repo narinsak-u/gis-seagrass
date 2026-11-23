@@ -1,34 +1,17 @@
-import { Pool } from 'pg';
-
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, NotFoundException, Query, UseGuards } from '@nestjs/common';
+
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Query, UseGuards } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
-import type { PublicSiteSummary, SiteSummary } from './site.types';
+import type { SiteSummary } from './site.types';
 import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
+import { SiteReader, type SiteFeature, type SiteList } from './site-reader';
 
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
 
 
 
-interface SiteList {
-  items: PublicSiteSummary[];
-  total: number;
-  page: number;
-}
-
-interface SiteFeature {
-  type: 'Feature';
-  geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-  properties: PublicSiteSummary & {
-    latest_survey: null | {
-      survey_ref: string | null;
-      surveyed_on: string;
-      cover_percent: number;
-    };
-  };
-}
 
 interface CreatedSiteFeature {
   type: 'Feature';
@@ -41,7 +24,7 @@ const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
 export class SitesController {
-  constructor(private readonly pool: Pool, private readonly siteSurvey: SiteSurveyCoordinator) {}
+  constructor(private readonly siteReader: SiteReader, private readonly siteSurvey: SiteSurveyCoordinator) {}
 
   @Post()
   @UseGuards(AuthGuard)
@@ -128,50 +111,12 @@ export class SitesController {
       throw new BadRequestException();
     }
 
-    const filters = ['deleted_at IS NULL'];
-    const values: Array<string | number> = [];
-    if (province !== undefined) {
-      values.push(province);
-      filters.push(`province_code = $${values.length}`);
-    }
-    if (search !== undefined && search.length > 0) {
-      values.push(search);
-      filters.push(`(strpos(lower(code), lower($${values.length})) > 0 OR strpos(lower(name), lower($${values.length})) > 0)`);
-    }
-    const where = filters.join(' AND ');
-    const count = await this.pool.query<{ total: string }>(
-      `SELECT COUNT(*)::text AS total FROM sites WHERE ${where}`,
-      values,
-    );
-    const offset = (page - 1) * pageSize;
-    const result = await this.pool.query<{
-      id: string;
-      code: string;
-      name: string;
-      province_code: string;
-      area_rai: string;
-      version: number;
-    }>(
-      `SELECT s.id::text, s.code, s.name, s.province_code, s.area_rai::text, s.version
-         FROM sites s
-        WHERE ${where}
-        ORDER BY s.code ASC
-        LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
-      [...values, pageSize, offset],
-    );
-    const statuses = await this.siteSurvey.statuses(result.rows.map((row) => row.id));
-    return {
-      items: result.rows.map((row) => ({
-        code: row.code,
-        name: row.name,
-        province_code: row.province_code,
-        area_rai: Number(row.area_rai),
-        version: row.version,
-        siteStatus: statuses.get(row.id) ?? 'no_data',
-      })),
-      total: Number(count.rows[0]?.total ?? 0),
+    return this.siteReader.list({
+      province: province as string | undefined,
+      search: search as string | undefined,
       page,
-    };
+      pageSize,
+    });
   }
 
   @Get(':code')
@@ -179,42 +124,7 @@ export class SitesController {
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async detail(@Param('code') code: string): Promise<SiteFeature> {
-    const result = await this.pool.query<{
-      id: string;
-      code: string;
-      name: string;
-      province_code: string;
-      area_rai: string;
-      version: number;
-      geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-    }>(
-      `SELECT s.id::text, s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry
-         FROM sites s
-        WHERE s.code = $1 AND s.deleted_at IS NULL`,
-      [code],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
-    }
-    const [statuses, latestSurvey] = await Promise.all([
-      this.siteSurvey.statuses([row.id]),
-      this.siteSurvey.latestSurvey(row.id),
-    ]);
-    return {
-      type: 'Feature',
-      geometry: row.geometry,
-      properties: {
-        code: row.code,
-        name: row.name,
-        province_code: row.province_code,
-        area_rai: Number(row.area_rai),
-        version: row.version,
-        siteStatus: statuses.get(row.id) ?? 'no_data',
-        latest_survey: latestSurvey,
-      },
-    };
+    return this.siteReader.detail(code);
   }
 }
 

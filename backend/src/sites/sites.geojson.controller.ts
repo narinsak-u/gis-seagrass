@@ -1,9 +1,8 @@
-import { Pool } from 'pg';
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
 import type { PublicSiteSummary } from './site.types';
-import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
+import { SiteReader } from './site-reader';
 
 
 
@@ -20,18 +19,11 @@ interface SiteFeatureCollection {
 
 const ALLOWED_QUERY_KEYS = ['bbox', 'province', 'status'];
 
-const SITE_GEOJSON_QUERY = `SELECT s.id::text, s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry
-         FROM sites s
-        WHERE s.deleted_at IS NULL
-          AND ST_Intersects(s.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
-          AND ($5::text IS NULL OR s.province_code = $5)
-        ORDER BY s.code ASC`;
 
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites.geojson')
 export class SitesGeoJsonController {
-  constructor(private readonly pool: Pool, private readonly siteSurvey: SiteSurveyCoordinator) {}
+  constructor(private readonly siteReader: SiteReader) {}
 
   @Get()
   @ApiQuery({ name: 'bbox', required: true, type: String, description: 'minLon,minLat,maxLon,maxLat in WGS84' })
@@ -51,34 +43,7 @@ export class SitesGeoJsonController {
     if (!bbox) {
       throw new BadRequestException({ code: 'INVALID_BBOX', message: 'Invalid bbox', details: {} });
     }
-    const result = await this.pool.query<{
-      id: string;
-      code: string;
-      name: string;
-      province_code: string;
-      area_rai: string;
-      version: number;
-      geometry: SiteFeature['geometry'];
-    }>(
-      SITE_GEOJSON_QUERY,
-      [...bbox, query.province ?? null],
-    );
-    const statuses = await this.siteSurvey.statuses(result.rows.map((row) => row.id));
-    return {
-      type: 'FeatureCollection',
-      features: result.rows.map((row) => ({
-        type: 'Feature',
-        geometry: row.geometry,
-        properties: {
-          code: row.code,
-          name: row.name,
-          province_code: row.province_code,
-          area_rai: Number(row.area_rai),
-          version: row.version,
-          siteStatus: statuses.get(row.id) ?? 'no_data',
-        },
-      })),
-    };
+    return this.siteReader.withinBbox(bbox, query.province as string | undefined);
   }
 }
 

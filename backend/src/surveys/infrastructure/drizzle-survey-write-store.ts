@@ -6,6 +6,26 @@ import type { SurveyWritePort, SurveyWriteResponse } from '../survey-write.port'
 
 @Injectable()
 export class DrizzleSurveyWriteStore implements SurveyWritePort {
+  async existsRef(tx: SiteWriteTransaction, ref: string): Promise<boolean> {
+    const result = await tx.execute(sql`SELECT 1 FROM surveys WHERE survey_ref = ${ref}`);
+    return result.rows.length > 0;
+  }
+
+  async import(tx: SiteWriteTransaction, siteId: string, ref: string, input: SurveyInput): Promise<boolean> {
+    const inserted = await tx.execute<{ id: string }>(sql`
+      INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
+      VALUES (${siteId}::bigint, ${ref}, ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326),
+        ${input.surveyed_on}::date, ${input.cover_percent})
+      ON CONFLICT (survey_ref) WHERE survey_ref IS NOT NULL DO NOTHING
+      RETURNING id::text
+    `);
+    if (!inserted.rows.length) return false;
+    for (const code of new Set(input.species!)) {
+      await tx.execute(sql`INSERT INTO survey_species (survey_id, species_code) VALUES (${inserted.rows[0].id}::bigint, ${code})`);
+    }
+    return true;
+  }
+
 
   async siteId(tx: SiteWriteTransaction, id: string): Promise<string | null> {
     const result = await tx.execute<{ site_id: string }>(sql`SELECT site_id::text FROM surveys WHERE id = ${id}::bigint`);
