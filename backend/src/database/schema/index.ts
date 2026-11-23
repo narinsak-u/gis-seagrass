@@ -1,4 +1,4 @@
-import { bigint, check, customType, date, index, integer, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, date, index, integer, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 const multipolygon = customType<{ data: string; driverData: string }>({
@@ -17,6 +17,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
   ...timestamps(),
 }, (table) => [check('users_role_check', sql`${table.role} IN ('viewer', 'editor', 'admin')`)]);
 

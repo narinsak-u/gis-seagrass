@@ -1,15 +1,17 @@
 import { Pool, type PoolClient } from 'pg';
 
-import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UnprocessableEntityException, NotFoundException, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, UnprocessableEntityException, NotFoundException, Query, UseGuards } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
+import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
-import type { SiteSummary } from './site.types';
-import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA } from './site-openapi';
+import type { PublicSiteSummary, SiteStatus, SiteSummary } from './site.types';
+import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
+import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
 
 
 interface SiteList {
-  items: SiteSummary[];
+  items: PublicSiteSummary[];
   total: number;
   page: number;
 }
@@ -17,7 +19,7 @@ interface SiteList {
 interface SiteFeature {
   type: 'Feature';
   geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-  properties: SiteSummary & {
+  properties: PublicSiteSummary & {
     latest_survey: null | {
       survey_ref: string | null;
       surveyed_on: string;
@@ -33,19 +35,45 @@ interface CreatedSiteFeature {
 }
 
 const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
+
+const SITE_DETAIL_QUERY = `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
+              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text,
+              status.site_status
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT survey_ref, surveyed_on::text, cover_percent
+             FROM surveys
+            WHERE site_id = s.id
+            ORDER BY surveyed_on DESC, id DESC
+            LIMIT 1
+         ) latest ON true
+         LEFT JOIN LATERAL (
+           SELECT ${SITE_STATUS_CASE_SQL} AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
+        WHERE s.code = $1 AND s.deleted_at IS NULL`;
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
 export class SitesController {
   constructor(private readonly pool: Pool) {}
 
   @Post()
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Audit fields are set from the authenticated user.' })
   @ApiBody({ schema: SITE_CREATE_BODY_SCHEMA })
   @ApiResponse({ status: 201, description: 'Created Site GeoJSON Feature', schema: SITE_FEATURE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR or INVALID_GEOMETRY', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 409, description: 'DUPLICATE_CODE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async create(@Body() body: unknown): Promise<CreatedSiteFeature> {
+  async create(@Req() request: AuthenticatedRequest, @Body() body: unknown): Promise<CreatedSiteFeature> {
     const site = validateCreateFeature(body);
     const client = await this.pool.connect();
     try {
@@ -53,10 +81,10 @@ export class SitesController {
       const source = JSON.stringify(site.geometry);
       const derived = await deriveSiteSpatial(client, source);
       const inserted = await client.query<{ version: number; geometry: CreatedSiteFeature['geometry'] }>(
-        `INSERT INTO sites (code, name, province_code, geom, area_rai)
-         VALUES ($1, $2, $3, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5)
+        `INSERT INTO sites (code, name, province_code, geom, area_rai, created_by, updated_by)
+         VALUES ($1, $2, $3, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5, $6, $6)
          RETURNING version, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-        [site.code, site.name, derived.province_code, source, derived.area_rai],
+        [site.code, site.name, derived.province_code, source, derived.area_rai, request.user.id],
       );
       await client.query('COMMIT');
       return {
@@ -82,25 +110,36 @@ export class SitesController {
   }
 
   @Patch(':code')
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Editor name and geometry changes are forbidden.' })
   @ApiBody({ schema: SITE_PATCH_BODY_SCHEMA })
   @ApiResponse({ status: 200, description: 'Updated Site GeoJSON Feature', schema: SITE_FEATURE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR or INVALID_GEOMETRY', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
-  @ApiResponse({ status: 409, description: 'VERSION_CONFLICT or SURVEYS_OUTSIDE', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 409, description: 'VERSION_CONFLICT returns details.current as the current Site Feature; SURVEYS_OUTSIDE rejects stranded Surveys', schema: SITE_PATCH_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async update(@Param('code') code: string, @Body() body: unknown): Promise<CreatedSiteFeature> {
+  async update(@Param('code') code: string, @Body() body: unknown, @Req() request: AuthenticatedRequest): Promise<CreatedSiteFeature> {
     const patch = validateSitePatch(body);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const locked = await client.query<{ id: string; version: number; name: string }>(
-        'SELECT id, version, name FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE',
+      const locked = await client.query<{ id: string; version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
+        'SELECT id, version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE',
         [code],
       );
       if (!locked.rowCount) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
       if (locked.rows[0].version !== patch.version) {
-        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: {} });
+        const row = locked.rows[0];
+        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: { current: {
+          type: 'Feature',
+          geometry: row.geometry,
+          properties: { code, name: row.name, province_code: row.province_code, area_rai: Number(row.area_rai), version: row.version },
+        } } });
       }
       let derived: { province_code: string; area_rai: string; source: string } | undefined;
       if (patch.geometry) {
@@ -121,15 +160,16 @@ export class SitesController {
       const updated = derived
         ? await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
           `UPDATE sites SET name = COALESCE($2, name), province_code = $3, area_rai = $4,
-                  geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)), version = version + 1
+                  geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)), version = version + 1,
+                  updated_by = $6, updated_at = now()
             WHERE id = $1 RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-          [locked.rows[0].id, patch.name ?? null, derived.province_code, derived.area_rai, derived.source],
+          [locked.rows[0].id, patch.name ?? null, derived.province_code, derived.area_rai, derived.source, request.user.id],
         )
         : await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
-          `UPDATE sites SET name = $2, version = version + 1
+          `UPDATE sites SET name = $2, version = version + 1, updated_by = $3, updated_at = now()
             WHERE id = $1
             RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-          [locked.rows[0].id, patch.name],
+          [locked.rows[0].id, patch.name, request.user.id],
         );
       const row = updated.rows[0];
       await client.query('COMMIT');
@@ -153,12 +193,18 @@ export class SitesController {
   }
 
   @Delete(':code')
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Soft-deletes Sites without linked Surveys and records the admin as updater.' })
   @ApiResponse({ status: 204, description: 'Site soft-deleted' })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SITE_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 409, description: 'SITE_HAS_SURVEYS', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   @HttpCode(204)
-  async remove(@Param('code') code: string): Promise<void> {
+  async remove(@Param('code') code: string, @Req() request: AuthenticatedRequest): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -171,7 +217,10 @@ export class SitesController {
       if (surveys.rowCount) {
         throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
       }
-      await client.query('UPDATE sites SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1', [locked.rows[0].id]);
+      await client.query(
+        'UPDATE sites SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [locked.rows[0].id, request.user.id],
+      );
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -228,10 +277,19 @@ export class SitesController {
       province_code: string;
       area_rai: string;
       version: number;
+      site_status: SiteStatus;
     }>(
-      `SELECT code, name, province_code, area_rai::text, version
-         FROM sites WHERE ${where}
-        ORDER BY code ASC
+      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              COALESCE(status.site_status, 'no_data') AS site_status
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT ${SITE_STATUS_CASE_SQL} AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
+        WHERE ${where}
+        ORDER BY s.code ASC
         LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, pageSize, offset],
     );
@@ -242,6 +300,7 @@ export class SitesController {
         province_code: row.province_code,
         area_rai: Number(row.area_rai),
         version: row.version,
+        siteStatus: row.site_status,
       })),
       total: Number(count.rows[0]?.total ?? 0),
       page,
@@ -263,19 +322,9 @@ export class SitesController {
       survey_ref: string | null;
       surveyed_on: string | null;
       cover_percent: string | null;
+      site_status: SiteStatus | null;
     }>(
-      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry,
-              latest.survey_ref, latest.surveyed_on, latest.cover_percent::text
-         FROM sites s
-         LEFT JOIN LATERAL (
-           SELECT survey_ref, surveyed_on::text, cover_percent
-             FROM surveys
-            WHERE site_id = s.id
-            ORDER BY surveyed_on DESC, id DESC
-            LIMIT 1
-         ) latest ON true
-        WHERE s.code = $1 AND s.deleted_at IS NULL`,
+      SITE_DETAIL_QUERY,
       [code],
     );
     const row = result.rows[0];
@@ -291,6 +340,7 @@ export class SitesController {
         province_code: row.province_code,
         area_rai: Number(row.area_rai),
         version: row.version,
+        siteStatus: row.site_status ?? 'no_data',
         latest_survey: row.surveyed_on === null ? null : {
           survey_ref: row.survey_ref,
           surveyed_on: row.surveyed_on,

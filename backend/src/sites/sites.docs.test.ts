@@ -12,6 +12,7 @@ let app: INestApplication | undefined;
 let origin = '';
 
 before(async () => {
+  process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -53,6 +54,16 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.ok(list && create && bbox && detail && update && remove);
   assert.deepEqual(new Set(list.parameters?.map(({ name }) => name)), new Set(['status', 'province', 'q', 'page', 'pageSize']));
   assert.deepEqual(new Set(bbox.parameters?.map(({ name }) => name)), new Set(['bbox', 'province', 'status']));
+  const listSchema = list.responses?.['200']?.content?.['application/json']?.schema;
+  const listItem = listSchema?.properties?.items?.items;
+  const featureSchema = bbox.responses?.['200']?.content?.['application/json']?.schema;
+  const featureStatus = featureSchema?.properties?.features?.items?.properties?.properties?.properties?.siteStatus;
+  const listStatus = listItem?.properties?.siteStatus;
+  assert.deepEqual(listStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
+  assert.deepEqual(featureStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
+  assert.ok(create.security?.some((scheme) => 'access-token' in scheme));
+  assert.ok(create.responses?.['401']);
+  assert.ok(create.responses?.['403']);
   const createSchema = create.requestBody?.content?.['application/json']?.schema;
   const patchSchema = update.requestBody?.content?.['application/json']?.schema;
   assert.ok(createSchema && patchSchema);
@@ -60,7 +71,14 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.deepEqual(createSchema.properties?.properties?.required, ['code', 'name']);
   assert.deepEqual(createSchema.properties?.geometry?.required, ['type', 'coordinates']);
   assert.deepEqual(patchSchema.required, ['version']);
-  assert.ok(patchSchema.properties?.version && patchSchema.properties.name && patchSchema.properties.geometry);
+  assert.match(update.description ?? '', /active admin/i);
+  assert.match(update.description ?? '', /editor.*(?:name|geometry).*(?:denied|forbidden|cannot)/i);
+  assert.ok(update.responses?.['401'] && update.responses['403']);
+  assert.ok(update.security?.some((scheme) => 'access-token' in scheme));
+  const conflictSchema = update.responses?.['409']?.content?.['application/json']?.schema;
+  const versionConflict = conflictSchema?.anyOf?.[1]?.properties?.error?.properties?.details;
+  assert.ok(versionConflict?.properties?.current);
+  assert.equal(versionConflict.properties.current.type, 'object');
 
   const detailSchema = detail.responses?.['200']?.content?.['application/json']?.schema;
   assert.ok(detailSchema);
@@ -70,8 +88,9 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   assert.ok(detailSchema.properties?.geometry);
   assert.deepEqual(
     detailSchema.properties?.properties?.required,
-    ['code', 'name', 'province_code', 'area_rai', 'version', 'latest_survey'],
+    ['code', 'name', 'province_code', 'area_rai', 'version', 'siteStatus', 'latest_survey'],
   );
+  assert.deepEqual(detailSchema.properties?.properties?.properties?.siteStatus?.enum, ['very_good', 'good', 'fair', 'poor', 'no_data']);
   const latestSurvey = detailSchema.properties?.properties?.properties?.latest_survey;
   assert.ok(latestSurvey);
   assert.equal(latestSurvey.nullable, true);
@@ -86,6 +105,9 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
     { operation: update, success: '200' },
     { operation: remove, success: '204' },
   ];
+  assert.ok(remove.security?.some((requirement) => 'access-token' in requirement));
+  assert.ok(remove.responses?.['401']);
+  assert.ok(remove.responses?.['403']);
 
   for (const { operation, success } of operations) {
     const responses = operation?.responses ?? {};
@@ -93,11 +115,15 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
     const failures = Object.entries(responses).filter(([status]) => Number(status) >= 400);
     assert.ok(failures.length, 'missing failure response');
     for (const [status, response] of failures) {
-      assert.equal(
-        response.content?.['application/json']?.schema?.$ref,
-        '#/components/schemas/ApiErrorEnvelope',
-        `failure response ${status} must use the shared error schema`,
-      );
+      if (operation === update && status === '409') {
+        assert.ok(response.content?.['application/json']?.schema?.anyOf);
+      } else {
+        assert.equal(
+          response.content?.['application/json']?.schema?.$ref,
+          '#/components/schemas/ApiErrorEnvelope',
+          `failure response ${status} must use the shared error schema`,
+        );
+      }
     }
   }
 
@@ -114,20 +140,23 @@ interface OpenApiDocument {
 }
 
 interface OpenApiOperation {
+  description?: string;
   parameters?: Array<{ name: string }>;
   requestBody?: { content?: Record<string, { schema?: OpenApiSchema }> };
   responses?: Record<string, OpenApiResponse>;
+  security?: Array<Record<string, string[]>>;
 }
 interface OpenApiResponse {
   content?: Record<string, { schema?: OpenApiSchema }>;
 }
 
 interface OpenApiSchema {
-
   $ref?: string;
   type?: string;
   nullable?: boolean;
   required?: string[];
   enum?: string[];
   properties?: Record<string, OpenApiSchema>;
+  items?: OpenApiSchema;
+  anyOf?: OpenApiSchema[];
 }

@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
+import { signAccessToken } from '../auth/auth.controller';
 import { runMigrations } from '../database/migrate';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
@@ -20,8 +21,10 @@ let surveyRefs: string[] = [];
 let siteToken = '';
 let importSpeciesCode = '';
 let postToken = '';
+let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
 before(async () => {
+  process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -61,6 +64,13 @@ before(async () => {
       ($7,'Retired site',$2,ST_Multi(ST_GeomFromText('POLYGON((100.5 10.1,100.6 10.1,100.6 10.2,100.5 10.2,100.5 10.1))',4326)),1,now())`,
     [siteCodes[0], provinceCodes[0], siteCodes[1], provinceCodes[0], siteCodes[2], provinceCodes[1], siteCodes[3]],
   );
+  users = { viewer: randomUUID(), editor: randomUUID(), admin: randomUUID() };
+  await pool.query(
+    'INSERT INTO users (id, email, password_hash, role) VALUES ($1,$2,$3,$4),($5,$6,$7,$8),($9,$10,$11,$12)',
+    [users.viewer, `${users.viewer}@example.test`, 'unused', 'viewer',
+      users.editor, `${users.editor}@example.test`, 'unused', 'editor',
+      users.admin, `${users.admin}@example.test`, 'unused', 'admin'],
+  );
   app = await NestFactory.create(AppModule, { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -78,6 +88,7 @@ after(async () => {
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[...siteCodes, ...createdSiteCodes]]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
     await pool.end();
   }
 });
@@ -86,30 +97,106 @@ async function json(path: string): Promise<{ response: Response; body: Record<st
   const response = await fetch(`${origin}${path}`);
   return { response, body: await response.json() as Record<string, unknown> };
 }
+function accessToken(role: keyof typeof users): string {
+  return signAccessToken(users[role]);
+}
 
-async function createSite(feature: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+async function createSite(feature: unknown, role?: keyof typeof users | null): Promise<{ response: Response; body: Record<string, unknown> }> {
   const properties = feature && typeof feature === 'object' && 'properties' in feature ? feature.properties : undefined;
   const code = properties && typeof properties === 'object' && 'code' in properties ? properties.code : undefined;
   if (typeof code === 'string') createdSiteCodes.push(code);
   const response = await fetch(`${origin}/sites`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(role === null ? {} : { authorization: `Bearer ${accessToken(role ?? 'admin')}` }) },
     body: JSON.stringify(feature),
   });
   return { response, body: await response.json() as Record<string, unknown> };
 }
 
-async function patchSite(code: string, body: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
+async function patchSite(code: string, body: unknown, token: string | null = accessToken('admin')): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token !== null) headers.authorization = `Bearer ${token}`;
   const response = await fetch(`${origin}/sites/${code}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   return { response, body: await response.json() as Record<string, unknown> };
 }
 
-async function deleteSite(code: string): Promise<Response> {
-  return fetch(`${origin}/sites/${code}`, { method: 'DELETE' });
+integration('PATCH /sites requires admin before validation or Site lookup', async () => {
+  for (const [code, body, token, status, error] of [
+    [siteCodes[0], {}, null, 401, 'UNAUTHORIZED'],
+    [siteCodes[0], {}, 'not-a-token', 401, 'UNAUTHORIZED'],
+    [siteCodes[0], {}, accessToken('viewer'), 403, 'FORBIDDEN'],
+    [siteCodes[0], { version: 1, geometry: polygon(100.1, 10.1, 100.2, 10.2) }, accessToken('editor'), 403, 'FORBIDDEN'],
+    [`missing-${siteToken}`, {}, accessToken('editor'), 403, 'FORBIDDEN'],
+  ] as const) {
+    const result = await patchSite(code, body, token);
+    assert.equal(result.response.status, status);
+    assert.equal((result.body.error as Record<string, unknown>).code, error);
+  }
+});
+
+integration('PATCH /sites serializes same-version edits and records admin audit fields', async () => {
+  const code = `PATCH-RACE-${postToken}`;
+  const created = await createSite(siteFeature(code, polygon(100.15, 10.15, 100.25, 10.25)));
+  assert.equal(created.response.status, 201);
+  const ref = `patch-race-survey-${siteToken}`;
+  surveyRefs.push(ref);
+  const site = await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [code]);
+  await pool!.query(
+    `INSERT INTO surveys (site_id,survey_ref,geom,surveyed_on,cover_percent)
+     VALUES ($1,$2,ST_SetSRID(ST_MakePoint(100.2,10.2),4326),CURRENT_DATE,40)`,
+    [site.rows[0].id, ref],
+  );
+  const before = await pool!.query<{ created_by: string | null; updated_by: string | null }>(
+    'SELECT created_by, updated_by FROM sites WHERE code = $1', [code],
+  );
+  const [first, second] = await Promise.all([
+    patchSite(code, { version: 1, name: 'First edit' }),
+    patchSite(code, { version: 1, name: 'Second edit' }),
+  ]);
+  assert.deepEqual([first.response.status, second.response.status].sort(), [200, 409]);
+  const success = first.response.status === 200 ? first : second;
+  const conflict = first.response.status === 409 ? first : second;
+  assert.equal((conflict.body.error as Record<string, unknown>).code, 'VERSION_CONFLICT');
+  const current = (conflict.body.error as { details: { current: unknown } }).details.current;
+  const currentFeature = current as { properties: Record<string, unknown> };
+  assert.deepEqual(current, success.body);
+  assert.equal('siteStatus' in currentFeature.properties, false);
+  assert.equal(success.response.status, 200);
+  const stored = await pool!.query<{ version: number; name: string; created_by: string | null; updated_by: string | null; updated_at: Date }>(
+    'SELECT version, name, created_by, updated_by, updated_at FROM sites WHERE code = $1', [code],
+  );
+  assert.equal(stored.rows[0].version, 2);
+  const successProperties = success.body.properties as Record<string, unknown>;
+  assert.equal(stored.rows[0].name, successProperties.name);
+  assert.equal(stored.rows[0].created_by, before.rows[0].created_by);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(stored.rows[0].updated_at);
+  const combinedEdit = await patchSite(code, { version: 2, name: 'Combined edit', geometry: polygon(100.16, 10.16, 100.26, 10.26) });
+  assert.equal(combinedEdit.response.status, 200);
+  const spatialInvariant = await pool!.query<{ within: boolean }>(
+    'SELECT ST_DWithin(s.geom::geography, v.geom::geography, 50) AS within FROM sites s JOIN surveys v ON v.site_id = s.id WHERE s.code = $1 AND v.survey_ref = $2',
+    [code, ref],
+  );
+  assert.equal(spatialInvariant.rows[0].within, true);
+  const forged = await patchSite(code, { version: 3, created_by: users.viewer, updated_by: users.viewer });
+  assert.equal(forged.response.status, 400);
+  assert.equal((forged.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const combined = await pool!.query<{ version: number; updated_by: string | null }>(
+    'SELECT version, updated_by FROM sites WHERE code = $1', [code],
+  );
+  assert.equal(combined.rows[0].version, 3);
+  assert.equal(combined.rows[0].updated_by, users.admin);
+});
+
+async function deleteSite(code: string, role: keyof typeof users | null = 'admin'): Promise<Response> {
+  return fetch(`${origin}/sites/${code}`, {
+    method: 'DELETE',
+    headers: role === null ? {} : { authorization: `Bearer ${accessToken(role)}` },
+  });
 }
 
 async function waitForBlockedQuery(query: string): Promise<void> {
@@ -140,7 +227,32 @@ const siteFeature = (code: string, geometry: unknown, extra: Record<string, unkn
   properties: { code, name: `New ${code}`, ...extra },
 });
 
-integration('POST /sites stores Polygon as MultiPolygon and returns server-derived values', async () => {
+integration('POST /sites requires admin before validating parseable bodies', async () => {
+  const invalid = { type: 'NotFeature' };
+  for (const role of [null, 'viewer', 'editor'] as const) {
+    const { response, body } = await createSite(invalid, role);
+    assert.equal(response.status, role === null ? 401 : 403);
+    assert.equal((body.error as Record<string, unknown>).code, role === null ? 'UNAUTHORIZED' : 'FORBIDDEN');
+  }
+  const invalidTokenResponse = await fetch(`${origin}/sites`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer invalid' },
+    body: JSON.stringify(invalid),
+  });
+  assert.equal(invalidTokenResponse.status, 401);
+  assert.equal(((await invalidTokenResponse.json() as Record<string, any>).error).code, 'UNAUTHORIZED');
+
+  await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['viewer', users.admin]);
+  try {
+    const { response, body } = await createSite(invalid, 'admin');
+    assert.equal(response.status, 403);
+    assert.equal((body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  } finally {
+    await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['admin', users.admin]);
+  }
+});
+
+integration('POST /sites stores the authenticated creator and updater', async () => {
   const feature = siteFeature(`POST-${postToken}`, polygon(100.15, 10.15, 100.25, 10.25));
   const { response, body } = await createSite(feature);
   assert.equal(response.status, 201);
@@ -156,15 +268,29 @@ integration('POST /sites stores Polygon as MultiPolygon and returns server-deriv
     version: 1,
   });
   assert.equal(typeof properties.area_rai, 'number');
-  const stored = await pool!.query<{ area_rai: string; geometrytype: string; province_code: string }>(
-    `SELECT area_rai::text, ST_GeometryType(geom) AS geometrytype, province_code
+  const stored = await pool!.query<{ area_rai: string; geometrytype: string; province_code: string; created_by: string; updated_by: string; updated_at: Date }>(
+    `SELECT area_rai::text, ST_GeometryType(geom) AS geometrytype, province_code, created_by::text, updated_by::text, updated_at
        FROM sites WHERE code = $1`,
     [`POST-${postToken}`],
   );
   assert.equal(stored.rows[0].geometrytype, 'ST_MultiPolygon');
   assert.equal(stored.rows[0].province_code, provinceCodes[0]);
   assert.equal(properties.area_rai, Number(stored.rows[0].area_rai));
+  assert.equal(stored.rows[0].created_by, users.admin);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(Math.abs(Date.now() - stored.rows[0].updated_at.getTime()) < 10_000);
 });
+
+integration('POST /sites rejects client-supplied audit fields', async () => {
+  const feature = siteFeature(`POST-${postToken}-FORGED`, polygon(100.15, 10.15, 100.25, 10.25), {
+    created_by: users.viewer, updated_by: users.viewer, updated_at: '2000-01-01T00:00:00.000Z',
+  });
+  const { response, body } = await createSite(feature);
+  assert.equal(response.status, 400);
+  assert.equal((body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  assert.equal((await pool!.query('SELECT 1 FROM sites WHERE code = $1', [`POST-${postToken}-FORGED`])).rowCount, 0);
+});
+
 integration('POST and PATCH preserve narrow valid Site geometry in storage and GeoJSON responses', async () => {
   const narrow = (west: number) => ({
     type: 'Polygon',
@@ -273,7 +399,8 @@ integration('GET /sites returns exact numeric summaries without geometry, sorted
   const items = body.items as Array<Record<string, unknown>>;
   assert.deepEqual(items.map((item) => item.code), [...siteCodes.slice(0, 3)].sort());
   for (const item of items) {
-    assert.deepEqual(Object.keys(item).sort(), ['area_rai', 'code', 'name', 'province_code', 'version']);
+    assert.deepEqual(Object.keys(item).sort(), ['area_rai', 'code', 'name', 'province_code', 'siteStatus', 'version']);
+    assert.equal(item.siteStatus, 'no_data');
     assert.equal(typeof item.area_rai, 'number');
     assert.equal(typeof item.version, 'number');
   }
@@ -300,6 +427,7 @@ integration('GET /sites/:code returns GeoJSON detail and a null latest Survey wh
       province_code: provinceCodes[0],
       area_rai: 2,
       version: 1,
+      siteStatus: 'no_data',
       latest_survey: null,
     },
   });
@@ -329,6 +457,41 @@ integration('GET /sites/:code selects latest Survey by date then identity and pr
     });
   } finally {
     await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[]) OR (survey_ref IS NULL AND site_id = (SELECT id FROM sites WHERE code = $2))', [refs, siteCodes[0]]);
+  }
+});
+
+integration('public Site status averages latest-date Surveys and recomputes after mutations', async () => {
+  const refs = [`${siteToken}-STATUS-OLD`, `${siteToken}-STATUS-A`, `${siteToken}-STATUS-B`];
+  const siteId = (await pool!.query<{ id: string }>('SELECT id FROM sites WHERE code = $1', [siteCodes[0]])).rows[0].id;
+  try {
+    await pool!.query(
+      `INSERT INTO surveys (site_id, survey_ref, geom, surveyed_on, cover_percent)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-01-01', 1),
+              ($1, $3, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-02-03', 70),
+              ($1, $4, ST_SetSRID(ST_MakePoint(100.15,10.15),4326), DATE '2025-02-03', 80)`,
+      [siteId, ...refs],
+    );
+    const expectStatus = async (expected: string) => {
+      const [list, detail, map] = await Promise.all([
+        json(`/sites?q=${siteCodes[0]}`),
+        json(`/sites/${siteCodes[0]}`),
+        json('/sites.geojson?bbox=100,10,100.3,10.3'),
+      ]);
+      assert.equal(((list.body.items as Array<Record<string, unknown>>)[0]).siteStatus, expected);
+      assert.equal(((detail.body.properties as Record<string, unknown>)).siteStatus, expected);
+      const feature = (map.body.features as Array<Record<string, unknown>>)
+        .find((item) => (item.properties as Record<string, unknown>).code === siteCodes[0]);
+      assert.equal((feature?.properties as Record<string, unknown>).siteStatus, expected);
+    };
+    await expectStatus('very_good');
+    await pool!.query('UPDATE surveys SET cover_percent = 30 WHERE survey_ref = $1', [refs[2]]);
+    await expectStatus('good');
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [[refs[1], refs[2]]]);
+    await expectStatus('poor');
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = $1', [refs[0]]);
+    await expectStatus('no_data');
+  } finally {
+    await pool!.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [refs]);
   }
 });
 
@@ -501,7 +664,7 @@ integration('PATCH and Survey import serialize both lock orders without strandin
       if (importFirst) {
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         const patch = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
-        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await coordinator.query('COMMIT');
         committed = true;
         const [imported, edited] = await Promise.all([importPromise, patch]);
@@ -509,7 +672,7 @@ integration('PATCH and Survey import serialize both lock orders without strandin
         assert.equal(edited.response.status, 409);
         assert.equal((edited.body.error as Record<string, unknown>).code, 'SURVEYS_OUTSIDE');
       } else {
-        await waitForBlockedQuery('SELECT id, version, name FROM sites');
+        await waitForBlockedQuery('FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         await coordinator.query('COMMIT');
         committed = true;
@@ -526,15 +689,35 @@ integration('PATCH and Survey import serialize both lock orders without strandin
   }
 });
 
-integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code', async () => {
+integration('DELETE /sites requires admin before looking up a Site', async () => {
+  for (const [role, status, code] of [
+    [null, 401, `MISSING-${siteToken}`],
+    ['viewer', 403, `MISSING-${siteToken}`],
+    ['editor', 403, siteCodes[0]],
+  ] as const) {
+    const response = await deleteSite(code, role);
+    assert.equal(response.status, status);
+    assert.equal(((await response.json() as Record<string, unknown>).error as Record<string, unknown>).code,
+      status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN');
+  }
+});
+
+integration('DELETE /sites soft-deletes only Survey-free Sites and preserves code and audit actors', async () => {
   const code = `DELETE-${siteToken}`;
   const created = await createSite(siteFeature(code, polygon(100.6, 10.1, 100.7, 10.2)));
   assert.equal(created.response.status, 201);
+  await pool!.query('UPDATE sites SET created_by = $2, updated_by = $2, updated_at = TIMESTAMPTZ \'2025-01-01\' WHERE code = $1',
+    [code, users.viewer]);
   const deleted = await deleteSite(code);
   assert.equal(deleted.status, 204);
   assert.equal(await deleted.text(), '');
-  const retained = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [code]);
+  const retained = await pool!.query<{ deleted_at: Date | null; created_by: string; updated_by: string; updated_at: Date }>(
+    'SELECT deleted_at, created_by, updated_by, updated_at FROM sites WHERE code = $1', [code],
+  );
   assert.ok(retained.rows[0].deleted_at);
+  assert.equal(retained.rows[0].created_by, users.viewer);
+  assert.equal(retained.rows[0].updated_by, users.admin);
+  assert.ok(retained.rows[0].updated_at > new Date('2025-01-01'));
   for (const response of [await deleteSite(code), await deleteSite(`MISSING-${siteToken}`)]) {
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json() as Record<string, unknown>).error, {
@@ -593,10 +776,9 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
           surveyed_on: date.rows[0].today, cover_percent: '40', species: importSpeciesCode,
         },
       };
-      const importPromise = importSurveys(importer, [record]);
-      const deletionPromise = importFirst ? undefined : deleteSite(code);
-      await waitForBlockedQuery('FROM sites WHERE code = $1');
       if (importFirst) {
+        const importPromise = importSurveys(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
         await coordinator.query('COMMIT');
@@ -606,10 +788,13 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
         assert.equal(deleted.status, 409);
         assert.equal(((await deleted.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'SITE_HAS_SURVEYS');
       } else {
+        const deletion = deleteSite(code);
         await waitForBlockedQuery('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE');
+        const importPromise = importSurveys(importer, [record]);
+        await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         await coordinator.query('COMMIT');
         committed = true;
-        const [deleted, imported] = await Promise.all([deletionPromise!, importPromise]);
+        const [deleted, imported] = await Promise.all([deletion, importPromise]);
         assert.equal(deleted.status, 204);
         assert.equal(imported.summary.inserted, 0);
         assert.deepEqual(imported.rejections.map(({ reason }) => reason), ['SITE_NOT_FOUND']);

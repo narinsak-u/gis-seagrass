@@ -12,13 +12,13 @@ These specifications define the implementation plan for the **Seagrass Monitorin
 | `step-2-seed-data.md` | Import, spatial validation, idempotency, report | Required | Detailed |
 | `step-3-site-api.md` | Site CRUD, bbox GeoJSON, Swagger | Required | Implemented and verified |
 | `step-4-survey-api.md` | Survey CRUD, distance rule, status | Required | Implemented and verified |
-| `step-5-auth-concurrency.md` | JWT, RBAC, optimistic locking | Required | Planned |
+| `step-5-auth-concurrency.md` | JWT, RBAC, optimistic locking | Required | Implemented and verified |
 | `step-6-map-ui.md` | MapLibre map, synchronized list and filters | Required | Planned |
 | `step-7-map-editing.md` | Map interactions and editing | Optional | Planned |
 | `step-8-dashboard-export.md` | Aggregation, dashboard, exports | Optional | Planned |
 | `step-9-production.md` | Production enhancements | Optional | Planned |
 
-Step 3 has an agreed specification at `step-3-site-api.md`. Step 4 is implemented and verified against `step-4-survey-api.md`, including the agreed Site-status formula. Steps 5–9 remain planned names, not created specs. Do not fabricate acceptance criteria for those later Steps.
+Step 3 has an agreed specification at `step-3-site-api.md`. Step 4 is implemented and verified against `step-4-survey-api.md`, including the agreed Site-status formula. Step 5 is implemented and verified against `step-5-auth-concurrency.md`; its confirmed `.scratch/` spec and nine tickets are resolved. Steps 6–9 remain planned names, not created specs. Do not fabricate acceptance criteria for those later Steps.
 
 ## Repository structure and package management
 

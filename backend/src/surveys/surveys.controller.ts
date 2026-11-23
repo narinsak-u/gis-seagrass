@@ -1,13 +1,18 @@
-import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UnprocessableEntityException } from '@nestjs/common';
-import { ApiBody, ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { BadRequestException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, Body, Req, UnprocessableEntityException, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Pool, type PoolClient } from 'pg';
 import { ApiErrorEnvelope } from '../sites/site-openapi';
 import { parseSurveyId, parseSurveyInput, parseSurveyPage, validateSurveyDateAgainstToday } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
+import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
+import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
 
 interface SurveyJson {
-  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null;
+  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null; created_by: string | null;
 }
+
+const SURVEY_STATUS_QUERY = `SELECT ${SITE_STATUS_CASE_SQL} AS status
+       FROM surveys WHERE site_id = $1 AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = $1)`;
 
 @ApiExtraModels(ApiErrorEnvelope)
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
@@ -16,10 +21,16 @@ export class SurveysController {
   constructor(private readonly pool: Pool) {}
 
   @Get('sites/:code/surveys')
+  @UseGuards(AuthGuard)
+  @Roles('viewer', 'editor', 'admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active viewer, editor, or admin. Each item includes its creator user ID, or null for imported Surveys.' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
   @ApiResponse({ status: 200, schema: SURVEY_LIST_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   async list(@Param('code') code: string, @Query() query: Record<string, unknown>) {
     if (Object.keys(query).some((key) => !['page', 'pageSize'].includes(key))) throw new BadRequestException();
@@ -31,7 +42,7 @@ export class SurveysController {
     const count = await this.pool.query<{ total: string }>('SELECT count(*)::text AS total FROM surveys WHERE site_id = $1', [site.rows[0].id]);
     const rows = await this.pool.query<SurveyJson>(
       `SELECT s.id::text, ST_X(s.geom)::float8 AS lon, ST_Y(s.geom)::float8 AS lat,
-              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note,
+              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note, s.created_by::text,
               COALESCE(array_agg(ss.species_code ORDER BY ss.species_code) FILTER (WHERE ss.species_code IS NOT NULL), ARRAY[]::text[]) AS species
          FROM surveys s LEFT JOIN survey_species ss ON ss.survey_id = s.id
         WHERE s.site_id = $1 GROUP BY s.id ORDER BY s.surveyed_on DESC, s.id DESC
@@ -40,13 +51,19 @@ export class SurveysController {
     return { items: rows.rows, total: Number(count.rows[0].total), page };
   }
 
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin.' })
   @Post('sites/:code/surveys')
   @ApiBody({ schema: SURVEY_CREATE_BODY_SCHEMA })
   @ApiResponse({ status: 201, schema: SURVEY_WRITE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async create(@Param('code') code: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+  async create(@Param('code') code: string, @Body() body: unknown, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const input = parseSurveyInput(body, true, request.rawBody);
     const client = await this.pool.connect();
     try {
@@ -59,9 +76,9 @@ export class SurveysController {
       if (!site.rows[0].within) throw new UnprocessableEntityException({ code: 'OUTSIDE_SITE', message: 'Survey location is more than 50 meters from Site', details: {} });
       await validateDateAndSpecies(client, input.surveyed_on!, input.species!);
       const inserted = await client.query<{ id: string }>(
-        `INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, note)
-         VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4, $5, $6) RETURNING id::text`,
-        [site.rows[0].id, input.lon, input.lat, input.surveyed_on, input.cover_percent, input.note],
+        `INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent, note, created_by, updated_by)
+         VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326), $4, $5, $6, $7, $7) RETURNING id::text`,
+        [site.rows[0].id, input.lon, input.lat, input.surveyed_on, input.cover_percent, input.note, request.user.id],
       );
       await replaceSpecies(client, inserted.rows[0].id, input.species!);
       const result = await responseSurvey(client, inserted.rows[0].id, site.rows[0].id);
@@ -74,12 +91,18 @@ export class SurveysController {
   }
 
   @Patch('surveys/:id')
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin. Records the authenticated updater on every successful update.' })
   @ApiBody({ schema: SURVEY_PATCH_BODY_SCHEMA })
   @ApiResponse({ status: 200, schema: SURVEY_WRITE_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
-  async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: { rawBody?: Buffer }) {
+  async update(@Param('id') rawId: string, @Body() body: unknown, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const id = parseSurveyId(rawId);
     const input = parseSurveyInput(body, false, request.rawBody);
     const client = await this.pool.connect();
@@ -104,7 +127,8 @@ export class SurveysController {
       if (input.surveyed_on !== undefined) add('surveyed_on', input.surveyed_on, '::date');
       if (input.cover_percent !== undefined) add('cover_percent', input.cover_percent, '::numeric');
       if (input.note !== undefined) add('note', input.note);
-      if (updates.length) await client.query(`UPDATE surveys SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, values);
+      add('updated_by', request.user.id, '::uuid');
+      await client.query(`UPDATE surveys SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, values);
       if (input.species !== undefined) {
         await client.query('DELETE FROM survey_species WHERE survey_id = $1', [id]);
         await replaceSpecies(client, id, input.species);
@@ -118,10 +142,16 @@ export class SurveysController {
     } finally { client.release(); }
   }
 
+  @UseGuards(AuthGuard)
+  @Roles('admin')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ description: 'Requires an active admin.' })
   @Delete('surveys/:id')
   @HttpCode(204)
   @ApiResponse({ status: 204, description: 'Survey deleted' })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 401, description: 'UNAUTHORIZED', schema: SURVEY_ERROR_SCHEMA })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   async remove(@Param('id') rawId: string): Promise<void> {
     const id = parseSurveyId(rawId);
@@ -172,11 +202,6 @@ async function responseSurvey(client: PoolClient, id: string, siteId: string): P
        FROM surveys s LEFT JOIN survey_species ss ON ss.survey_id = s.id
       WHERE s.id = $1 GROUP BY s.id`, [id],
   );
-  const status = await client.query<{ status: string }>(
-    `SELECT CASE WHEN count(*) = 0 THEN 'no_data'
-            WHEN avg(cover_percent) >= 75 THEN 'very_good' WHEN avg(cover_percent) >= 50 THEN 'good'
-            WHEN avg(cover_percent) >= 25 THEN 'fair' ELSE 'poor' END AS status
-       FROM surveys WHERE site_id = $1 AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = $1)`, [siteId],
-  );
+  const status = await client.query<{ status: string }>(SURVEY_STATUS_QUERY, [siteId]);
   return { ...result.rows[0], siteStatus: status.rows[0].status };
 }

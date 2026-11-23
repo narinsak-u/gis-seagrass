@@ -14,10 +14,15 @@ const survey = {
     note: { type: 'string', nullable: true },
   }, additionalProperties: false,
 };
+const surveyListItem = {
+  ...survey,
+  required: [...survey.required, 'created_by'],
+  properties: { ...survey.properties, created_by: { type: 'string', format: 'uuid', nullable: true } },
+};
 
 export const SURVEY_LIST_SCHEMA = {
   type: 'object', required: ['items', 'total', 'page'], properties: {
-    items: { type: 'array', items: survey }, total: { type: 'integer' }, page: { type: 'integer' },
+    items: { type: 'array', items: surveyListItem }, total: { type: 'integer' }, page: { type: 'integer' },
   },
 };
 export const SURVEY_WRITE_SCHEMA = {

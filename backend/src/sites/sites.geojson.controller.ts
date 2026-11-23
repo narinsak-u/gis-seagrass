@@ -2,13 +2,14 @@ import { Pool } from 'pg';
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
-import type { SiteSummary } from './site.types';
+import type { PublicSiteSummary, SiteStatus } from './site.types';
+import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
 
 
 interface SiteFeature {
   type: 'Feature';
   geometry: { type: 'MultiPolygon'; coordinates: number[][][][] };
-  properties: SiteSummary;
+  properties: PublicSiteSummary;
 }
 
 interface SiteFeatureCollection {
@@ -17,6 +18,20 @@ interface SiteFeatureCollection {
 }
 
 const ALLOWED_QUERY_KEYS = ['bbox', 'province', 'status'];
+
+const SITE_GEOJSON_QUERY = `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
+              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry, status.site_status
+         FROM sites s
+         LEFT JOIN LATERAL (
+           SELECT ${SITE_STATUS_CASE_SQL} AS site_status
+             FROM surveys
+            WHERE site_id = s.id
+              AND surveyed_on = (SELECT max(surveyed_on) FROM surveys WHERE site_id = s.id)
+         ) status ON true
+        WHERE s.deleted_at IS NULL
+          AND ST_Intersects(s.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
+          AND ($5::text IS NULL OR s.province_code = $5)
+        ORDER BY s.code ASC`;
 
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites.geojson')
@@ -41,8 +56,6 @@ export class SitesGeoJsonController {
     if (!bbox) {
       throw new BadRequestException({ code: 'INVALID_BBOX', message: 'Invalid bbox', details: {} });
     }
-    const values: Array<string | number> = [...bbox];
-    const provinceFilter = query.province === undefined ? '' : ` AND s.province_code = $${values.push(query.province)}`;
     const result = await this.pool.query<{
       code: string;
       name: string;
@@ -50,14 +63,10 @@ export class SitesGeoJsonController {
       area_rai: string;
       version: number;
       geometry: SiteFeature['geometry'];
+      site_status: SiteStatus | null;
     }>(
-      `SELECT s.code, s.name, s.province_code, s.area_rai::text, s.version,
-              ST_AsGeoJSON(s.geom, 15)::jsonb AS geometry
-         FROM sites s
-        WHERE s.deleted_at IS NULL
-          AND ST_Intersects(s.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))${provinceFilter}
-        ORDER BY s.code ASC`,
-      values,
+      SITE_GEOJSON_QUERY,
+      [...bbox, query.province ?? null],
     );
     return {
       type: 'FeatureCollection',
@@ -70,6 +79,7 @@ export class SitesGeoJsonController {
           province_code: row.province_code,
           area_rai: Number(row.area_rai),
           version: row.version,
+          siteStatus: row.site_status ?? 'no_data',
         },
       })),
     };

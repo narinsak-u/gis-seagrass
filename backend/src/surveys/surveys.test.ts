@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
+import { request as httpRequest } from 'node:http';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { runMigrations } from '../database/migrate';
 import { setupSwagger } from '../swagger';
+import { signAccessToken } from '../auth/auth.controller';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -21,8 +23,10 @@ let speciesCodes: [string, string] = ['', ''];
 let createdProvinceCode = '';
 let createdSiteCodes: string[] = [];
 let createdSpeciesCodes: string[] = [];
+let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
 before(async () => {
+  process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -62,6 +66,11 @@ before(async () => {
   );
   createdSiteCodes = sites.rows.map(({ code }) => code);
   siteId = sites.rows.find(({ code }) => code === siteCode)?.id ?? '';
+  users = { viewer: randomUUID(), editor: randomUUID(), admin: randomUUID() };
+  await pool.query(
+    'INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
+    [users.viewer, `${randomUUID()}@example.test`, 'unused', 'viewer', users.editor, `${randomUUID()}@example.test`, 'unused', 'editor', users.admin, `${randomUUID()}@example.test`, 'unused', 'admin'],
+  );
   app = await NestFactory.create(AppModule, { logger: false, rawBody: true });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
@@ -78,26 +87,41 @@ after(async () => {
     await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
   }
   if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
+  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
   if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
   if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
   await pool.end();
 });
 
-async function request(path: string, method = 'GET', body?: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
-  return requestText(path, method, body === undefined ? undefined : JSON.stringify(body));
+async function request(path: string, method = 'GET', body?: unknown, token?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
+  return requestText(path, method, body === undefined ? undefined : JSON.stringify(body), token);
 }
 
-async function requestText(path: string, method = 'GET', body?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
-  const response = await fetch(`${origin}${path}`, {
-    method,
-    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-    body,
-  });
+async function requestText(path: string, method = 'GET', body?: string, token?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(`${origin}${path}`, { method, headers, body });
   return { response, body: response.status === 204 ? {} : await response.json() as Record<string, unknown> };
 }
 
-async function create(body: unknown, code = siteCode) {
-  return request(`/sites/${code}/surveys`, 'POST', body);
+function accessToken(role: 'viewer' | 'editor' | 'admin'): string {
+  return signAccessToken(users[role]);
+}
+
+function signedToken(sub: string, iat: number, exp: number): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const content = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub, iat, exp })}`;
+  const signature = createHmac('sha256', process.env.JWT_SECRET!).update(content).digest('base64url');
+  return `${content}.${signature}`;
+}
+
+function expiredToken(): string {
+  return signedToken(users.viewer, 1, 2);
+}
+
+async function create(body: unknown, code = siteCode, token: string | null = accessToken('admin')) {
+  return request(`/sites/${code}/surveys`, 'POST', body, token ?? undefined);
 }
 
 async function todayAndDates(): Promise<{ today: string; yesterday: string; tomorrow: string }> {
@@ -120,7 +144,7 @@ async function resetSurveys(): Promise<void> {
 }
 
 async function status(): Promise<Record<string, unknown>> {
-  const response = await request(`/sites/${siteCode}/surveys`);
+  const response = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
   return response.body;
 }
 
@@ -149,25 +173,33 @@ integration('Swagger documents Survey operations, payloads, and error responses'
     not?: Schema;
     properties?: Record<string, Schema>;
     items?: Schema;
+    nullable?: boolean;
   };
   type Operation = {
+    description?: string;
     requestBody?: { content?: Record<string, { schema?: Schema }> };
+    security?: Array<Record<string, string[]>>;
     responses?: Record<string, { content?: Record<string, { schema?: Schema }> }>;
   };
   const document = await response.json() as {
     paths: Record<string, Record<string, Operation>>;
-    components?: { schemas?: Record<string, Schema> };
+    components?: { schemas?: Record<string, Schema>; securitySchemes?: Record<string, { type?: string; scheme?: string; bearerFormat?: string }> };
   };
   const post = document.paths['/sites/{code}/surveys'].post;
   const patch = document.paths['/surveys/{id}'].patch;
   const remove = document.paths['/surveys/{id}'].delete;
   const list = document.paths['/sites/{code}/surveys'].get;
   assert.ok(post && patch && remove && list);
+  assert.deepEqual(document.components?.securitySchemes?.['access-token'], { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' });
+  assert.deepEqual(post.security, [{ 'access-token': [] }]);
+  assert.match(post.description ?? '', /admin/);
+  assert.deepEqual(patch.security, [{ 'access-token': [] }]);
+  assert.match(patch.description ?? '', /admin/);
   for (const [operation, statuses] of [
-    [list, ['200', '400', '404', '500']],
-    [post, ['201', '400', '404', '422', '500']],
-    [patch, ['200', '400', '404', '422', '500']],
-    [remove, ['204', '400', '404', '500']],
+    [list, ['200', '400', '401', '403', '404', '500']],
+    [post, ['201', '400', '401', '403', '404', '422', '500']],
+    [patch, ['200', '400', '401', '403', '404', '422', '500']],
+    [remove, ['204', '400', '401', '403', '404', '500']],
   ] as const) {
     for (const code of statuses) assert.ok(operation.responses?.[code], `Missing documented response ${code}`);
   }
@@ -196,40 +228,137 @@ integration('Swagger documents Survey operations, payloads, and error responses'
   assert.deepEqual(Object.keys(patchResponse?.properties ?? {}).sort(), ['cover_percent', 'id', 'lat', 'lon', 'note', 'siteStatus', 'species', 'surveyed_on']);
   assert.deepEqual(Object.keys(listResponse?.properties ?? {}).sort(), ['items', 'page', 'total']);
   const listedSurvey = resolveSchema(listResponse?.properties?.items?.items);
-  assert.deepEqual(Object.keys(listedSurvey?.properties ?? {}).sort(), ['cover_percent', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
+  assert.deepEqual(Object.keys(listedSurvey?.properties ?? {}).sort(), ['cover_percent', 'created_by', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
+  assert.equal(listedSurvey?.properties?.created_by?.nullable, true);
 });
 
 integration('GET /sites/:code/surveys paginates deterministic list shapes and rejects invalid queries', async () => {
   await resetSurveys();
-  const older = await create(await validSurvey({ surveyed_on: '2025-01-01', cover_percent: 10 }));
+  const older = await pool!.query<{ id: string }>(
+    `INSERT INTO surveys (site_id,geom,surveyed_on,cover_percent)
+     VALUES ($1, ST_SetSRID(ST_MakePoint(100.150025,10.150025),4326), '2025-01-01', 10) RETURNING id::text`,
+    [siteId],
+  );
   const firstTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 20 }));
   const secondTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 30 }));
-  assert.equal(older.body.siteStatus, 'poor');
   assert.equal(firstTie.body.siteStatus, 'poor');
   assert.equal(secondTie.body.siteStatus, 'fair');
-  const page = await request(`/sites/${siteCode}/surveys`);
+  await pool!.query('UPDATE surveys SET created_by = $1 WHERE id = $2', [users.editor, secondTie.body.id]);
+  const page = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
   assert.equal(page.response.status, 200);
   assert.deepEqual(Object.keys(page.body).sort(), ['items', 'page', 'total']);
   assert.equal(page.body.page, 1);
   assert.equal(page.body.total, 3);
   const items = page.body.items as Array<Record<string, unknown>>;
-  assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.body.id]);
-  assert.deepEqual(Object.keys(items[0]).sort(), ['cover_percent', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
+  assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.rows[0].id]);
+  assert.deepEqual(Object.keys(items[0]).sort(), ['cover_percent', 'created_by', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
+  assert.equal(items[0].created_by, users.editor);
   assert.equal(items[0].siteStatus, undefined);
+  assert.equal(items[2].created_by, null);
   assert.deepEqual(items[0].species, [speciesCodes[0]]);
-  const secondPage = await request(`/sites/${siteCode}/surveys?page=2&pageSize=2`);
-  assert.deepEqual((secondPage.body.items as Array<Record<string, unknown>>).map(({ id }) => id), [older.body.id]);
-  const emptyPage = await request(`/sites/${siteCode}/surveys?page=4&pageSize=1`);
+  const secondPage = await request(`/sites/${siteCode}/surveys?page=2&pageSize=2`, 'GET', undefined, accessToken('editor'));
+  assert.deepEqual((secondPage.body.items as Array<Record<string, unknown>>).map(({ id }) => id), [older.rows[0].id]);
+  const emptyPage = await request(`/sites/${siteCode}/surveys?page=4&pageSize=1`, 'GET', undefined, accessToken('admin'));
   assert.deepEqual(emptyPage.body.items, []);
-  const maxPage = await request(`/sites/${siteCode}/surveys?pageSize=100`);
+  const maxPage = await request(`/sites/${siteCode}/surveys?pageSize=100`, 'GET', undefined, accessToken('viewer'));
   assert.equal((maxPage.body.items as unknown[]).length, 3);
   for (const query of ['page=0', 'page=1.2', 'pageSize=0', 'pageSize=101', 'pageSize=abc', 'other=x']) {
-    const invalid = await request(`/sites/${siteCode}/surveys?${query}`);
+    const invalid = await request(`/sites/${siteCode}/surveys?${query}`, 'GET', undefined, accessToken('viewer'));
     assert.equal(invalid.response.status, 400);
     assert.equal(((invalid.body.error as Record<string, unknown>).code), 'VALIDATION_ERROR');
     assert.deepEqual(Object.keys(invalid.body.error as object).sort(), ['code', 'details', 'message']);
   }
 });
+
+integration('GET /sites/:code/surveys authenticates active current users before Site lookup', async () => {
+  const path = `/sites/MISSING-${siteCode}/surveys`;
+  for (const token of [undefined, 'not-a-token', expiredToken()]) {
+    const denied = await request(path, 'GET', undefined, token);
+    assert.equal(denied.response.status, 401);
+    assert.deepEqual(denied.body.error, { code: 'UNAUTHORIZED', message: 'Authentication required', details: {} });
+  }
+  const invalidQuery = await request(`/sites/MISSING-${siteCode}/surveys?page=0`);
+  assert.equal(invalidQuery.response.status, 401);
+  const malformed = await new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+    const req = httpRequest(new URL(path, origin), { method: 'GET', headers: { 'content-type': 'application/json', 'content-length': '1' } }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+    });
+    req.on('error', reject);
+    req.end('{');
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(JSON.parse(malformed.body).error, { code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });
+  const invalidSignature = `${accessToken('viewer').slice(0, -1)}x`;
+  assert.equal((await request(path, 'GET', undefined, invalidSignature)).response.status, 401);
+  const now = Math.floor(Date.now() / 1000);
+  assert.equal((await request(path, 'GET', undefined, signedToken('not-a-uuid', now, now + 60))).response.status, 401);
+  const validMissing = await request(path, 'GET', undefined, accessToken('viewer'));
+  assert.equal(validMissing.response.status, 404);
+  await pool!.query('UPDATE users SET is_active = false WHERE id = $1', [users.viewer]);
+  const inactive = await request(path, 'GET', undefined, accessToken('viewer'));
+  assert.equal(inactive.response.status, 401);
+  await pool!.query('UPDATE users SET is_active = true WHERE id = $1', [users.viewer]);
+  const deletedUser = randomUUID();
+  await pool!.query('INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)', [deletedUser, `${randomUUID()}@example.test`, 'unused', 'viewer']);
+  const deletedToken = signAccessToken(deletedUser);
+  await pool!.query('DELETE FROM users WHERE id = $1', [deletedUser]);
+  assert.equal((await request(path, 'GET', undefined, deletedToken)).response.status, 401);
+  for (const role of ['viewer', 'editor', 'admin'] as const) {
+    assert.equal((await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken(role))).response.status, 200);
+  }
+  assert.equal((await request('/health')).response.status, 200);
+  assert.equal((await request('/sites')).response.status, 200);
+  assert.equal((await fetch(`${origin}/docs`)).status, 200);
+  assert.equal((await request('/sites.geojson?bbox=99,9,101,11')).response.status, 200);
+  assert.equal((await request(`/sites/${siteCode}`)).response.status, 200);
+  assert.equal((await fetch(`${origin}/docs-json`)).status, 200);
+});
+
+integration('POST /sites/:code/surveys authenticates admins before validation and Site lookup', async () => {
+  await resetSurveys();
+  const malformed = { invalid: true };
+  for (const token of [null, 'not-a-token', expiredToken()]) {
+    for (const code of [siteCode, `MISSING-${siteCode}`, deletedSiteCode]) {
+      const denied = await create(malformed, code, token);
+      assert.equal(denied.response.status, 401);
+      assert.deepEqual(denied.body.error, { code: 'UNAUTHORIZED', message: 'Authentication required', details: {} });
+    }
+  }
+  for (const role of ['viewer', 'editor'] as const) {
+    for (const code of [siteCode, `MISSING-${siteCode}`, deletedSiteCode]) {
+      const denied = await create(malformed, code, accessToken(role));
+      assert.equal(denied.response.status, 403);
+      assert.deepEqual(denied.body.error, { code: 'FORBIDDEN', message: 'Insufficient permissions', details: {} });
+    }
+  }
+  assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
+});
+
+integration('POST records authenticated Survey actors and exposes creator to protected reads', async () => {
+  await resetSurveys();
+  const body = await validSurvey();
+  for (const key of ['created_by', 'updated_by', 'updated_at']) {
+    const forged = await create({ ...body, [key]: users.viewer });
+    assert.equal(forged.response.status, 400);
+    assert.equal((forged.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  }
+  const created = await create(body);
+  assert.equal(created.response.status, 201);
+  assert.deepEqual(Object.keys(created.body).sort(), ['cover_percent', 'id', 'lat', 'lon', 'note', 'siteStatus', 'species', 'surveyed_on']);
+  const stored = await pool!.query<{ created_by: string; updated_by: string; updated_at: Date }>(
+    'SELECT created_by::text, updated_by::text, updated_at FROM surveys WHERE id = $1', [created.body.id],
+  );
+  assert.equal(stored.rows[0].created_by, users.admin);
+  assert.equal(stored.rows[0].updated_by, users.admin);
+  assert.ok(stored.rows[0].updated_at instanceof Date);
+  const listed = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
+  const item = (listed.body.items as Array<Record<string, unknown>>).find(({ id }) => id === created.body.id);
+  assert.equal(item?.created_by, users.admin);
+});
+
 
 integration('POST /sites/:code/surveys enforces API shapes, site visibility, and malformed JSON envelope', async () => {
   await resetSurveys();
@@ -280,19 +409,19 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
   }
   const nonFinite = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
     body: `{"lon":1e400,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":40,"species":[]}`,
   });
   assert.equal(nonFinite.status, 400);
   assert.equal(((await nonFinite.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   const roundedLiteral = await fetch(`${origin}/sites/${siteCode}/surveys`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
     body: `{"lon":100.15,"lat":10.15,"surveyed_on":"${dates.today}","cover_percent":1.0000000000000001,"species":[]}`,
   });
   assert.equal(roundedLiteral.status, 400);
   assert.equal(((await roundedLiteral.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
-  const nulNote = await requestText(`/sites/${siteCode}/surveys`, 'POST', JSON.stringify({ ...base, note: 'bad\0note' }));
+  const nulNote = await requestText(`/sites/${siteCode}/surveys`, 'POST', JSON.stringify({ ...base, note: 'bad\0note' }), accessToken('admin'));
   assert.equal(nulNote.response.status, 400);
   assert.equal((nulNote.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
@@ -314,8 +443,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     const address = clockApp.getHttpServer().address();
     assert.ok(address && typeof address === 'object');
     const clockOrigin = `http://127.0.0.1:${address.port}`;
-    const send = async (path: string, method: string, body: unknown) => fetch(`${clockOrigin}${path}`, {
-      method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    const send = async (path: string, method: string, body: unknown, token: string | null = accessToken('admin')) => fetch(`${clockOrigin}${path}`, {
+      method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body),
     });
     const yesterday = await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-01' }));
     assert.equal(yesterday.status, 201);
@@ -374,7 +503,7 @@ integration('POST rejects 200-meter points with OUTSIDE_SITE', async () => {
   assert.equal((await pool!.query('SELECT count(*)::int AS count FROM surveys WHERE site_id = $1', [siteId])).rows[0].count, 0);
   const original = await create(await validSurvey());
   assert.equal(original.response.status, 201);
-  const rejectedPatch = await request(`/surveys/${original.body.id}`, 'PATCH', point.rows[0]);
+  const rejectedPatch = await request(`/surveys/${original.body.id}`, 'PATCH', point.rows[0], accessToken('admin'));
   assert.equal(rejectedPatch.response.status, 422);
   assert.equal((rejectedPatch.body.error as Record<string, unknown>).code, 'OUTSIDE_SITE');
   const stored = await pool!.query<{ lon: number; lat: number }>(
@@ -400,21 +529,23 @@ integration('POST and PATCH derive status from all latest-date Surveys and thres
   assert.equal(firstLatest.body.siteStatus, 'poor');
   const secondLatest = await create(await validSurvey({ surveyed_on: today, cover_percent: 80 }));
   assert.equal(secondLatest.body.siteStatus, 'good');
-  const updated = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { cover_percent: 40 });
+  const updated = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { cover_percent: 40 }, accessToken('admin'));
   assert.equal(updated.response.status, 200);
   assert.equal(updated.body.siteStatus, 'good');
-  const removed = await request(`/surveys/${secondLatest.body.id}`, 'DELETE');
+  const removed = await request(`/surveys/${secondLatest.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(removed.response.status, 204);
   assert.equal(await removed.response.text(), '');
-  const afterDelete = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { note: 'recomputed' });
+  const siteAfterDelete = await request(`/sites/${siteCode}`);
+  assert.equal((siteAfterDelete.body.properties as Record<string, unknown>).siteStatus, 'fair');
+  const afterDelete = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { note: 'recomputed' }, accessToken('admin'));
   assert.equal(afterDelete.body.siteStatus, 'fair');
-  const remaining = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { surveyed_on: yesterday });
+  const remaining = await request(`/surveys/${firstLatest.body.id}`, 'PATCH', { surveyed_on: yesterday }, accessToken('admin'));
   assert.equal(remaining.response.status, 200);
   assert.equal(remaining.body.siteStatus, 'good');
-  const deleteLatest = await request(`/surveys/${older.body.id}`, 'DELETE');
+  const deleteLatest = await request(`/surveys/${older.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleteLatest.response.status, 204);
   assert.equal((await status()).total, 1);
-  const deleteLast = await request(`/surveys/${firstLatest.body.id}`, 'DELETE');
+  const deleteLast = await request(`/surveys/${firstLatest.body.id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleteLast.response.status, 204);
   await resetSurveys();
   const empty = await status();
@@ -428,43 +559,61 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
   const initial = await create(await validSurvey({ species: [...speciesCodes], note: 'keep me' }));
   const roundedPatch = await fetch(`${origin}/surveys/${initial.body.id}`, {
     method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken('admin')}` },
     body: '{"cover_percent":1.0000000000000001}',
   });
   assert.equal(roundedPatch.status, 400);
   assert.equal(((await roundedPatch.json() as Record<string, unknown>).error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   const unchangedCover = await pool!.query<{ cover_percent: string }>('SELECT cover_percent FROM surveys WHERE id = $1', [initial.body.id]);
   assert.equal(unchangedCover.rows[0].cover_percent, '40.00');
+  assert.equal((await request('/surveys/abc', 'PATCH', { note: 'x' })).response.status, 401);
+  assert.equal((await request('/surveys/abc', 'PATCH', { note: 'x' }, 'not-a-token')).response.status, 401);
+  for (const role of ['viewer', 'editor'] as const) {
+    const forbidden = await request('/surveys/abc', 'PATCH', { note: 'x' }, accessToken(role));
+    assert.equal(forbidden.response.status, 403);
+    assert.equal((forbidden.body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  }
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
-    const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' });
+    const invalid = await request(`/surveys/${id}`, 'PATCH', { note: 'x' }, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
   for (const id of ['0', '-1', '01', '1.0', 'abc']) {
-    const invalid = await request(`/surveys/${id}`, 'DELETE');
+    const invalid = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
-  const unknown = await request('/surveys/999999999999999999', 'PATCH', { note: 'x' });
+  const unknown = await request('/surveys/999999999999999999', 'PATCH', { note: 'x' }, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
   for (const body of [{}, { lon: 100.15 }, { lat: 10.15 }, { site_id: '2' }, { species: [`UNKNOWN-${siteCode}`] }]) {
-    const invalid = await request(`/surveys/${initial.body.id}`, 'PATCH', body);
+    const invalid = await request(`/surveys/${initial.body.id}`, 'PATCH', body, accessToken('admin'));
     assert.equal(invalid.response.status, 400);
     assert.equal((invalid.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
   }
-  const unchanged = await request(`/surveys/${initial.body.id}`, 'PATCH', { cover_percent: 41 });
+  const forged = await request(`/surveys/${initial.body.id}`, 'PATCH', {
+    note: 'forged', created_by: users.viewer, updated_by: users.viewer, updated_at: '2000-01-01T00:00:00Z',
+  }, accessToken('admin'));
+  assert.equal(forged.response.status, 400);
+  const unchanged = await request(`/surveys/${initial.body.id}`, 'PATCH', { cover_percent: 41 }, accessToken('admin'));
   assert.equal(unchanged.response.status, 200);
   assert.equal(unchanged.body.note, 'keep me');
   assert.deepEqual((unchanged.body.species as string[]).sort(), [...speciesCodes].sort());
-  const replaced = await request(`/surveys/${initial.body.id}`, 'PATCH', { species: [speciesCodes[1], speciesCodes[1]] });
+  const beforeSpecies = await pool!.query<{ created_by: string | null }>('SELECT created_by FROM surveys WHERE id = $1', [initial.body.id]);
+  await pool!.query("UPDATE surveys SET updated_at = '2000-01-01 00:00:00+00', updated_by = $2 WHERE id = $1", [initial.body.id, users.viewer]);
+  const replaced = await request(`/surveys/${initial.body.id}`, 'PATCH', { species: [speciesCodes[1], speciesCodes[1]] }, accessToken('admin'));
   assert.deepEqual(replaced.body.species, [speciesCodes[1]]);
+  const audited = await pool!.query<{ created_by: string | null; updated_by: string | null; updated_at: Date }>(
+    'SELECT created_by, updated_by, updated_at FROM surveys WHERE id = $1', [initial.body.id],
+  );
+  assert.equal(audited.rows[0].created_by, beforeSpecies.rows[0].created_by);
+  assert.equal(audited.rows[0].updated_by, users.admin);
+  assert.ok(audited.rows[0].updated_at > new Date('2000-01-01T00:00:00Z'));
   const savedSpecies = await pool!.query<{ species_code: string }>(
     'SELECT species_code FROM survey_species WHERE survey_id = $1 ORDER BY species_code', [initial.body.id],
   );
   assert.deepEqual(savedSpecies.rows.map(({ species_code }) => species_code), [speciesCodes[1]]);
-  const cleared = await request(`/surveys/${initial.body.id}`, 'PATCH', { note: null });
-  assert.equal(cleared.body.note, null);
+  const cleared = await request(`/surveys/${initial.body.id}`, 'PATCH', { note: null }, accessToken('admin'));
   const savedNote = await pool!.query<{ note: string | null }>('SELECT note FROM surveys WHERE id = $1', [initial.body.id]);
   assert.equal(savedNote.rows[0].note, null);
   const newPosition = await pool!.query<{ lon: number; lat: number }>(
@@ -472,24 +621,42 @@ integration('PATCH validates IDs and partial edits; replaces species only when s
        SELECT ST_Project(ST_SetSRID(ST_MakePoint(100.15005,10.150025),4326)::geography,20::double precision,pi()/2)::geometry AS p
      ) q`,
   );
-  const loneCoordinate = await request(`/surveys/${initial.body.id}`, 'PATCH', { lon: newPosition.rows[0].lon });
+  const loneCoordinate = await request(`/surveys/${initial.body.id}`, 'PATCH', { lon: newPosition.rows[0].lon }, accessToken('admin'));
   assert.equal(loneCoordinate.response.status, 400);
-  const moved = await request(`/surveys/${initial.body.id}`, 'PATCH', newPosition.rows[0]);
-  assert.equal(moved.response.status, 200);
+  const moved = await request(`/surveys/${initial.body.id}`, 'PATCH', newPosition.rows[0], accessToken('admin'));
   assert.equal(moved.body.lon, newPosition.rows[0].lon);
   assert.equal(moved.body.lat, newPosition.rows[0].lat);
+});
+
+integration('DELETE /surveys/:id authorizes before ID validation or lookup', async () => {
+  for (const token of [undefined, 'invalid']) {
+    const unauthenticated = await request('/surveys/not-a-number', 'DELETE', undefined, token);
+    assert.equal(unauthenticated.response.status, 401);
+    assert.equal((unauthenticated.body.error as Record<string, unknown>).code, 'UNAUTHORIZED');
+  }
+  for (const role of ['viewer', 'editor'] as const) {
+    const forbidden = await request('/surveys/not-a-number', 'DELETE', undefined, accessToken(role));
+    assert.equal(forbidden.response.status, 403);
+    assert.equal((forbidden.body.error as Record<string, unknown>).code, 'FORBIDDEN');
+  }
+  const malformed = await request('/surveys/not-a-number', 'DELETE', undefined, accessToken('admin'));
+  assert.equal(malformed.response.status, 400);
+  assert.equal((malformed.body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  const missing = await request('/surveys/9223372036854775807', 'DELETE', undefined, accessToken('admin'));
+  assert.equal(missing.response.status, 404);
+  assert.equal((missing.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
 });
 
 integration('DELETE hard-deletes Survey and species links; unknown IDs use shared envelope', async () => {
   await resetSurveys();
   const created = await create(await validSurvey({ species: [...speciesCodes] }));
   const id = created.body.id as string;
-  const deleted = await request(`/surveys/${id}`, 'DELETE');
+  const deleted = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(deleted.response.status, 204);
   assert.equal(await deleted.response.text(), '');
   assert.equal((await pool!.query('SELECT 1 FROM surveys WHERE id = $1', [id])).rowCount, 0);
   assert.equal((await pool!.query('SELECT 1 FROM survey_species WHERE survey_id = $1', [id])).rowCount, 0);
-  const unknown = await request(`/surveys/${id}`, 'DELETE');
+  const unknown = await request(`/surveys/${id}`, 'DELETE', undefined, accessToken('admin'));
   assert.equal(unknown.response.status, 404);
   assert.equal((unknown.body.error as Record<string, unknown>).code, 'SURVEY_NOT_FOUND');
 });
@@ -507,7 +674,7 @@ integration('Survey create and Site geometry edit serialize without violating di
     const edit = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,
       geometry: { type: 'Polygon', coordinates: [[[100.152,10.152],[100.1522,10.152],[100.1522,10.1522],[100.152,10.1522],[100.152,10.152]]] },
-    });
+    }, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [edited, result] = await Promise.all([edit, write]);
@@ -547,12 +714,12 @@ integration('Survey location PATCH and Site geometry edit cannot commit incompat
   try {
     await coordinator.query('BEGIN');
     await coordinator.query('SELECT id FROM sites WHERE code = $1 FOR UPDATE', [siteCode]);
-    const location = request(`/surveys/${initial.body.id}`, 'PATCH', point.rows[0]);
+    const location = request(`/surveys/${initial.body.id}`, 'PATCH', point.rows[0], accessToken('admin'));
     assert.ok(await waitForSiteLock(), 'Survey PATCH should wait for the Site row lock');
     const geometry = request(`/sites/${siteCode}`, 'PATCH', {
       version: 1,
       geometry: { type: 'Polygon', coordinates: [[[100.1496,10.15],[100.14965,10.15],[100.14965,10.15005],[100.1496,10.15005],[100.1496,10.15]]] },
-    });
+    }, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [moved, edited] = await Promise.all([location, geometry]);
@@ -589,7 +756,7 @@ integration('Site delete racing Survey create cannot commit both delete and a li
     const write = create(await validSurvey());
     const blocked = await waitForSiteLock();
     assert.ok(blocked, 'Survey POST should wait for the Site row lock');
-    const deletion = request(`/sites/${siteCode}`, 'DELETE');
+    const deletion = request(`/sites/${siteCode}`, 'DELETE', undefined, accessToken('admin'));
     await coordinator.query('COMMIT');
     committed = true;
     const [deleted, result] = await Promise.all([deletion, write]);

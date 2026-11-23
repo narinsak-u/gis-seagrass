@@ -16,15 +16,25 @@ Site codes remain permanently reserved after soft deletion; the database enforce
 
 Sites may overlap; no overlap ban is enforced. Create and geometry updates require positive-area Province coverage. Geometry updates recompute Province and area, and preserve every linked Survey within 50 meters using `ST_DWithin` on geography. Survey insertion and Site edit/delete serialize per Site, including importer writes. PATCH checks and increments version atomically.
 
-Step 3 write routes have no authentication or authorization. Step 5 owns JWT and role-based authorization.
+Step 3 initially shipped unauthenticated writes. Step 5 requires an active admin token for every Site write.
 
 ## Step 4 Survey API policy
 
 Site status is derived from current Survey rows, not stored as a cache. POST and PATCH return the flat Survey representation with top-level `siteStatus`. DELETE remains `204` with no response body; the derived status reflects deletion on its next calculation.
 
+## Step 5 access and audit policy
+
+Site map, list, detail, and derived status reads remain public. Survey listing requires an active viewer, editor, or admin; all Site and Survey writes require an active admin. Access tokens carry a user ID and expire after 900 seconds. Protected requests resolve the user's current active flag and role from the database, so disabling or changing a user takes effect on the next request. Role checks run before resource lookup; malformed JSON is rejected by the HTTP parser first.
+
+The server records the authenticated actor on Site and Survey creation and updates, including species-only Survey changes and Site soft deletion. Clients cannot supply actor or timestamp fields. Survey hard deletion removes the row and species links, so no actor history survives it.
+
+Site PATCH locks the Site row and compares the client's version within the update transaction. Only one concurrent update with a given version can commit. A stale authorized request receives the current Site PATCH GeoJSON Feature at `error.details.current`; this does not expose Site data to callers lacking access.
+
+Development account seeding requires an explicit flag and inserts only missing accounts. API startup requires a deployment-specific `JWT_SECRET`; the example signing secret and credentials are for local development only.
+
 ## Migration ordering
 
-Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
+Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. Step 5 adds `0003_add_active_users.sql`, defaulting existing users to active. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.
 
 ## Concurrency and scaling limits
 
@@ -34,4 +44,4 @@ No worker model, replicas, load balancing, or production scaling configuration e
 
 ## Development security limits
 
-Compose defaults use development-only credentials and publish database and API ports on loopback by default. `.env` is for private local overrides, not committed secrets. These safeguards do not make the stack production-ready: defaults are public in the repository, there is no authentication or authorization, and the stack has no production secret management or hardening.
+Compose defaults use development-only credentials and publish database and API ports on loopback by default. `.env` is for private local overrides, not committed secrets. Authentication does not make this stack production-ready: development accounts and example secrets are public in the repository, and there is no production secret management or hardening. Do not enable development seeding or use the example signing secret in deployments.
