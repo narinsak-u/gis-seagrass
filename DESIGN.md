@@ -36,7 +36,9 @@ Development account seeding requires an explicit flag and inserts only missing a
 
 Keep one pool-backed Drizzle provider per process entrypoint. The API composition root shares its provider across migrations, startup import, and Nest, then closes it once. The standalone importer owns and closes its provider without starting Nest. Its session advisory lock stays pinned to one pool client.
 
-Sites, Surveys, and Auth each own `http`, `application`, `domain`, and `infrastructure` layers. Platform owns database schema and migrations, health checks, and global HTTP error mapping. Shared application errors, generic input checks, and WGS84 geometry rules live outside feature modules. Feature and cross-feature rules cross modules through explicit public exports.
+Sites, Surveys, and Auth each own `http`, `application`, `domain`, and `infrastructure` layers. Platform owns database schema and migrations, health checks, and global HTTP error mapping. Shared application errors, generic input checks, and WGS84 geometry rules live outside feature modules. External feature use goes through public application contracts and use cases; adapters stay private to composition roots.
+
+Nest modules are composition roots, not one module per layer. `SitesModule` and `SurveysModule` register their HTTP and read adapters. `SiteSurveyModule` wires cross-feature use cases to feature-owned Drizzle adapters. Import composes those adapters in its own CLI infrastructure. Do not add separate Nest infrastructure modules for provider registration.
 
 Workflows spanning Sites and Surveys go through the application-level `SiteSurveyCoordinator`. It owns transaction sequencing and passes one opaque `SiteWriteTransaction` context through Site- and Survey-owned persistence ports. The Drizzle transaction runner and adapters alone unwrap that context. Survey writes use `SurveyWriter`, including imports, so site locking, distance checks, species association atomicity, and per-Survey rollback remain shared with API behavior. Imports keep null actor history.
 

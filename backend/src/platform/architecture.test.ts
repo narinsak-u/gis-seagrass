@@ -68,6 +68,12 @@ test('backend production files use the approved physical modules and layers', ()
       assert.ok(!pathParts.slice(1).some((part) => (layeredModules[moduleName] as readonly string[]).includes(part)),
         `${relative(sourceRoot, file)} must not nest a module layer`);
     }
+
+    if (moduleName === 'sites' || moduleName === 'surveys') {
+      const nestedModules = sourceFiles(join(sourceRoot, moduleName, 'infrastructure'))
+        .filter((file) => file.endsWith('.module.ts'));
+      assert.deepEqual(nestedModules, [], `${moduleName} should not define a second Nest module in infrastructure/`);
+    }
   }
 
   const platformRoot = join(sourceRoot, 'platform');
@@ -126,19 +132,16 @@ test('cross-module imports use public module exports', () => {
       const sourceParts = relative(sourceRoot, file).split(sep);
       const isRootExport = publicPath.length === 0 && existsSync(join(target, 'index.ts'));
       const isModuleExport = publicPath.length === 1 && publicPath[0] === `${targetModule}.module`;
-      const isInfrastructureProviderExport = publicPath.length === 2
-        && publicPath[0] === 'infrastructure'
-        && ((['sites', 'surveys'].includes(targetModule) && publicPath[1] === `${targetModule}-infrastructure.module`)
-          || (targetModule === 'site-survey' && publicPath[1] === 'drizzle-transaction-runner'));
+      const isInfrastructureAdapterImport = publicPath.length === 2 && publicPath[0] === 'infrastructure';
       const isTransactionAdapterExport = targetModule === 'site-survey' && publicPath.length === 2
         && publicPath[0] === 'infrastructure' && publicPath[1] === 'drizzle-transaction'
         && ['sites', 'surveys'].includes(sourceModule) && sourceParts[1] === 'infrastructure';
-      if (isInfrastructureProviderExport) {
+      if (isInfrastructureAdapterImport && !isTransactionAdapterExport) {
         const isCompositionRoot = (sourceModule === 'site-survey' && sourceParts[1] === 'site-survey.module.ts')
           || (sourceModule === 'import' && sourceParts[1] === 'infrastructure');
         assert.ok(isCompositionRoot, `${relative(sourceRoot, file)} may not depend on another feature's infrastructure`);
       }
-      assert.ok(isRootExport || isModuleExport || isInfrastructureProviderExport || isTransactionAdapterExport,
+      assert.ok(isRootExport || isModuleExport || isInfrastructureAdapterImport || isTransactionAdapterExport,
         `${relative(sourceRoot, file)} imports private ${targetModule} path: ${specifier}`);
     }
   }

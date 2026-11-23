@@ -37,7 +37,7 @@ Restructure backend production code into explicit physical modules and Clean Arc
 - Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, DTOs, guards, and OpenAPI in `http`; use cases and their required ports in `application`; business rules and types in `domain`; concrete Drizzle repositories/adapters and SQL in `infrastructure`.
 - Keep application classes plain TypeScript. Nest provider factories compose application use cases and infrastructure adapters. The HTTP layer calls application interfaces and does not query persistence directly.
 - Move active-user and current-role lookup behind an Auth application port implemented by a Drizzle adapter. The AuthGuard preserves per-request status and role checks.
-- Keep Site–Survey coordination in a dedicated application module. It owns cross-feature workflows and transaction sequencing. Site and Survey persistence adapters remain owned by their feature modules.
+- Keep Site–Survey coordination in a dedicated application module and composition root. It owns cross-feature workflows and transaction sequencing, and binds feature-owned persistence adapters to application ports. Avoid separate Nest infrastructure modules used only for provider registration.
 - Define an opaque Site–Survey transaction context and transaction-runner port. A Drizzle infrastructure adapter opens one transaction and passes the context through feature-owned ports; only infrastructure unwraps the Drizzle transaction.
 - Put the plain shared application-error contract outside `domain`; `PlatformModule` maps its stable codes to existing HTTP statuses and envelopes.
 - Put Site status and geometry policies with Site ownership; put Survey date rules with Survey ownership. Keep shared WGS84 geometry rules in a narrow geospatial domain module and generic object-shape checks in shared input parsing. Expose cross-module rules through explicit public exports, not private deep imports.
@@ -50,7 +50,7 @@ Restructure backend production code into explicit physical modules and Clean Arc
 
 - Test user-visible behavior through existing real HTTP requests against a disposable PostGIS database. Do not add implementation-coupled tests for provider wiring or private helpers.
 - Reuse existing Site, Survey, Auth, and importer integration tests for routes, response contracts, roles, validation precedence, spatial rules, concurrency, reporting, and CLI behavior.
-- Add one static architecture check using the installed TypeScript compiler API. It verifies layer placement and allowed imports, including that application/domain files do not import NestJS, HTTP, Drizzle, or `pg`.
+- Add one static architecture check using the installed TypeScript compiler API. It verifies one root Nest module per Sites and Surveys feature, rejects infrastructure-only Nest modules, checks approved composition-root adapter imports, and ensures application/domain files do not import NestJS, HTTP, Drizzle, or `pg`.
 - Run the TypeScript build and full backend suite against a confirmed disposable PostGIS container with no shared volume.
 - Prior art: backend Node test suite already runs real Nest HTTP and importer tests against `IMPORT_TEST_DATABASE_URL`.
 
