@@ -1,4 +1,6 @@
-import type { PoolClient } from 'pg';
+import { sql } from 'drizzle-orm';
+import { provinces, species as speciesTable } from '../../database/schema';
+import type { DatabaseProvider } from '../../database/provider';
 import { ProvinceValidationError, parseProvinceFeature, type ProvinceRecord } from '../province';
 import { parseSpeciesRecord, SpeciesValidationError, type SpeciesRecord } from '../species';
 
@@ -7,7 +9,7 @@ export interface ReferenceImportResult {
   rejections: Array<{ row: number; reason: string }>;
 }
 
-export async function importProvinces(client: PoolClient, features: unknown[]): Promise<ReferenceImportResult> {
+export async function importProvinces(db: DatabaseProvider['db'], features: unknown[]): Promise<ReferenceImportResult> {
   const result: ReferenceImportResult = {
     summary: { inserted: 0, skipped_existing: 0, rejected: 0 },
     rejections: [],
@@ -27,29 +29,27 @@ export async function importProvinces(client: PoolClient, features: unknown[]): 
       continue;
     }
     const geometry = JSON.stringify(province.geometry);
-    const validation = await client.query<{ valid: boolean; empty: boolean }>(
-      `SELECT ST_IsValid(g.geom) AS valid, ST_IsEmpty(g.geom) AS empty
-         FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom) AS g`,
-      [geometry],
-    );
+    const validation = await db.execute<{ valid: boolean; empty: boolean }>(sql`
+      SELECT ST_IsValid(g.geom) AS valid, ST_IsEmpty(g.geom) AS empty
+        FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geometry}), 4326) AS geom) AS g
+    `);
     if (!validation.rows[0].valid || validation.rows[0].empty) {
       reject(result, index + 1, 'INVALID_GEOMETRY');
       continue;
     }
     seen.add(province.code);
-    const inserted = await client.query(
-      `INSERT INTO provinces (code, name_th, geom)
-       VALUES ($1, $2, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)))
-       ON CONFLICT (code) DO NOTHING`,
-      [province.code, province.nameTh, geometry],
-    );
-    if (inserted.rowCount) result.summary.inserted++;
+    const inserted = await db.insert(provinces).values({
+      code: province.code,
+      nameTh: province.nameTh,
+      geom: sql`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${geometry}), 4326))`,
+    }).onConflictDoNothing({ target: provinces.code }).returning({ code: provinces.code });
+    if (inserted.length) result.summary.inserted++;
     else result.summary.skipped_existing++;
   }
   return result;
 }
 
-export async function importSpecies(client: PoolClient, records: unknown[]): Promise<ReferenceImportResult> {
+export async function importSpecies(db: DatabaseProvider['db'], records: unknown[]): Promise<ReferenceImportResult> {
   const result: ReferenceImportResult = {
     summary: { inserted: 0, skipped_existing: 0, rejected: 0 },
     rejections: [],
@@ -69,11 +69,12 @@ export async function importSpecies(client: PoolClient, records: unknown[]): Pro
       continue;
     }
     seen.add(species.code);
-    const inserted = await client.query(
-      'INSERT INTO species (code, name_th, name_sci) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING',
-      [species.code, species.nameTh, species.nameSci],
-    );
-    if (inserted.rowCount) result.summary.inserted++;
+    const inserted = await db.insert(speciesTable).values({
+      code: species.code,
+      nameTh: species.nameTh,
+      nameSci: species.nameSci,
+    }).onConflictDoNothing({ target: speciesTable.code }).returning({ code: speciesTable.code });
+    if (inserted.length) result.summary.inserted++;
     else result.summary.skipped_existing++;
   }
   return result;

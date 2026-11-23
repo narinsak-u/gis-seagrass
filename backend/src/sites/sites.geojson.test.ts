@@ -5,11 +5,12 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
@@ -25,8 +26,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  pool = database.pool;
   do {
     const value = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCodes = [value.slice(0, 2), value.slice(2, 4)];
@@ -53,7 +55,7 @@ before(async () => {
       ($6,'Retired meadow',$2,ST_Multi(ST_GeomFromText('POLYGON((100.7 10.1,100.8 10.1,100.8 10.2,100.7 10.2,100.7 10.1))',4326)),4,now())`,
     [siteCodes[0], provinceCodes[0], siteCodes[1], provinceCodes[1], siteCodes[2], siteCodes[3]],
   );
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule.register(database), { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
   assert.ok(address && typeof address === 'object');
@@ -61,12 +63,12 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
   if (pool) {
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [siteCodes]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
-    await pool.end();
   }
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function json(query: string): Promise<{ response: Response; body: Record<string, unknown> }> {

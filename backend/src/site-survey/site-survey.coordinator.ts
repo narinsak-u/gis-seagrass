@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../database/provider';
 import { SurveyStatusReader, type LatestSurveySummary } from '../surveys/survey-status-reader';
 import { SITE_SURVEY_CONSTRAINTS_PORT, type SiteSurveyConstraintsPort } from '../surveys/site-survey-constraints.port';
@@ -42,6 +42,10 @@ export class SiteSurveyCoordinator {
 
   transaction<T>(work: (tx: SiteWriteTransaction) => Promise<T>): Promise<T> {
     return this.db.transaction(work);
+  }
+
+  hasSiteCode(code: string): Promise<boolean> {
+    return this.transaction((tx) => this.sites.hasCode(tx, code));
   }
   lockSiteForSurvey(tx: SiteWriteTransaction, code: string, lon: number, lat: number) {
     return this.sites.lockForSurvey(tx, code, lon, lat);

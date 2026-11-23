@@ -1,13 +1,13 @@
 import {
   Controller,
   Get,
-  OnModuleDestroy,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Pool } from 'pg';
 
 @Controller('health')
-export class HealthController implements OnModuleDestroy {
+export class HealthController {
+
   constructor(private readonly pool: Pool) {}
 
   @Get()
@@ -26,7 +26,5 @@ export class HealthController implements OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
-  }
+
 }

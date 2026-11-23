@@ -6,13 +6,14 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { setupSwagger } from '../swagger';
 import { signAccessToken } from '../auth/auth-token';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let provinceCode = '';
@@ -34,8 +35,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  pool = database.pool;
   do {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCode = token.slice(0, 2);
@@ -71,7 +73,7 @@ before(async () => {
     'INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
     [users.viewer, `${randomUUID()}@example.test`, 'unused', 'viewer', users.editor, `${randomUUID()}@example.test`, 'unused', 'editor', users.admin, `${randomUUID()}@example.test`, 'unused', 'admin'],
   );
-  app = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+  app = await NestFactory.create(AppModule.register(database), { logger: false, rawBody: true });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -80,17 +82,18 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
-  if (!pool) return;
-  if (siteId) {
-    await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
-    await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
+  if (pool) {
+    if (siteId) {
+      await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);
+      await pool.query('DELETE FROM surveys WHERE site_id = $1', [siteId]);
+    }
+    if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
+    if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
+    if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
   }
-  if (createdSiteCodes.length) await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [createdSiteCodes]);
-  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
-  if (createdProvinceCode) await pool.query('DELETE FROM provinces WHERE code = $1', [createdProvinceCode]);
-  if (createdSpeciesCodes.length) await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [createdSpeciesCodes]);
-  await pool.end();
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function request(path: string, method = 'GET', body?: unknown, token?: string): Promise<{ response: Response; body: Record<string, unknown> }> {
@@ -431,7 +434,7 @@ integration('POST validates coordinates, cover precision, strict Bangkok dates, 
 integration('POST and PATCH use the Bangkok calendar date across midnight', async () => {
   await resetSurveys();
   const previousOptions = process.env.PGOPTIONS;
-  let clockApp: INestApplication | undefined;
+  let clockDatabase: DatabaseProvider | undefined;
   try {
     await pool!.query('CREATE SCHEMA survey_test_clock');
     await pool!.query('CREATE TABLE survey_test_clock.fixed_time (instant timestamptz NOT NULL)');
@@ -439,7 +442,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     await pool!.query(`CREATE FUNCTION survey_test_clock.clock_timestamp() RETURNS timestamptz
       LANGUAGE sql VOLATILE AS $$ SELECT instant FROM survey_test_clock.fixed_time $$`);
     process.env.PGOPTIONS = '-c search_path=survey_test_clock,pg_catalog,public';
-    clockApp = await NestFactory.create(AppModule, { logger: false, rawBody: true });
+    clockDatabase = createDatabaseProvider();
+    clockApp = await NestFactory.create(AppModule.register(clockDatabase), { logger: false, rawBody: true });
     await clockApp.listen(0, '127.0.0.1');
     const address = clockApp.getHttpServer().address();
     assert.ok(address && typeof address === 'object');
@@ -456,7 +460,8 @@ integration('POST and PATCH use the Bangkok calendar date across midnight', asyn
     assert.equal((await send(`/surveys/${id}`, 'PATCH', { surveyed_on: '2025-01-02' })).status, 200);
     assert.equal((await send(`/sites/${siteCode}/surveys`, 'POST', await validSurvey({ surveyed_on: '2025-01-02' }))).status, 201);
   } finally {
-    await clockApp?.close();
+    if (clockApp) await clockApp.close();
+    else await clockDatabase?.close();
     if (previousOptions === undefined) delete process.env.PGOPTIONS;
     else process.env.PGOPTIONS = previousOptions;
     await pool!.query('DROP SCHEMA IF EXISTS survey_test_clock CASCADE');

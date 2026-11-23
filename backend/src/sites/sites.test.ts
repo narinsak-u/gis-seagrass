@@ -10,10 +10,11 @@ import { createSiteSurveyImportOperations } from '../import/infrastructure/site-
 import { importSurveys, type ParsedSurvey } from '../import/surveys';
 import { AppModule } from '../app.module';
 import { signAccessToken } from '../auth/auth-token';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let siteCodes: string[] = [];
@@ -39,8 +40,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  pool = database.pool;
   do {
     const token = randomUUID().replaceAll('-', '').toUpperCase();
     provinceCodes = [token.slice(0, 2), token.slice(2, 4)];
@@ -78,7 +80,7 @@ before(async () => {
       users.editor, `${users.editor}@example.test`, 'unused', 'editor',
       users.admin, `${users.admin}@example.test`, 'unused', 'admin'],
   );
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule.register(database), { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
   assert.ok(address && typeof address === 'object');
@@ -86,7 +88,6 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
   if (pool) {
     if (surveyRefs.length) {
       await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [surveyRefs]);
@@ -96,8 +97,9 @@ after(async () => {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
     await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
     await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
-    await pool.end();
   }
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function json(path: string): Promise<{ response: Response; body: Record<string, unknown> }> {

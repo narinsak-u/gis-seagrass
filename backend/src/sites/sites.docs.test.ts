@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { runMigrations } from '../database/migrate';
 import { setupSwagger } from '../swagger';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
-let origin = '';
+let database: DatabaseProvider | undefined;
 
 before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
@@ -20,8 +20,9 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  app = await NestFactory.create(AppModule, { logger: false });
+  database = createDatabaseProvider();
+  await runMigrations(database);
+  app = await NestFactory.create(AppModule.register(database), { logger: false });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -30,7 +31,8 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
+  if (app) await app.close();
+  else await database?.close();
 });
 
 integration('Swagger UI and OpenAPI document expose the Site API contract over HTTP', async () => {

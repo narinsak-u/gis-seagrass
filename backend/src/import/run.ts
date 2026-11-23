@@ -59,11 +59,11 @@ export async function runImport(provider?: DatabaseProvider): Promise<ImportSumm
     await client.query('SELECT pg_advisory_lock($1)', [192837465]);
     locked = true;
     const { coordinator, surveyWriter } = createSiteSurveyImportOperations(database.db);
-    const provinces = await importProvinces(client, provinceFeatures);
+    const provinces = await importProvinces(database.db, provinceFeatures);
     summary.provinces = provinces.summary;
     report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
     const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
-    const species = await importSpecies(client, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
+    const species = await importSpecies(database.db, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
     summary.species = species.summary;
     report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
     const siteResult = await importSiteFeatures(coordinator, siteFeatures);
