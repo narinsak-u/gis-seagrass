@@ -46,6 +46,72 @@ function owningModule(path: string): string | undefined {
   const segment = relative(sourceRoot, path).split(sep)[0];
   return featureModules.includes(segment as typeof featureModules[number]) ? segment : undefined;
 }
+function parsedSource(file: string): ts.SourceFile {
+  return ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+}
+
+function hasConfiguredDatabaseImport(file: string): boolean {
+  const source = parsedSource(file);
+  let found = false;
+  const visit = (node: ts.Node) => {
+    if (ts.isMethodDeclaration(node) && node.name.getText(source) === 'register' && node.parameters[0]) {
+      const parameter = node.parameters[0].name;
+      if (ts.isIdentifier(parameter) && node.body) {
+        const inspect = (child: ts.Node) => {
+          if (ts.isReturnStatement(child) && child.expression && ts.isObjectLiteralExpression(child.expression)) {
+            const imports = child.expression.properties.find((property) =>
+              ts.isPropertyAssignment(property) && property.name.getText(source) === 'imports');
+            if (imports && ts.isPropertyAssignment(imports) && ts.isArrayLiteralExpression(imports.initializer)
+              && imports.initializer.elements.some((element) =>
+                ts.isIdentifier(element) && element.text === parameter.text)) found = true;
+          }
+          ts.forEachChild(child, inspect);
+        };
+        ts.forEachChild(node.body, inspect);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+function appModuleDatabaseDependencies(): {
+  configured: ts.Identifier | undefined;
+  configuredCount: number;
+  registrations: Map<string, (readonly ts.Expression[])[]>;
+} {
+  const source = parsedSource(join(sourceRoot, 'app.module.ts'));
+  let configured: ts.Identifier | undefined;
+  let configuredCount = 0;
+  const registrations = new Map<string, (readonly ts.Expression[])[]>();
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'register') {
+      const target = node.expression.expression;
+      if (ts.isIdentifier(target) && target.text === 'DatabaseModule') {
+        configuredCount++;
+        const parent = node.parent;
+        if (ts.isVariableDeclaration(parent) && parent.initializer === node && ts.isIdentifier(parent.name)) {
+          configured = parent.name;
+        }
+      } else if (ts.isIdentifier(target)) {
+        const calls = registrations.get(target.text) ?? [];
+        calls.push(node.arguments);
+        registrations.set(target.text, calls);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return { configured, configuredCount, registrations };
+}
+
+function usesConfiguredDatabase(args: readonly ts.Expression[], configured: ts.Identifier): boolean {
+  const databaseModule = args[0];
+  return databaseModule !== undefined && ts.isIdentifier(databaseModule) && databaseModule.text === configured.text;
+}
+
 
 test('backend production files use the approved physical modules and layers', () => {
   for (const moduleName of featureModules) {
@@ -167,29 +233,27 @@ test('database access is explicit in Nest consumers and composed once by AppModu
     'sites/sites.module.ts',
     'surveys/surveys.module.ts',
     'site-survey-workflows/site-survey.module.ts',
+    'platform/platform.module.ts',
   ];
   for (const path of consumers) {
-    const source = readFileSync(join(sourceRoot, path), 'utf8');
-    assert.match(source, /imports:\s*\[databaseModule\b/, `${path} must import the configured database module`);
+    assert.equal(hasConfiguredDatabaseImport(join(sourceRoot, path)), true,
+      `${path} must import its configured database module into the Nest module`);
   }
 
   const databaseModuleImporters = sourceFiles(sourceRoot)
-    .filter((file) => importsFrom(file).includes('./platform/database/database.module') || importsFrom(file).includes('../platform/database/database.module'))
+    .filter((file) => importsFrom(file).includes('./platform/database/database.module')
+      || importsFrom(file).includes('../platform/database/database.module'))
     .map((file) => relative(sourceRoot, file));
   assert.deepEqual(databaseModuleImporters, ['app.module.ts'],
     'only AppModule may configure the database module');
 
-  const appModule = readFileSync(join(sourceRoot, 'app.module.ts'), 'utf8');
-  assert.equal((appModule.match(/DatabaseModule\.register\(database\)/g) ?? []).length, 1,
-    'AppModule must configure the database provider exactly once');
-  for (const [moduleName, args] of [
-    ['PlatformModule', 'databaseModule'],
-    ['AuthModule', 'databaseModule'],
-    ['SiteSurveyModule', 'databaseModule'],
-    ['SitesModule', 'databaseModule, authModule, siteSurveyModule'],
-    ['SurveysModule', 'databaseModule, authModule, siteSurveyModule'],
-  ]) {
-    assert.match(appModule, new RegExp(`${moduleName}\\.register\\(${args.replaceAll(', ', '\\s*,\\s*')}\\)`),
-      `AppModule must compose ${moduleName} with approved dependencies`);
+  const { configured, configuredCount, registrations } = appModuleDatabaseDependencies();
+  assert.equal(configuredCount, 1, 'AppModule must configure the database provider exactly once');
+  assert.ok(configured, 'AppModule must retain the configured database module instance');
+  for (const moduleName of ['PlatformModule', 'AuthModule', 'SiteSurveyModule', 'SitesModule', 'SurveysModule']) {
+    const calls = registrations.get(moduleName) ?? [];
+    assert.equal(calls.length, 1, `AppModule must register ${moduleName} exactly once`);
+    assert.ok(usesConfiguredDatabase(calls[0], configured),
+      `AppModule must pass the configured database module to ${moduleName}`);
   }
 });

@@ -395,7 +395,11 @@ integration('POST /sites reserves active and deleted codes without deleting hist
   for (const code of [siteCodes[0], siteCodes[3]]) {
     const { response, body } = await createSite(siteFeature(code, polygon(100.2, 10.2, 100.3, 10.3)));
     assert.equal(response.status, 409);
-    assert.equal((body.error as Record<string, unknown>).code, 'DUPLICATE_CODE');
+    assert.deepEqual(body.error, {
+      code: 'DUPLICATE_CODE',
+      message: 'Site code already exists',
+      details: {},
+    });
   }
   const history = await pool!.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM sites WHERE code = $1', [siteCodes[3]]);
   assert.ok(history.rows[0].deleted_at);
