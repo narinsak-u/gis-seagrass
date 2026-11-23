@@ -6,7 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { DATABASE_PROVIDER, type DatabaseProvider } from './database/provider';
 import { HealthController } from './health/health.controller';
 import { SitesModule } from './sites/sites.module';
-import { SurveysController } from './surveys/surveys.controller';
+import { SurveysModule } from './surveys/surveys.module';
 
 @Injectable()
 class CloseDatabaseOnShutdown implements OnApplicationShutdown {
@@ -22,8 +22,8 @@ export class AppModule {
   static register(database: DatabaseProvider): DynamicModule {
     return {
       module: AppModule,
-      imports: [DatabaseModule.register(database), AuthModule, SitesModule],
-      controllers: [HealthController, SurveysController],
+      imports: [DatabaseModule.register(database), AuthModule, SitesModule, SurveysModule],
+      controllers: [HealthController],
       providers: [
         { provide: APP_FILTER, useClass: ApiErrorFilter },
         {
