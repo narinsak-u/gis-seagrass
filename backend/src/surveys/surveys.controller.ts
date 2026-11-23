@@ -5,10 +5,10 @@ import { ApiErrorEnvelope } from '../sites/site-openapi';
 import { parseSurveyId, parseSurveyInput, parseSurveyPage, validateSurveyDateAgainstToday } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
-import { SITE_STATUS_CASE_SQL } from '../domain/site-status';
+import { SurveyListReader } from './survey-list-reader';
 
 interface SurveyJson {
-  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null; created_by: string | null;
+  id: string; lon: number; lat: number; surveyed_on: string; cover_percent: number; species: string[]; note: string | null;
 }
 
 const SURVEY_STATUS_QUERY = `SELECT ${SITE_STATUS_CASE_SQL} AS status
@@ -18,7 +18,7 @@ const SURVEY_STATUS_QUERY = `SELECT ${SITE_STATUS_CASE_SQL} AS status
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
 @Controller()
 export class SurveysController {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly surveyLists: SurveyListReader) {}
 
   @Get('sites/:code/surveys')
   @UseGuards(AuthGuard)
@@ -37,18 +37,9 @@ export class SurveysController {
     const page = parseSurveyPage(query.page, 1);
     const pageSize = parseSurveyPage(query.pageSize, 20, 100);
     if (page > Math.floor(Number.MAX_SAFE_INTEGER / pageSize)) throw new BadRequestException();
-    const site = await this.pool.query<{ id: string }>('SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL', [code]);
-    if (!site.rowCount) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
-    const count = await this.pool.query<{ total: string }>('SELECT count(*)::text AS total FROM surveys WHERE site_id = $1', [site.rows[0].id]);
-    const rows = await this.pool.query<SurveyJson>(
-      `SELECT s.id::text, ST_X(s.geom)::float8 AS lon, ST_Y(s.geom)::float8 AS lat,
-              s.surveyed_on::text, s.cover_percent::float8 AS cover_percent, s.note, s.created_by::text,
-              COALESCE(array_agg(ss.species_code ORDER BY ss.species_code) FILTER (WHERE ss.species_code IS NOT NULL), ARRAY[]::text[]) AS species
-         FROM surveys s LEFT JOIN survey_species ss ON ss.survey_id = s.id
-        WHERE s.site_id = $1 GROUP BY s.id ORDER BY s.surveyed_on DESC, s.id DESC
-        LIMIT $2 OFFSET $3`, [site.rows[0].id, pageSize, (page - 1) * pageSize],
-    );
-    return { items: rows.rows, total: Number(count.rows[0].total), page };
+    const result = await this.surveyLists.listBySiteCode(code, page, pageSize);
+    if (!result) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+    return result;
   }
 
   @UseGuards(AuthGuard)

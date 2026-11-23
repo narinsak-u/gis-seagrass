@@ -243,7 +243,7 @@ integration('GET /sites/:code/surveys paginates deterministic list shapes and re
   const secondTie = await create(await validSurvey({ surveyed_on: '2025-02-01', cover_percent: 30 }));
   assert.equal(firstTie.body.siteStatus, 'poor');
   assert.equal(secondTie.body.siteStatus, 'fair');
-  await pool!.query('UPDATE surveys SET created_by = $1 WHERE id = $2', [users.editor, secondTie.body.id]);
+  await pool!.query("UPDATE surveys SET created_by = $1, photo_key = 'private-survey-secret' WHERE id = $2", [users.editor, secondTie.body.id]);
   const page = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
   assert.equal(page.response.status, 200);
   assert.deepEqual(Object.keys(page.body).sort(), ['items', 'page', 'total']);
@@ -253,6 +253,7 @@ integration('GET /sites/:code/surveys paginates deterministic list shapes and re
   assert.deepEqual(items.map(({ id }) => id), [secondTie.body.id, firstTie.body.id, older.rows[0].id]);
   assert.deepEqual(Object.keys(items[0]).sort(), ['cover_percent', 'created_by', 'id', 'lat', 'lon', 'note', 'species', 'surveyed_on']);
   assert.equal(items[0].created_by, users.editor);
+  assert.equal(items[0].photo_key, undefined);
   assert.equal(items[0].siteStatus, undefined);
   assert.equal(items[2].created_by, null);
   assert.deepEqual(items[0].species, [speciesCodes[0]]);
