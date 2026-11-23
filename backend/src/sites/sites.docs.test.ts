@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { AppModule } from '../app.module';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { runMigrations } from '../database/migrate';
 import { setupSwagger } from '../swagger';

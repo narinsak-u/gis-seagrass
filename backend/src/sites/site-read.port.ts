@@ -5,7 +5,7 @@ export interface SiteReadFilters {
   pageSize: number;
 }
 
-export interface SiteReadRow {
+export interface SiteReadRow extends Record<string, unknown> {
   id: string;
   code: string;
   name: string;

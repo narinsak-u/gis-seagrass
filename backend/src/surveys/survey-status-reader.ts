@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { SURVEY_STATUS_READER_PORT, type SurveyStatusReaderPort } from './survey-status-reader.port';
 
-export interface LatestSurveySummary {
+export interface LatestSurveySummary extends Record<string, unknown> {
   survey_ref: string | null;
   surveyed_on: string;
   cover_percent: number;

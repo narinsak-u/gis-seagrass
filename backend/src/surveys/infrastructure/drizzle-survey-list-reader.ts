@@ -4,7 +4,7 @@ import { sites, surveys } from '../../database/schema';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../database/provider';
 import type { SurveyListReaderPort, SurveyPage } from '../survey-list-reader.port';
 
-interface SurveyListRow {
+interface SurveyListRow extends Record<string, unknown> {
   id: string;
   lon: number;
   lat: number;

@@ -7,12 +7,14 @@ import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
+import { runMigrations } from '../database/migrate';
 import { setupSwagger } from '../swagger';
 import { signAccessToken } from '../auth/auth-token';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let app: INestApplication | undefined;
+let clockApp: INestApplication | undefined;
 let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';

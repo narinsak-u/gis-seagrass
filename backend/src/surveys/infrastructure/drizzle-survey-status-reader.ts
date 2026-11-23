@@ -4,7 +4,7 @@ import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../database/provider
 import type { LatestSurveySummary } from '../survey-status-reader';
 import type { SurveyStatusReaderPort } from '../survey-status-reader.port';
 
-interface SurveyReadRow {
+interface SurveyReadRow extends Record<string, unknown> {
   site_id: string;
   cover_percentages: number[];
 }

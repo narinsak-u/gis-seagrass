@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
+import { runMigrations } from '../database/migrate';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;

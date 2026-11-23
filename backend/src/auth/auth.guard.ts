@@ -38,10 +38,11 @@ export class AuthGuard implements CanActivate {
       .where(and(eq(users.id, claims.sub), eq(users.isActive, true)))
       .limit(1);
     if (!user) throw this.unauthorized();
-    request.user = { id: user.id, role: user.role as ActorRole };
+    const role = user.role as ActorRole;
+    request.user = { id: user.id, role };
 
     const roles = this.reflector.getAllAndOverride<ActorRole[]>(REQUIRED_ROLES, [context.getHandler(), context.getClass()]);
-    if (roles && !roles.includes(user.role)) {
+    if (roles && !roles.includes(role)) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Insufficient permissions', details: {} });
     }
     return true;

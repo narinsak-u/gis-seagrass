@@ -7,6 +7,7 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
+import { runMigrations } from '../database/migrate';
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { setupSwagger } from '../swagger';
 import { hashPassword, signAccessToken, verifyAccessToken } from './auth-token';
