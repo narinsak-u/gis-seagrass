@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { PoolClient } from 'pg';
-import { createPool } from '../database/pool';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { parseProvinceCollection, parseProvinceFeature, ProvinceValidationError, type ProvinceRecord } from './province';
 import { importSiteFeatures, parseSiteCollection } from './sites';
 import { importSpecies, parseSpeciesArray } from './species';
@@ -34,13 +34,15 @@ async function replaceReport(path: string, rows: Array<[string, number, string]>
   }
 }
 
-export async function runImport(): Promise<ImportSummary> {
+export async function runImport(provider?: DatabaseProvider): Promise<ImportSummary> {
   const inputDir = resolve(process.env.SEED_DATA_DIR ?? 'seed-data');
   const provinceFeatures = parseProvinceCollection(await readFile(resolve(inputDir, 'provinces.geojson'), 'utf8'));
   const siteFeatures = parseSiteCollection(await readFile(resolve(inputDir, 'seagrass_sites.geojson'), 'utf8'));
   const surveyRecords = parseSurveysCsv(await readFile(resolve(inputDir, 'surveys.csv'), 'utf8'));
   const reportPath = resolve(process.env.IMPORT_REPORT_PATH ?? '../reports/import_report.csv');
-  const pool = createPool();
+  const ownsProvider = !provider;
+  const database = provider ?? createDatabaseProvider();
+  const pool = database.pool;
   const summary: ImportSummary = {
     provinces: { inserted: 0, skipped_existing: 0, rejected: 0 },
     species: { inserted: 0, skipped_existing: 0, rejected: 0 },
@@ -115,7 +117,7 @@ export async function runImport(): Promise<ImportSummary> {
       if (locked) await client.query('SELECT pg_advisory_unlock($1)', [192837465]).catch(() => undefined);
       client.release();
     }
-    await pool.end();
+    if (ownsProvider) await database.close();
   }
 }
 

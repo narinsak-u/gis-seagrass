@@ -1,16 +1,16 @@
 import { join } from 'node:path';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { createPool } from './pool';
+import { createDatabaseProvider, type DatabaseProvider } from './provider';
 
-export async function runMigrations(): Promise<void> {
-  const pool = createPool();
+export async function runMigrations(provider?: DatabaseProvider): Promise<void> {
+  const ownsProvider = !provider;
+  const database = provider ?? createDatabaseProvider();
   try {
-    await migrate(drizzle(pool), {
+    await migrate(database.db, {
       migrationsFolder: join(process.cwd(), 'src/database/migrations'),
     });
   } finally {
-    await pool.end();
+    if (ownsProvider) await database.close();
   }
 }
 

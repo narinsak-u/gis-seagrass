@@ -7,7 +7,7 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import { AppModule } from '../app.module';
-import { runMigrations } from '../database/migrate';
+import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
 import { setupSwagger } from '../swagger';
 import { hashPassword, seedDevelopmentAccounts, signAccessToken, verifyAccessToken } from './auth.controller';
 
@@ -15,6 +15,7 @@ const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 const testSecret = 'isolated-integration-signing-secret-32-bytes';
 let app: INestApplication | undefined;
+let database: DatabaseProvider | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let userId = '';
@@ -30,8 +31,10 @@ before(async () => {
   process.env.PGUSER = decodeURIComponent(url.username);
   process.env.PGPASSWORD = decodeURIComponent(url.password);
   process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  await runMigrations();
-  pool = new Pool({ connectionString: testDatabaseUrl });
+  const provider = createDatabaseProvider();
+  database = provider;
+  await runMigrations(provider);
+  pool = provider.pool;
   generatedEmailPrefix = `auth-${randomUUID()}`;
   process.env.DEV_ACCOUNT_EMAIL_PREFIX = generatedEmailPrefix;
   email = `${generatedEmailPrefix}@example.test`;
@@ -40,7 +43,7 @@ before(async () => {
     'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
     [userId, email, await hashPassword('correct horse battery staple'), 'admin'],
   );
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule.register(provider), { logger: false });
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
@@ -49,11 +52,11 @@ before(async () => {
 });
 
 after(async () => {
-  await app?.close();
   if (pool) {
     await pool.query('DELETE FROM users WHERE id = $1 OR email LIKE $2', [userId, `${generatedEmailPrefix}-%@example.test`]);
-    await pool.end();
   }
+  if (app) await app.close();
+  else await database?.close();
 });
 
 async function login(body: unknown): Promise<{ response: Response; body: Record<string, unknown> }> {
@@ -115,6 +118,29 @@ integration('development accounts seed only when enabled and preserve existing a
   await seedDevelopmentAccounts(pool!, true);
   const preserved = await pool!.query('SELECT password_hash, role, is_active FROM users WHERE email = $1', [accountEmail]);
   assert.deepEqual(preserved.rows[0], { password_hash: 'retained-hash', role: 'admin', is_active: false });
+});
+
+integration('protected requests resolve current role and active status for each token', async () => {
+  const requestUserId = randomUUID();
+  const requestEmail = `${generatedEmailPrefix}-guard@example.test`;
+  await pool!.query(
+    'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
+    [requestUserId, requestEmail, 'unused', 'admin'],
+  );
+  const token = signAccessToken(requestUserId);
+  const request = () => fetch(`${origin}/sites`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  try {
+    await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['viewer', requestUserId]);
+    assert.equal((await request()).status, 403);
+    await pool!.query('UPDATE users SET role = $1, is_active = false WHERE id = $2', ['admin', requestUserId]);
+    assert.equal((await request()).status, 401);
+  } finally {
+    await pool!.query('DELETE FROM users WHERE id = $1', [requestUserId]);
+  }
 });
 
 integration('Swagger documents login request, success, and error envelopes', async () => {

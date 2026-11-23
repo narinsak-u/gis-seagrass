@@ -1,7 +1,8 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Pool } from 'pg';
-import { verifyAccessToken, type AccessTokenClaims } from './auth.controller';
+import { and, eq } from 'drizzle-orm';
+import { DRIZZLE_DATABASE, type DatabaseProvider } from '../database/provider';
+import { users } from '../database/schema';
 
 export type ActorRole = 'viewer' | 'editor' | 'admin';
 export interface AuthenticatedActor { id: string; role: ActorRole }
@@ -13,7 +14,10 @@ export const Roles = (...roles: ActorRole[]) => SetMetadata(REQUIRED_ROLES, role
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly pool: Pool, private readonly reflector: Reflector) {}
+  constructor(
+    @Inject(DRIZZLE_DATABASE) private readonly db: DatabaseProvider['db'],
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -28,12 +32,12 @@ export class AuthGuard implements CanActivate {
       throw this.unauthorized();
     }
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(claims.sub)) throw this.unauthorized();
-    const result = await this.pool.query<{ id: string; role: ActorRole }>(
-      'SELECT id, role FROM users WHERE id = $1 AND is_active = true', [claims.sub],
-    );
-    const user = result.rows[0];
+    const [user] = await this.db.select({ id: users.id, role: users.role })
+      .from(users)
+      .where(and(eq(users.id, claims.sub), eq(users.isActive, true)))
+      .limit(1);
     if (!user) throw this.unauthorized();
-    request.user = { id: user.id, role: user.role };
+    request.user = { id: user.id, role: user.role as ActorRole };
 
     const roles = this.reflector.getAllAndOverride<ActorRole[]>(REQUIRED_ROLES, [context.getHandler(), context.getClass()]);
     if (roles && !roles.includes(user.role)) {
