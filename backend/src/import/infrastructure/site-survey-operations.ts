@@ -1,21 +1,21 @@
 import type { DatabaseProvider } from '../../platform/database';
-import { SiteSurveyCoordinator } from '../../site-survey';
-import { createSiteSurveyTransactionRunner } from '../../site-survey/infrastructure/drizzle-transaction-runner';
-import { DrizzleSiteWriteStore } from '../../sites/infrastructure/drizzle-site-write-store';
-import { DrizzleSiteSurveyConstraints } from '../../surveys/infrastructure/drizzle-site-survey-constraints';
-import { DrizzleSurveyStatusReader } from '../../surveys/infrastructure/drizzle-survey-status-reader';
-import { DrizzleSurveyWriteStore } from '../../surveys/infrastructure/drizzle-survey-write-store';
-import { SurveyWriter } from '../../surveys';
+import { SiteSurveyCoordinator } from '../../site-survey-workflows';
+import { createSiteSurveyTransactionRunner } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction-runner';
+import { DrizzleSiteWriteRepository } from '../../sites/infrastructure/repositories/drizzle-site-write-repository';
+import { DrizzleSiteSurveyConstraintRepository } from '../../surveys/infrastructure/repositories/drizzle-site-survey-constraint-repository';
+import { DrizzleSurveyStatusRepository } from '../../surveys/infrastructure/repositories/drizzle-survey-status-repository';
+import { DrizzleSurveyWriteRepository } from '../../surveys/infrastructure/repositories/drizzle-survey-write-repository';
+import { SurveyCommands } from '../../surveys';
 
 export function createSiteSurveyImportOperations(db: DatabaseProvider['db']): {
   coordinator: SiteSurveyCoordinator;
-  surveyWriter: SurveyWriter;
+  surveyCommands: SurveyCommands;
 } {
   const coordinator = new SiteSurveyCoordinator(
-    new DrizzleSurveyStatusReader(db),
+    new DrizzleSurveyStatusRepository(db),
     createSiteSurveyTransactionRunner(db),
-    new DrizzleSiteWriteStore(),
-    new DrizzleSiteSurveyConstraints(),
+    new DrizzleSiteWriteRepository(),
+    new DrizzleSiteSurveyConstraintRepository(),
   );
-  return { coordinator, surveyWriter: new SurveyWriter(coordinator, new DrizzleSurveyWriteStore()) };
+  return { coordinator, surveyCommands: new SurveyCommands(coordinator, new DrizzleSurveyWriteRepository()) };
 }

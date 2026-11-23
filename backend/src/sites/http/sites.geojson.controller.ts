@@ -3,8 +3,8 @@ import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
 import { ApiErrorEnvelope } from '../../platform/http';
 import type { PublicSiteSummary } from '../domain/site.types';
-import { SiteReader } from '../application/site-reader';
-import { SiteGeoJsonQueryDto } from './site.dto';
+import { SiteQueries } from '../application/use-cases/site-queries';
+import { SiteGeoJsonQueryDto } from './dto/site.dto';
 
 
 
@@ -25,7 +25,7 @@ interface SiteFeatureCollection {
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites.geojson')
 export class SitesGeoJsonController {
-  constructor(private readonly siteReader: SiteReader) {}
+  constructor(private readonly siteQueries: SiteQueries) {}
 
   @Get()
   @ApiQuery({ name: 'bbox', required: true, type: String, description: 'minLon,minLat,maxLon,maxLat in WGS84' })
@@ -40,7 +40,7 @@ export class SitesGeoJsonController {
     if (!bbox) {
       throw new BadRequestException({ code: 'INVALID_BBOX', message: 'Invalid bbox', details: {} });
     }
-    return this.siteReader.withinBbox(bbox, query.province);
+    return this.siteQueries.withinBbox(bbox, query.province);
   }
 }
 

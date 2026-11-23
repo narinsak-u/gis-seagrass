@@ -5,12 +5,19 @@ import * as ts from 'typescript';
 import { test } from 'node:test';
 
 const sourceRoot = resolve(process.cwd(), 'src');
-const featureModules = ['auth', 'sites', 'surveys', 'site-survey', 'import'] as const;
+const featureModules = ['auth', 'sites', 'surveys', 'site-survey-workflows', 'import'] as const;
+const moduleFiles = {
+  auth: 'auth.module.ts',
+  sites: 'sites.module.ts',
+  surveys: 'surveys.module.ts',
+  'site-survey-workflows': 'site-survey.module.ts',
+  import: undefined,
+} as const;
 const layeredModules = {
   auth: ['http', 'application', 'domain', 'infrastructure'],
   sites: ['http', 'application', 'domain', 'infrastructure'],
   surveys: ['http', 'application', 'domain', 'infrastructure'],
-  'site-survey': ['application', 'infrastructure'],
+  'site-survey-workflows': ['application', 'infrastructure'],
   import: ['parser', 'application', 'infrastructure'],
 } as const;
 
@@ -47,12 +54,13 @@ test('backend production files use the approved physical modules and layers', ()
       assert.ok(existsSync(join(moduleRoot, layer)), `${moduleName} is missing ${layer}/`);
     }
 
+    const moduleFile = moduleFiles[moduleName];
     const allowedRootFiles = new Set([
       'index.ts',
-      ...(moduleName === 'import' ? ['run.ts'] : [`${moduleName}.module.ts`]),
+      ...(moduleName === 'import' ? ['run.ts'] : [moduleFile!]),
     ]);
-    if (moduleName !== 'import') {
-      assert.ok(existsSync(join(moduleRoot, `${moduleName}.module.ts`)), `${moduleName} is missing its root module`);
+    if (moduleFile) {
+      assert.ok(existsSync(join(moduleRoot, moduleFile)), `${moduleName} is missing its root module`);
     }
     for (const file of sourceFiles(moduleRoot)) {
       const relativePath = relative(moduleRoot, file);
@@ -67,13 +75,20 @@ test('backend production files use the approved physical modules and layers', ()
       `${relative(sourceRoot, file)} must live in an approved layer`);
       assert.ok(!pathParts.slice(1).some((part) => (layeredModules[moduleName] as readonly string[]).includes(part)),
         `${relative(sourceRoot, file)} must not nest a module layer`);
+      if (layer === 'application') {
+        const allowedFolders = moduleName === 'auth' ? ['contracts', 'use-cases', 'security'] : ['contracts', 'use-cases'];
+        assert.ok(allowedFolders.includes(pathParts[1]), `${relative(sourceRoot, file)} must live in an approved application folder`);
+      }
+      if (layer === 'http' && file.endsWith('.dto.ts')) {
+        assert.equal(pathParts[1], 'dto', `${relative(sourceRoot, file)} DTOs must live in http/dto/`);
+      }
+      if (layer === 'infrastructure' && /repository/i.test(file)) {
+        assert.equal(pathParts[1], 'repositories', `${relative(sourceRoot, file)} repositories must live in infrastructure/repositories/`);
+      }
     }
-
-    if (moduleName === 'sites' || moduleName === 'surveys') {
-      const nestedModules = sourceFiles(join(sourceRoot, moduleName, 'infrastructure'))
-        .filter((file) => file.endsWith('.module.ts'));
-      assert.deepEqual(nestedModules, [], `${moduleName} should not define a second Nest module in infrastructure/`);
-    }
+    const nestedModules = sourceFiles(moduleRoot).filter((file) => file.endsWith('.module.ts')
+      && relative(moduleRoot, file).split(sep).length > 1);
+    assert.deepEqual(nestedModules, [], `${moduleName} must define Nest modules only at its root`);
   }
 
   const platformRoot = join(sourceRoot, 'platform');
@@ -98,7 +113,6 @@ test('backend production files use the approved physical modules and layers', ()
     }
   }
 });
-
 test('application and domain imports stay independent of HTTP and persistence frameworks', () => {
   const forbiddenPackage = /^(?:@nestjs\/|express(?:\/|$)|http(?:\/|$)|drizzle-orm(?:\/|$)|pg(?:\/|$)|node:http$)/;
   for (const file of sourceFiles(sourceRoot)) {
@@ -131,13 +145,14 @@ test('cross-module imports use public module exports', () => {
       const publicPath = targetParts.slice(1);
       const sourceParts = relative(sourceRoot, file).split(sep);
       const isRootExport = publicPath.length === 0 && existsSync(join(target, 'index.ts'));
-      const isModuleExport = publicPath.length === 1 && publicPath[0] === `${targetModule}.module`;
-      const isInfrastructureAdapterImport = publicPath.length === 2 && publicPath[0] === 'infrastructure';
-      const isTransactionAdapterExport = targetModule === 'site-survey' && publicPath.length === 2
-        && publicPath[0] === 'infrastructure' && publicPath[1] === 'drizzle-transaction'
+      const moduleFile = moduleFiles[targetModule as keyof typeof moduleFiles];
+      const isModuleExport = publicPath.length === 1 && moduleFile?.replace(/\.ts$/, '') === publicPath[0];
+      const isInfrastructureAdapterImport = publicPath[0] === 'infrastructure';
+      const isTransactionAdapterExport = targetModule === 'site-survey-workflows' && publicPath.length === 3
+        && publicPath[0] === 'infrastructure' && publicPath[1] === 'transactions' && publicPath[2] === 'drizzle-transaction'
         && ['sites', 'surveys'].includes(sourceModule) && sourceParts[1] === 'infrastructure';
       if (isInfrastructureAdapterImport && !isTransactionAdapterExport) {
-        const isCompositionRoot = (sourceModule === 'site-survey' && sourceParts[1] === 'site-survey.module.ts')
+        const isCompositionRoot = (sourceModule === 'site-survey-workflows' && sourceParts[1] === 'site-survey.module.ts')
           || (sourceModule === 'import' && sourceParts[1] === 'infrastructure');
         assert.ok(isCompositionRoot, `${relative(sourceRoot, file)} may not depend on another feature's infrastructure`);
       }

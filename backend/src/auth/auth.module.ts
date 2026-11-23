@@ -1,22 +1,22 @@
 import { Module } from '@nestjs/common';
 import type { DatabaseProvider } from '../platform/database';
-import { AuthService } from './application/auth-service';
-import { requireJwtSecret } from './application/auth-token';
-import { AUTH_STORE_PORT, type AuthStorePort } from './application/auth-store.port';
+import { AuthService } from './application/use-cases/auth-service';
+import { requireJwtSecret } from './application/security/auth-token';
+import { AUTH_REPOSITORY, type AuthRepository } from './application/contracts/auth-repository';
 import { AuthGuard } from './http/auth.guard';
 import { AuthController } from './http/auth.controller';
-import { DrizzleAuthStore } from './infrastructure/drizzle-auth-store';
+import { DrizzleAuthRepository } from './infrastructure/repositories/drizzle-auth-repository';
 
 @Module({
   controllers: [AuthController],
   providers: [
     AuthGuard,
-    DrizzleAuthStore,
-    { provide: AUTH_STORE_PORT, useExisting: DrizzleAuthStore },
+    DrizzleAuthRepository,
+    { provide: AUTH_REPOSITORY, useExisting: DrizzleAuthRepository },
     {
       provide: AuthService,
-      useFactory: (users: AuthStorePort) => new AuthService(users),
-      inject: [AUTH_STORE_PORT],
+      useFactory: (users: AuthRepository) => new AuthService(users),
+      inject: [AUTH_REPOSITORY],
     },
   ],
   exports: [AuthGuard, AuthService],
@@ -30,6 +30,6 @@ export { requireJwtSecret };
 
 export async function seedDevelopmentAccounts(database: DatabaseProvider, enabled: boolean): Promise<void> {
   if (!enabled) return;
-  const users = new DrizzleAuthStore(database.db);
+  const users = new DrizzleAuthRepository(database.db);
   await new AuthService(users).seedDevelopmentAccounts(true);
 }

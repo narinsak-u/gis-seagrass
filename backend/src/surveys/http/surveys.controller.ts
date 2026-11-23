@@ -4,17 +4,17 @@ import { ApiErrorEnvelope } from '../../platform/http';
 import { parseSurveyId, parseSurveyInput } from './survey-validation';
 import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.module';
-import { SURVEY_LIST_READER_PORT, type SurveyListReaderPort } from '../application/survey-list-reader.port';
-import { SurveyWriter } from '../application/survey-writer';
-import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './survey.dto';
+import { SURVEY_LIST_REPOSITORY, type SurveyListRepository } from '../application/contracts/survey-list-repository';
+import { SurveyCommands } from '../application/use-cases/survey-commands';
+import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './dto/survey.dto';
 
 @ApiExtraModels(ApiErrorEnvelope)
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })
 @Controller()
 export class SurveysController {
   constructor(
-    @Inject(SURVEY_LIST_READER_PORT) private readonly surveyLists: SurveyListReaderPort,
-    private readonly surveyWriter: SurveyWriter,
+    @Inject(SURVEY_LIST_REPOSITORY) private readonly surveyLists: SurveyListRepository,
+    private readonly surveyCommands: SurveyCommands,
   ) {}
 
 
@@ -53,7 +53,7 @@ export class SurveysController {
   @ApiResponse({ status: 422, description: 'OUTSIDE_SITE', schema: SURVEY_ERROR_SCHEMA })
   async create(@Param('code') code: string, @Body() body: SurveyCreateDto, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const input = parseSurveyInput(body, true, request.rawBody);
-    return this.surveyWriter.create(code, input, request.user.id);
+    return this.surveyCommands.create(code, input, request.user.id);
   }
 
   @Patch('surveys/:id')
@@ -71,7 +71,7 @@ export class SurveysController {
   async update(@Param('id') rawId: string, @Body() body: SurveyPatchDto, @Req() request: AuthenticatedRequest & { rawBody?: Buffer }) {
     const id = parseSurveyId(rawId);
     const input = parseSurveyInput(body, false, request.rawBody);
-    return this.surveyWriter.update(id, input, request.user.id);
+    return this.surveyCommands.update(id, input, request.user.id);
   }
 
   @UseGuards(AuthGuard)
@@ -86,6 +86,6 @@ export class SurveysController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN', schema: SURVEY_ERROR_SCHEMA })
   @ApiResponse({ status: 404, description: 'SURVEY_NOT_FOUND', schema: SURVEY_ERROR_SCHEMA })
   async remove(@Param('id') rawId: string): Promise<void> {
-    return this.surveyWriter.remove(parseSurveyId(rawId));
+    return this.surveyCommands.remove(parseSurveyId(rawId));
   }
 }

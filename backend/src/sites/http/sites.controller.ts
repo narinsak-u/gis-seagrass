@@ -5,11 +5,11 @@ import { isRecord } from '../../shared';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.module';
 import { parseSiteFeature, SiteValidationError } from '../domain/site-feature';
 import type { SiteSummary } from '../domain/site.types';
-import { SiteSurveyCoordinator } from '../../site-survey/site-survey.module';
-import { SiteReader, type SiteFeature, type SiteList } from '../application/site-reader';
+import { SiteSurveyCoordinator } from '../../site-survey-workflows';
+import { SiteQueries, type SiteFeature, type SiteList } from '../application/use-cases/site-queries';
 import { SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
 import { ApiErrorEnvelope } from '../../platform/http';
-import { SiteFeatureDto, SiteListQueryDto, SitePatchDto } from './site.dto';
+import { SiteFeatureDto, SiteListQueryDto, SitePatchDto } from './dto/site.dto';
 
 
 
@@ -24,7 +24,7 @@ interface CreatedSiteFeature {
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
 export class SitesController {
-  constructor(private readonly siteReader: SiteReader, private readonly siteSurvey: SiteSurveyCoordinator) {}
+  constructor(private readonly siteQueries: SiteQueries, private readonly siteSurvey: SiteSurveyCoordinator) {}
 
   @Post()
   @UseGuards(AuthGuard)
@@ -102,7 +102,7 @@ export class SitesController {
     const province = query.province;
     const search = query.q;
     if (province !== undefined && province.length !== 2) throw new BadRequestException();
-    return this.siteReader.list({ province, search, page, pageSize });
+    return this.siteQueries.list({ province, search, page, pageSize });
   }
 
   @Get(':code')
@@ -110,7 +110,7 @@ export class SitesController {
   @ApiResponse({ status: 404, description: 'SITE_NOT_FOUND', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async detail(@Param('code') code: string): Promise<SiteFeature> {
-    return this.siteReader.detail(code);
+    return this.siteQueries.detail(code);
   }
 }
 

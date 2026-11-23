@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation. Decisions were confirmed during design review.
+Implemented and verified. Backend build and all 73 tests pass against disposable PostGIS.
 
 ## Problem Statement
 
@@ -34,41 +34,42 @@ Restructure backend production code into explicit physical modules and Clean Arc
 ## Implementation Decisions
 
 - Keep `app.module.ts` and `main.ts` as the composition root. Add a `PlatformModule` for database provider, health endpoint, and global HTTP error mapping.
-- Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, DTOs, guards, and OpenAPI in `http`; use cases and their required ports in `application`; business rules and types in `domain`; concrete Drizzle repositories/adapters and SQL in `infrastructure`.
+- Give Sites, Surveys, and Auth a Nest module plus physical `http`, `application`, `domain`, and `infrastructure` layers. Keep controllers, guards, OpenAPI, and DTOs in `http`, with DTO classes under `http/dto`; group application operations under `application/use-cases` and persistence contracts under `application/contracts`; keep business rules and types in `domain`; put concrete `Drizzle*Repository` classes under `infrastructure/repositories`.
 - Keep application classes plain TypeScript. Nest provider factories compose application use cases and infrastructure adapters. The HTTP layer calls application interfaces and does not query persistence directly.
-- Move active-user and current-role lookup behind an Auth application port implemented by a Drizzle adapter. The AuthGuard preserves per-request status and role checks.
-- Keep Site–Survey coordination in a dedicated application module and composition root. It owns cross-feature workflows and transaction sequencing, and binds feature-owned persistence adapters to application ports. Avoid separate Nest infrastructure modules used only for provider registration.
-- Define an opaque Site–Survey transaction context and transaction-runner port. A Drizzle infrastructure adapter opens one transaction and passes the context through feature-owned ports; only infrastructure unwraps the Drizzle transaction.
+- Move active-user and current-role lookup behind the Auth application repository contract, implemented by a Drizzle repository. The AuthGuard preserves per-request status and role checks.
+- Keep cross-feature Site–Survey coordination in the dedicated `site-survey-workflows` module. Its single root `SiteSurveyModule` composes the workflow and transaction adapters; do not create duplicate feature submodules or infrastructure Nest modules.
+- Name persistence contracts `*Repository` and their Drizzle implementations `Drizzle*Repository`. Keep non-persistence contracts named for their role, such as `SiteSurveyTransactionRunner`; avoid generic service wrappers and endpoint-per-file use cases.
 - Put the plain shared application-error contract outside `domain`; `PlatformModule` maps its stable codes to existing HTTP statuses and envelopes.
 - Put Site status and geometry policies with Site ownership; put Survey date rules with Survey ownership. Keep shared WGS84 geometry rules in a narrow geospatial domain module and generic object-shape checks in shared input parsing. Expose cross-module rules through explicit public exports, not private deep imports.
-- Keep Import as a standalone CLI module with parser, application, and infrastructure layers. It does not become a Nest feature module or depend on HTTP DTOs. It calls Sites and Surveys through their public application operations.
+- Keep Import as a standalone CLI module with parser, application use cases, and infrastructure. It does not become a Nest feature module or depend on HTTP DTOs. It calls Sites and Surveys through their public application operations.
 - Keep the per-process Drizzle provider lifecycle, pinned importer advisory lock, per-Survey transactions, migration ordering, database constraints, source data, and API behavior unchanged.
-- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks production file placement and the approved import matrix without a new package.
+- Keep tests at their owning module roots. Add a TypeScript-based architecture check to the backend test command; it checks physical layers, application folder conventions, DTO and repository placement, public module exports, and the approved composition-root adapter imports.
 - Update `DESIGN.md` with physical ownership, allowed dependencies, public module exports, opaque transaction context, provider lifecycle, and material trade-offs.
 
 ## Testing Decisions
 
 - Test user-visible behavior through existing real HTTP requests against a disposable PostGIS database. Do not add implementation-coupled tests for provider wiring or private helpers.
 - Reuse existing Site, Survey, Auth, and importer integration tests for routes, response contracts, roles, validation precedence, spatial rules, concurrency, reporting, and CLI behavior.
-- Add one static architecture check using the installed TypeScript compiler API. It verifies one root Nest module per Sites and Surveys feature, rejects infrastructure-only Nest modules, checks approved composition-root adapter imports, and ensures application/domain files do not import NestJS, HTTP, Drizzle, or `pg`.
+- Add one static architecture check using the installed TypeScript compiler API. It verifies one root Nest module per physical module, application folders, DTO and repository placement, the public import matrix, rejects infrastructure-only Nest modules, and ensures application/domain files do not import NestJS, HTTP, Drizzle, or `pg`.
 - Run the TypeScript build and full backend suite against a confirmed disposable PostGIS container with no shared volume.
 - Prior art: backend Node test suite already runs real Nest HTTP and importer tests against `IMPORT_TEST_DATABASE_URL`.
 
 ## Acceptance Criteria
 
-- [ ] `platform` owns database, health, and global error handling; `AppModule` composes platform and feature modules.
-- [ ] `sites`, `surveys`, and `auth` each have a module file and physical `http`, `application`, `domain`, and `infrastructure` directories.
-- [ ] Import has physical parser, application, and infrastructure responsibilities and remains runnable as a standalone CLI without Nest.
-- [ ] No production source remains in the catch-all root `domain` directory.
-- [ ] Application and domain code import no NestJS, HTTP, Drizzle, or `pg` symbols.
-- [ ] HTTP controllers and guards access persistence only through application interfaces; AuthGuard still resolves active users and current roles on every protected request.
-- [ ] Drizzle repositories, SQL, and database-provider details stay in platform or feature infrastructure.
-- [ ] The Site–Survey coordinator shares one opaque transaction context across module-owned persistence ports, with no circular feature-module dependency.
-- [ ] Shared rules and application errors live in explicit shared ownership areas and cross-module imports use public exports.
-- [ ] The architecture check fails on forbidden file placement or dependency direction and runs as part of backend tests.
-- [ ] Existing API, database, migration, spatial, authorization, import, and concurrency behavior remains unchanged.
-- [ ] `DESIGN.md` documents the final physical structure and trade-offs.
-- [ ] Backend build and full existing tests pass against disposable PostGIS; no Step 6 behavior is added.
+- [x] `platform` owns database, health, and global error handling; `AppModule` composes platform and feature modules.
+- [x] `sites`, `surveys`, and `auth` each have one root Nest module and physical `http`, `application`, `domain`, and `infrastructure` layers. Application code is grouped under `contracts` and `use-cases`; Auth's token security helpers may live under `application/security`.
+- [x] Import has physical parser, application, and infrastructure responsibilities and remains runnable as a standalone CLI without Nest.
+- [x] No production source remains in the catch-all root `domain` directory.
+- [x] Application and domain code import no NestJS, HTTP, Drizzle, or `pg` symbols.
+- [x] HTTP controllers and guards access persistence only through application interfaces; AuthGuard still resolves active users and current roles on every protected request.
+- [x] Drizzle repositories, SQL, and database-provider details stay in platform or feature infrastructure. Persistence contracts use `*Repository`; concrete Drizzle implementations use `Drizzle*Repository` under `infrastructure/repositories`.
+- [x] The Site–Survey coordinator lives in `site-survey-workflows`, which contains cross-feature workflows and exactly one root Nest composition module. Site and Survey feature modules remain distinct.
+- [x] HTTP DTO classes live under `http/dto`; OpenAPI schemas and request validation remain in `http`.
+- [x] Shared rules and application errors live in explicit shared ownership areas and cross-module imports use public exports.
+- [x] The architecture check fails on forbidden file placement or dependency direction and runs as part of backend tests.
+- [x] Existing API, database, migration, spatial, authorization, import, and concurrency behavior remains unchanged.
+- [x] `DESIGN.md` documents the final physical structure and trade-offs.
+- [x] Backend build and full existing tests pass against disposable PostGIS; no Step 6 behavior is added.
 
 ## Out of Scope
 

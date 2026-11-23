@@ -7,10 +7,10 @@ import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../platform/database';
 import { createSiteSurveyImportOperations } from '../import/infrastructure/site-survey-operations';
-import { importSurveys, type SurveyImportResult } from '../import/application/surveys';
+import { importSurveys, type SurveyImportResult } from '../import/application/use-cases/surveys';
 import type { ParsedSurvey } from '../import/parser/surveys';
 import { AppModule } from '../app.module';
-import { signAccessToken } from '../auth/application/auth-token';
+import { signAccessToken } from '../auth/application/security/auth-token';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { runMigrations } from '../platform/database';
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
@@ -29,7 +29,7 @@ let postToken = '';
 let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
 function importSurveyRecords(client: PoolClient, records: ParsedSurvey[]) {
-  const writer = createSiteSurveyImportOperations(drizzle(client, { schema })).surveyWriter;
+  const writer = createSiteSurveyImportOperations(drizzle(client, { schema })).surveyCommands;
   return importSurveys(writer, records);
 }
 

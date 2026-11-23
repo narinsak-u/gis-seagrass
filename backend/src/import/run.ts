@@ -6,11 +6,11 @@ import { createDatabaseProvider, type DatabaseProvider } from '../platform/datab
 import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
 import { parseProvinceCollection } from './parser/province';
-import { importSiteFeatures } from './application/sites';
+import { importSiteFeatures } from './application/use-cases/sites';
 import { parseSiteCollection } from './parser/sites';
 import { parseSpeciesArray } from './parser/species';
 import { importProvinces, importSpecies } from './infrastructure/reference-data';
-import { importSurveys } from './application/surveys';
+import { importSurveys } from './application/use-cases/surveys';
 import { parseSurveysCsv } from './parser/surveys';
 
 export interface ImportSummary {
@@ -57,7 +57,7 @@ export async function runImport(provider?: DatabaseProvider): Promise<ImportSumm
   const report: Array<[string, number, string]> = [];
   try {
     return await withImportAdvisoryLock(pool, async () => {
-      const { coordinator, surveyWriter } = createSiteSurveyImportOperations(database.db);
+      const { coordinator, surveyCommands } = createSiteSurveyImportOperations(database.db);
       const provinces = await importProvinces(database.db, provinceFeatures);
       summary.provinces = provinces.summary;
       report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
@@ -68,7 +68,7 @@ export async function runImport(provider?: DatabaseProvider): Promise<ImportSumm
       const siteResult = await importSiteFeatures(coordinator, siteFeatures);
       summary.sites = siteResult.summary;
       for (const rejection of siteResult.rejections) report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
-      const surveys = await importSurveys(surveyWriter, surveyRecords);
+      const surveys = await importSurveys(surveyCommands, surveyRecords);
       summary.surveys = surveys.summary;
       report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
       await replaceReport(reportPath, report);

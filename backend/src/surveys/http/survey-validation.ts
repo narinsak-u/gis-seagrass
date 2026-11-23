@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { isStrictCalendarDate } from '../domain/calendar-date';
-import type { SurveyInput } from '../application/survey-write.port';
+import type { SurveyInput } from '../application/contracts/survey-write-repository';
 
 const editableKeys = ['lon', 'lat', 'surveyed_on', 'cover_percent', 'species', 'note'];
 const ID_MAX = 9223372036854775807n;
