@@ -5,8 +5,7 @@ import { ApiErrorFilter } from './errors/error.filter';
 import { DatabaseModule } from './database/database.module';
 import { DATABASE_PROVIDER, type DatabaseProvider } from './database/provider';
 import { HealthController } from './health/health.controller';
-import { SitesController } from './sites/sites.controller';
-import { SitesGeoJsonController } from './sites/sites.geojson.controller';
+import { SitesModule } from './sites/sites.module';
 import { SurveysController } from './surveys/surveys.controller';
 
 @Injectable()
@@ -23,8 +22,8 @@ export class AppModule {
   static register(database: DatabaseProvider): DynamicModule {
     return {
       module: AppModule,
-      imports: [DatabaseModule.register(database), AuthModule],
-      controllers: [HealthController, SitesController, SitesGeoJsonController, SurveysController],
+      imports: [DatabaseModule.register(database), AuthModule, SitesModule],
+      controllers: [HealthController, SurveysController],
       providers: [
         { provide: APP_FILTER, useClass: ApiErrorFilter },
         {
