@@ -10,6 +10,7 @@ import { SiteReader, type SiteFeature, type SiteList } from './site-reader';
 
 import { ApiErrorEnvelope, SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
 
+import { SiteFeatureDto, SiteListQueryDto, SitePatchDto } from './site.dto';
 
 
 
@@ -19,7 +20,7 @@ interface CreatedSiteFeature {
   properties: SiteSummary;
 }
 
-const ALLOWED_QUERY_KEYS = ['status', 'province', 'q', 'page', 'pageSize'];
+
 
 @ApiExtraModels(ApiErrorEnvelope)
 @Controller('sites')
@@ -39,7 +40,7 @@ export class SitesController {
   @ApiResponse({ status: 409, description: 'DUPLICATE_CODE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async create(@Req() request: AuthenticatedRequest, @Body() body: unknown): Promise<CreatedSiteFeature> {
+  async create(@Req() request: AuthenticatedRequest, @Body() body: SiteFeatureDto): Promise<CreatedSiteFeature> {
     const site = validateCreateFeature(body);
     try {
       return await this.siteSurvey.create(site, request.user.id);
@@ -66,7 +67,7 @@ export class SitesController {
   @ApiResponse({ status: 409, description: 'VERSION_CONFLICT returns details.current as the current Site Feature; SURVEYS_OUTSIDE rejects stranded Surveys', schema: SITE_PATCH_ERROR_SCHEMA })
   @ApiResponse({ status: 422, description: 'OUTSIDE_COVERAGE', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async update(@Param('code') code: string, @Body() body: unknown, @Req() request: AuthenticatedRequest): Promise<CreatedSiteFeature> {
+  async update(@Param('code') code: string, @Body() body: SitePatchDto, @Req() request: AuthenticatedRequest): Promise<CreatedSiteFeature> {
     const patch = validateSitePatch(body);
     return this.siteSurvey.update(code, patch, request.user.id);
   }
@@ -95,29 +96,14 @@ export class SitesController {
   @ApiResponse({ status: 200, description: 'Paginated Site summaries', schema: SITE_LIST_SCHEMA })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async list(@Query() query: Record<string, unknown>): Promise<SiteList> {
-    if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.includes(key))) throw new BadRequestException();
-    if (query.status !== undefined && query.status !== 'active') throw new BadRequestException();
-
-    const page = parsePositiveInteger(query.page, 1);
-    const pageSize = parsePositiveInteger(query.pageSize, 20);
-    if (page === undefined || pageSize === undefined || pageSize > 100
-      || page > Math.floor(Number.MAX_SAFE_INTEGER / pageSize)) {
-      throw new BadRequestException();
-    }
+  async list(@Query() query: SiteListQueryDto): Promise<SiteList> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    if (page > Math.floor(Number.MAX_SAFE_INTEGER / pageSize)) throw new BadRequestException();
     const province = query.province;
     const search = query.q;
-    if ((province !== undefined && (typeof province !== 'string' || province.length !== 2))
-      || (search !== undefined && typeof search !== 'string')) {
-      throw new BadRequestException();
-    }
-
-    return this.siteReader.list({
-      province: province as string | undefined,
-      search: search as string | undefined,
-      page,
-      pageSize,
-    });
+    if (province !== undefined && province.length !== 2) throw new BadRequestException();
+    return this.siteReader.list({ province, search, page, pageSize });
   }
 
   @Get(':code')
@@ -129,12 +115,7 @@ export class SitesController {
   }
 }
 
-function parsePositiveInteger(value: unknown, fallback: number): number | undefined {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return undefined;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : undefined;
-}
+
 
 function validateCreateFeature(body: unknown) {
   if (!isRecord(body) || Object.keys(body).sort().join(',') !== 'geometry,properties,type'

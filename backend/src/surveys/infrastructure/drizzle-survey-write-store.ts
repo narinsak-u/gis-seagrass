@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import type { SiteWriteTransaction } from '../../site-survey/transaction';
-import type { SurveyInput } from '../survey-validation';
-import type { SurveyWritePort, SurveyWriteResponse } from '../survey-write.port';
+import type { SurveyInput, SurveyWritePort, SurveyWriteResponse } from '../survey-write.port';
 
 @Injectable()
 export class DrizzleSurveyWriteStore implements SurveyWritePort {

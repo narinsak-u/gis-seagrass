@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { ApplicationError } from '../../domain/application-error';
 import { sql } from 'drizzle-orm';
 import type { SiteWriteTransaction } from '../../site-survey/transaction';
 import type { LockedSite, SiteFeature, SitePatch, SiteSpatial, SiteWriteInput, SiteWritePort } from '../site-write.port';
@@ -126,8 +127,8 @@ async function deriveSiteSpatial(tx: SiteWriteTransaction, source: string): Prom
     FROM validation
   `);
   const spatial = result.rows[0];
-  if (!spatial.valid || spatial.empty) throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
-  if (spatial.province_code === null) throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
+  if (!spatial.valid || spatial.empty) throw new ApplicationError('INVALID_GEOMETRY', 'Invalid geometry');
+  if (spatial.province_code === null) throw new ApplicationError('OUTSIDE_COVERAGE', 'Site must overlap a Province');
   return { provinceCode: spatial.province_code, areaRai: spatial.area_rai! };
 }
 

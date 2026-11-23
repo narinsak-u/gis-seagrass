@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ApplicationError } from '../domain/application-error';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../database/provider';
 import { SurveyStatusReader, type LatestSurveySummary } from '../surveys/survey-status-reader';
 import { SITE_SURVEY_CONSTRAINTS_PORT, type SiteSurveyConstraintsPort } from '../surveys/site-survey-constraints.port';
@@ -29,8 +30,8 @@ export class SiteSurveyCoordinator {
     try {
       return await this.transaction(async (tx) => await this.sites.import(tx, site) ? 'INSERTED' : 'SKIPPED');
     } catch (error) {
-      if (error instanceof BadRequestException) return 'INVALID_GEOMETRY';
-      if (error instanceof UnprocessableEntityException) return 'OUTSIDE_COVERAGE';
+      if (error instanceof ApplicationError && error.code === 'INVALID_GEOMETRY') return 'INVALID_GEOMETRY';
+      if (error instanceof ApplicationError && error.code === 'OUTSIDE_COVERAGE') return 'OUTSIDE_COVERAGE';
       throw error;
     }
   }
@@ -63,20 +64,20 @@ export class SiteSurveyCoordinator {
   update(code: string, patch: SitePatch, actorId: string) {
     return this.transaction(async (tx) => {
       const current = await this.sites.lock(tx, code);
-      if (!current) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      if (!current) throw new ApplicationError('SITE_NOT_FOUND', 'Site not found');
       if (current.version !== patch.version) {
-        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: { current: {
+        throw new ApplicationError('VERSION_CONFLICT', 'Site version conflict', { current: {
           type: 'Feature',
           geometry: current.geometry,
           properties: { code, name: current.name, province_code: current.provinceCode, area_rai: Number(current.areaRai), version: current.version },
-        } } });
+        } });
       }
       let spatial: SiteSpatial | undefined;
       if (patch.geometry) {
         const source = JSON.stringify(patch.geometry);
         const derived = await this.sites.deriveSpatial(tx, source);
         if (await this.surveyConstraints.hasSurveysOutside(tx, current.id, source)) {
-          throw new ConflictException({ code: 'SURVEYS_OUTSIDE', message: 'Geometry would strand linked Surveys', details: {} });
+          throw new ApplicationError('SURVEYS_OUTSIDE', 'Geometry would strand linked Surveys');
         }
         spatial = { ...derived, source };
       }
@@ -87,9 +88,9 @@ export class SiteSurveyCoordinator {
   retire(code: string, actorId: string): Promise<void> {
     return this.transaction(async (tx) => {
       const current = await this.sites.lock(tx, code);
-      if (!current) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      if (!current) throw new ApplicationError('SITE_NOT_FOUND', 'Site not found');
       if (await this.surveyConstraints.hasSurveys(tx, current.id)) {
-        throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
+        throw new ApplicationError('SITE_HAS_SURVEYS', 'Site has linked Surveys');
       }
       await this.sites.retire(tx, current, actorId);
     });

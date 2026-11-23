@@ -1,5 +1,12 @@
 import type { SiteWriteTransaction } from '../site-survey/transaction';
-import type { SurveyInput } from './survey-validation';
+export interface SurveyInput {
+  lon?: number;
+  lat?: number;
+  surveyed_on?: string;
+  cover_percent?: number;
+  species?: string[];
+  note?: string | null;
+}
 
 export interface SurveyWritePort {
   existsRef(tx: SiteWriteTransaction, ref: string): Promise<boolean>;

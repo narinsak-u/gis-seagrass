@@ -1,17 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import { isStrictCalendarDate } from '../domain/guards';
+import type { SurveyInput } from './survey-write.port';
 
 const editableKeys = ['lon', 'lat', 'surveyed_on', 'cover_percent', 'species', 'note'];
 const ID_MAX = 9223372036854775807n;
 
-export interface SurveyInput {
-  lon?: number;
-  lat?: number;
-  surveyed_on?: string;
-  cover_percent?: number;
-  species?: string[];
-  note?: string | null;
-}
 
 function invalid(): never {
   throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Invalid request', details: {} });
@@ -21,7 +14,7 @@ export function parseSurveyInput(body: unknown, create: boolean, rawBody?: Buffe
   if (rawBody) rejectRoundedCoverLiteral(rawBody);
   if (body === null || typeof body !== 'object' || Array.isArray(body)) invalid();
   const record = body as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !editableKeys.includes(key)) || (!create && Object.keys(record).length === 0)) invalid();
+  if (Object.keys(record).some((key) => !editableKeys.includes(key)) || (!create && !editableKeys.some((key) => record[key] !== undefined))) invalid();
   const input: SurveyInput = {};
   if (create || record.lon !== undefined) {
     if (typeof record.lon !== 'number' || !Number.isFinite(record.lon) || record.lon < -180 || record.lon > 180) invalid();
@@ -75,14 +68,4 @@ export function parseSurveyId(value: string): string {
   return value;
 }
 
-export function parseSurveyPage(value: unknown, fallback: number, maximum = Number.MAX_SAFE_INTEGER): number {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) invalid();
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed > maximum) invalid();
-  return parsed;
-}
 
-export function validateSurveyDateAgainstToday(date: string, today: string): void {
-  if (date > today) invalid();
-}

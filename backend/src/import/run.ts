@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { PoolClient } from 'pg';
+
 import { createDatabaseProvider, type DatabaseProvider } from '../database/provider';
+import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
 import { parseProvinceCollection } from './province';
 import { importSiteFeatures, parseSiteCollection } from './sites';
@@ -52,36 +53,27 @@ export async function runImport(provider?: DatabaseProvider): Promise<ImportSumm
     surveys: { inserted: 0, skipped_existing: 0, rejected: 0 },
   };
   const report: Array<[string, number, string]> = [];
-  let client: PoolClient | undefined;
-  let locked = false;
   try {
-    client = await pool.connect();
-    await client.query('SELECT pg_advisory_lock($1)', [192837465]);
-    locked = true;
-    const { coordinator, surveyWriter } = createSiteSurveyImportOperations(database.db);
-    const provinces = await importProvinces(database.db, provinceFeatures);
-    summary.provinces = provinces.summary;
-    report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
-    const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
-    const species = await importSpecies(database.db, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
-    summary.species = species.summary;
-    report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
-    const siteResult = await importSiteFeatures(coordinator, siteFeatures);
-    summary.sites = siteResult.summary;
-    for (const rejection of siteResult.rejections) {
-      report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
-    }
-    const surveys = await importSurveys(surveyWriter, surveyRecords);
-    summary.surveys = surveys.summary;
-    report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
-    await replaceReport(reportPath, report);
-    console.info('Import summary:', JSON.stringify(summary));
-    return summary;
+    return await withImportAdvisoryLock(pool, async () => {
+      const { coordinator, surveyWriter } = createSiteSurveyImportOperations(database.db);
+      const provinces = await importProvinces(database.db, provinceFeatures);
+      summary.provinces = provinces.summary;
+      report.push(...provinces.rejections.map(({ row, reason }) => ['provinces.geojson', row, reason] as [string, number, string]));
+      const speciesPath = resolve(process.env.SEED_DATA_DIR ?? 'seed-data', 'species.json');
+      const species = await importSpecies(database.db, parseSpeciesArray(await readFile(speciesPath, 'utf8')));
+      summary.species = species.summary;
+      report.push(...species.rejections.map(({ row, reason }) => ['species.json', row, reason] as [string, number, string]));
+      const siteResult = await importSiteFeatures(coordinator, siteFeatures);
+      summary.sites = siteResult.summary;
+      for (const rejection of siteResult.rejections) report.push(['seagrass_sites.geojson', rejection.row, rejection.reason]);
+      const surveys = await importSurveys(surveyWriter, surveyRecords);
+      summary.surveys = surveys.summary;
+      report.push(...surveys.rejections.map(({ row, reason }) => ['surveys.csv', row, reason] as [string, number, string]));
+      await replaceReport(reportPath, report);
+      console.info('Import summary:', JSON.stringify(summary));
+      return summary;
+    });
   } finally {
-    if (client) {
-      if (locked) await client.query('SELECT pg_advisory_unlock($1)', [192837465]).catch(() => undefined);
-      client.release();
-    }
     if (ownsProvider) await database.close();
   }
 }

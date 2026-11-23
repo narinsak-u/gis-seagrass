@@ -1,7 +1,7 @@
 import { parse } from 'csv-parse/sync';
 import { isStrictCalendarDate } from '../domain/guards';
 import { SurveyWriter } from '../surveys/survey-writer';
-import type { SurveyInput } from '../surveys/survey-validation';
+import type { SurveyInput } from '../surveys/survey-write.port';
 const columns = ['survey_ref', 'site_code', 'lon', 'lat', 'surveyed_on', 'cover_percent', 'species'] as const;
 
 type SurveyRow = Record<(typeof columns)[number], string>;

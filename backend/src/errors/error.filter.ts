@@ -5,6 +5,7 @@ import {
   HttpException,
 } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
+import { ApplicationError } from '../domain/application-error';
 
 interface HttpResponse {
   status(code: number): this;
@@ -19,12 +20,17 @@ interface ErrorEnvelope {
 export class ApiErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<HttpResponse>();
-    const status = exception instanceof HttpException
-      ? exception.getStatus()
-      : isRecord(exception) && exception.status === 400 ? 400 : 500;
+    const applicationError = exception instanceof ApplicationError ? exception : undefined;
+    const status = applicationError
+      ? applicationStatus(applicationError.code)
+      : exception instanceof HttpException
+        ? exception.getStatus()
+        : isRecord(exception) && exception.status === 400 ? 400 : 500;
 
-    let body: Record<string, unknown> = {};
-    if (exception instanceof HttpException) {
+    let body: Record<string, unknown> = applicationError
+      ? { code: applicationError.code, message: applicationError.message, details: applicationError.details }
+      : {};
+    if (!applicationError && exception instanceof HttpException) {
       const exceptionBody: unknown = exception.getResponse();
       if (isRecord(exceptionBody)) body = exceptionBody;
     }
@@ -43,10 +49,12 @@ export class ApiErrorFilter implements ExceptionFilter {
           details: isRecord(body.details) ? body.details : {},
         }
         : fallback;
-    } else if (exception instanceof HttpException && status < 500) {
+    } else if ((exception instanceof HttpException || applicationError) && status < 500) {
       error = {
         code: typeof body.code === 'string' ? body.code : 'HTTP_ERROR',
-        message: typeof body.message === 'string' ? body.message : exception.message,
+        message: typeof body.message === 'string'
+          ? body.message
+          : exception instanceof Error ? exception.message : 'Request failed',
         details: isRecord(body.details) ? body.details : {},
       };
     } else {
@@ -54,5 +62,30 @@ export class ApiErrorFilter implements ExceptionFilter {
     }
     const envelope: ErrorEnvelope = { error };
     response.status(status).json(envelope);
+  }
+}
+
+function applicationStatus(code: string): number {
+  switch (code) {
+    case 'VALIDATION_ERROR':
+    case 'INVALID_GEOMETRY':
+      return 400;
+    case 'UNAUTHORIZED':
+      return 401;
+    case 'FORBIDDEN':
+      return 403;
+    case 'SITE_NOT_FOUND':
+    case 'SURVEY_NOT_FOUND':
+      return 404;
+    case 'DUPLICATE_CODE':
+    case 'VERSION_CONFLICT':
+    case 'SURVEYS_OUTSIDE':
+    case 'SITE_HAS_SURVEYS':
+      return 409;
+    case 'OUTSIDE_COVERAGE':
+    case 'OUTSIDE_SITE':
+      return 422;
+    default:
+      return 500;
   }
 }

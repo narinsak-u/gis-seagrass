@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ApplicationError } from '../domain/application-error';
 import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
 import { SITE_READ_PORT, type SiteReadFilters, type SiteReadPort } from './site-read.port';
 import type { PublicSiteSummary } from './site.types';
@@ -43,7 +44,7 @@ export class SiteReader {
 
   async detail(code: string): Promise<SiteFeature> {
     const row = await this.sites.detail(code);
-    if (!row) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+    if (!row) throw new ApplicationError('SITE_NOT_FOUND', 'Site not found');
     const [statuses, latestSurvey] = await Promise.all([
       this.siteSurvey.statuses([row.id]),
       this.siteSurvey.latestSurvey(row.id),

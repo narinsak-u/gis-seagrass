@@ -1,7 +1,7 @@
-import { BadRequestException, Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { ApiBody, ApiResponse, type SchemaObject } from '@nestjs/swagger';
-import { isRecord } from '../domain/guards';
 import { AuthService } from './auth-service';
+import { LoginDto } from './auth.dto';
 
 const LOGIN_ERROR_SCHEMA: SchemaObject = {
   type: 'object',
@@ -25,11 +25,7 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Signed access token', schema: { type: 'object', required: ['access_token', 'token_type', 'expires_in'], properties: { access_token: { type: 'string' }, token_type: { type: 'string', enum: ['Bearer'] }, expires_in: { type: 'integer', enum: [900] } } } })
   @ApiResponse({ status: 400, description: 'Malformed credentials', schema: LOGIN_ERROR_SCHEMA })
   @ApiResponse({ status: 401, description: 'Invalid credentials', schema: LOGIN_ERROR_SCHEMA })
-  login(@Body() body: unknown): Promise<{ access_token: string; token_type: 'Bearer'; expires_in: number }> {
-    if (!isRecord(body) || Object.keys(body).length !== 2 || typeof body.email !== 'string' || !body.email
-      || typeof body.password !== 'string' || !body.password || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Invalid login request', details: {} });
-    }
+  login(@Body() body: LoginDto): Promise<{ access_token: string; token_type: 'Bearer'; expires_in: number }> {
     return this.auth.login(body.email, body.password);
   }
 }

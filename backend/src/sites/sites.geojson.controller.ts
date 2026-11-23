@@ -3,6 +3,7 @@ import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiErrorEnvelope, SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
 import type { PublicSiteSummary } from './site.types';
 import { SiteReader } from './site-reader';
+import { SiteGeoJsonQueryDto } from './site.dto';
 
 
 
@@ -17,7 +18,7 @@ interface SiteFeatureCollection {
   features: SiteFeature[];
 }
 
-const ALLOWED_QUERY_KEYS = ['bbox', 'province', 'status'];
+
 
 
 @ApiExtraModels(ApiErrorEnvelope)
@@ -32,18 +33,13 @@ export class SitesGeoJsonController {
   @ApiResponse({ status: 200, description: 'GeoJSON FeatureCollection of intersecting Sites', schema: SITE_FEATURE_COLLECTION_SCHEMA })
   @ApiResponse({ status: 400, description: 'INVALID_BBOX or VALIDATION_ERROR', schema: SITE_ERROR_SCHEMA })
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
-  async list(@Query() query: Record<string, unknown>): Promise<SiteFeatureCollection> {
-    if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.includes(key))) throw new BadRequestException();
-    if (query.status !== undefined && query.status !== 'active') throw new BadRequestException();
-    if (query.province !== undefined && (typeof query.province !== 'string' || query.province.length !== 2)) {
-      throw new BadRequestException();
-    }
-
+  async list(@Query() query: SiteGeoJsonQueryDto): Promise<SiteFeatureCollection> {
+    if (query.province !== undefined && query.province.length !== 2) throw new BadRequestException();
     const bbox = parseBbox(query.bbox);
     if (!bbox) {
       throw new BadRequestException({ code: 'INVALID_BBOX', message: 'Invalid bbox', details: {} });
     }
-    return this.siteReader.withinBbox(bbox, query.province as string | undefined);
+    return this.siteReader.withinBbox(bbox, query.province);
   }
 }
 

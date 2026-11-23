@@ -1,8 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ApplicationError } from '../domain/application-error';
 import type { SiteWriteTransaction } from '../site-survey/transaction';
 import { SiteSurveyCoordinator } from '../site-survey/site-survey.coordinator';
-import { SURVEY_WRITE_PORT, type SurveyWritePort } from './survey-write.port';
-import { validateSurveyDateAgainstToday, type SurveyInput } from './survey-validation';
+import { SURVEY_WRITE_PORT, type SurveyInput, type SurveyWritePort } from './survey-write.port';
 
 @Injectable()
 export class SurveyWriter {
@@ -14,7 +14,7 @@ export class SurveyWriter {
   create(code: string, input: SurveyInput, actorId: string) {
     return this.coordinator.transaction(async (tx) => {
       const site = await this.coordinator.lockSiteForSurvey(tx, code, input.lon!, input.lat!);
-      if (!site) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      if (!site) throw new ApplicationError('SITE_NOT_FOUND', 'Site not found');
       if (!site.within) throw outsideSite();
       await this.validateDateAndSpecies(tx, input.surveyed_on!, input.species!);
       return this.surveys.create(tx, site.id, input, actorId);
@@ -63,21 +63,21 @@ export class SurveyWriter {
     });
   }
   private async validateDateAndSpecies(tx: SiteWriteTransaction, date: string, species: string[]): Promise<void> {
-    validateSurveyDateAgainstToday(date, await this.surveys.today(tx));
+    if (date > await this.surveys.today(tx)) throw new ApplicationError('VALIDATION_ERROR', 'Invalid request');
     await this.validateSpecies(tx, species);
   }
 
   private async validateSpecies(tx: SiteWriteTransaction, species: string[]): Promise<void> {
     if (!(await this.surveys.hasSpecies(tx, species))) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Unknown species code', details: {} });
+      throw new ApplicationError('VALIDATION_ERROR', 'Unknown species code');
     }
   }
 }
 
-function surveyNotFound(): NotFoundException {
-  return new NotFoundException({ code: 'SURVEY_NOT_FOUND', message: 'Survey not found', details: {} });
+function surveyNotFound(): ApplicationError {
+  return new ApplicationError('SURVEY_NOT_FOUND', 'Survey not found');
 }
 
-function outsideSite(): UnprocessableEntityException {
-  return new UnprocessableEntityException({ code: 'OUTSIDE_SITE', message: 'Survey location is more than 50 meters from Site', details: {} });
+function outsideSite(): ApplicationError {
+  return new ApplicationError('OUTSIDE_SITE', 'Survey location is more than 50 meters from Site');
 }

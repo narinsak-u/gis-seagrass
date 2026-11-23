@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ApplicationError } from '../domain/application-error';
 import { AUTH_STORE_PORT, type AuthStorePort } from './auth-store.port';
 import { hashPassword, signAccessToken, verifyPassword } from './auth-token';
 
@@ -19,7 +20,7 @@ export class AuthService {
     const user = await this.users.findByEmail(email);
     const passwordMatches = await verifyPassword(password, user?.password_hash ?? await dummyPasswordHash);
     if (!user || !user.is_active || !passwordMatches) {
-      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Invalid email or password', details: {} });
+      throw new ApplicationError('UNAUTHORIZED', 'Invalid email or password');
     }
     return { access_token: signAccessToken(user.id), token_type: 'Bearer', expires_in: TOKEN_LIFETIME_SECONDS };
   }
