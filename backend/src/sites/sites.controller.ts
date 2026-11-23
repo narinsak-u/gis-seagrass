@@ -1,7 +1,7 @@
-import { Pool, type PoolClient } from 'pg';
+import { Pool } from 'pg';
 
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, UnprocessableEntityException, NotFoundException, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, NotFoundException, Query, UseGuards } from '@nestjs/common';
 import { isRecord } from '../domain/guards';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../auth/auth.guard';
 import { parseSiteFeature, SiteValidationError } from './site-feature';
@@ -58,37 +58,13 @@ export class SitesController {
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async create(@Req() request: AuthenticatedRequest, @Body() body: unknown): Promise<CreatedSiteFeature> {
     const site = validateCreateFeature(body);
-    const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
-      const source = JSON.stringify(site.geometry);
-      const derived = await deriveSiteSpatial(client, source);
-      const inserted = await client.query<{ version: number; geometry: CreatedSiteFeature['geometry'] }>(
-        `INSERT INTO sites (code, name, province_code, geom, area_rai, created_by, updated_by)
-         VALUES ($1, $2, $3, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5, $6, $6)
-         RETURNING version, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-        [site.code, site.name, derived.province_code, source, derived.area_rai, request.user.id],
-      );
-      await client.query('COMMIT');
-      return {
-        type: 'Feature',
-        geometry: inserted.rows[0].geometry,
-        properties: {
-          code: site.code,
-          name: site.name,
-          province_code: derived.province_code,
-          area_rai: Number(derived.area_rai),
-          version: inserted.rows[0].version,
-        },
-      };
+      return await this.siteSurvey.create(site, request.user.id);
     } catch (error) {
-      await client.query('ROLLBACK');
       if (isRecord(error) && error.code === '23505' && error.constraint === 'uq_sites_code') {
         throw new ConflictException({ code: 'DUPLICATE_CODE', message: 'Site code already exists', details: {} });
       }
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -108,71 +84,7 @@ export class SitesController {
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async update(@Param('code') code: string, @Body() body: unknown, @Req() request: AuthenticatedRequest): Promise<CreatedSiteFeature> {
     const patch = validateSitePatch(body);
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const locked = await client.query<{ id: string; version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
-        'SELECT id, version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE',
-        [code],
-      );
-      if (!locked.rowCount) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
-      if (locked.rows[0].version !== patch.version) {
-        const row = locked.rows[0];
-        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: { current: {
-          type: 'Feature',
-          geometry: row.geometry,
-          properties: { code, name: row.name, province_code: row.province_code, area_rai: Number(row.area_rai), version: row.version },
-        } } });
-      }
-      let derived: { province_code: string; area_rai: string; source: string } | undefined;
-      if (patch.geometry) {
-        const source = JSON.stringify(patch.geometry);
-        const spatial = await deriveSiteSpatial(client, source);
-        const outside = await client.query(
-          `SELECT 1 FROM surveys
-            WHERE site_id = $1
-              AND NOT ST_DWithin(geom::geography, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)::geography, 50)
-            LIMIT 1`,
-          [locked.rows[0].id, source],
-        );
-        if (outside.rowCount) {
-          throw new ConflictException({ code: 'SURVEYS_OUTSIDE', message: 'Geometry would strand linked Surveys', details: {} });
-        }
-        derived = { ...spatial, source };
-      }
-      const updated = derived
-        ? await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
-          `UPDATE sites SET name = COALESCE($2, name), province_code = $3, area_rai = $4,
-                  geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)), version = version + 1,
-                  updated_by = $6, updated_at = now()
-            WHERE id = $1 RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-          [locked.rows[0].id, patch.name ?? null, derived.province_code, derived.area_rai, derived.source, request.user.id],
-        )
-        : await client.query<{ version: number; name: string; province_code: string; area_rai: string; geometry: CreatedSiteFeature['geometry'] }>(
-          `UPDATE sites SET name = $2, version = version + 1, updated_by = $3, updated_at = now()
-            WHERE id = $1
-            RETURNING version, name, province_code, area_rai::text, ST_AsGeoJSON(geom, 15)::jsonb AS geometry`,
-          [locked.rows[0].id, patch.name, request.user.id],
-        );
-      const row = updated.rows[0];
-      await client.query('COMMIT');
-      return {
-        type: 'Feature',
-        geometry: row.geometry,
-        properties: {
-          code,
-          name: row.name,
-          province_code: row.province_code,
-          area_rai: Number(row.area_rai),
-          version: row.version,
-        },
-      };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    return this.siteSurvey.update(code, patch, request.user.id);
   }
 
   @Delete(':code')
@@ -188,29 +100,7 @@ export class SitesController {
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   @HttpCode(204)
   async remove(@Param('code') code: string, @Req() request: AuthenticatedRequest): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const locked = await client.query<{ id: string }>(
-        'SELECT id FROM sites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE',
-        [code],
-      );
-      if (!locked.rowCount) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
-      const surveys = await client.query('SELECT 1 FROM surveys WHERE site_id = $1 LIMIT 1', [locked.rows[0].id]);
-      if (surveys.rowCount) {
-        throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
-      }
-      await client.query(
-        'UPDATE sites SET deleted_at = CURRENT_TIMESTAMP, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
-        [locked.rows[0].id, request.user.id],
-      );
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    await this.siteSurvey.retire(code, request.user.id);
   }
   @Get()
   @ApiQuery({ name: 'status', required: false, enum: ['active'], description: 'Active Sites only' })
@@ -375,37 +265,4 @@ function validateSitePatch(body: unknown): { version: number; name?: string; geo
     }
   }
   return { version: body.version as number, name: body.name as string };
-}
-async function deriveSiteSpatial(client: PoolClient, source: string): Promise<{ province_code: string; area_rai: string }> {
-  const result = await client.query<{
-    valid: boolean;
-    empty: boolean;
-    province_code: string | null;
-    area_rai: string | null;
-  }>(
-    `WITH candidate AS MATERIALIZED (
-       SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
-     ), validation AS MATERIALIZED (
-       SELECT geom, ST_IsValid(geom) AS valid, ST_IsEmpty(geom) AS empty FROM candidate
-     ), valid_candidate AS MATERIALIZED (
-       SELECT geom FROM validation WHERE valid AND NOT empty
-     ), coverage AS MATERIALIZED (
-       SELECT p.code, ST_Area(ST_Intersection(c.geom, p.geom)::geography) AS overlap_area
-         FROM valid_candidate c
-         JOIN provinces p ON ST_Intersects(c.geom, p.geom)
-     )
-     SELECT validation.valid, validation.empty,
-            (SELECT code FROM coverage WHERE overlap_area > 0 ORDER BY overlap_area DESC, code ASC LIMIT 1) AS province_code,
-            (SELECT ROUND((ST_Area(ST_Multi(geom)::geography) / 1600)::numeric, 2)::text FROM valid_candidate) AS area_rai
-       FROM validation`,
-    [source],
-  );
-  const spatial = result.rows[0];
-  if (!spatial.valid || spatial.empty) {
-    throw new BadRequestException({ code: 'INVALID_GEOMETRY', message: 'Invalid geometry', details: {} });
-  }
-  if (spatial.province_code === null) {
-    throw new UnprocessableEntityException({ code: 'OUTSIDE_COVERAGE', message: 'Site must overlap a Province', details: {} });
-  }
-  return { province_code: spatial.province_code, area_rai: spatial.area_rai! };
 }

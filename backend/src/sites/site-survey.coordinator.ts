@@ -1,10 +1,18 @@
-import { Injectable } from '@nestjs/common';
-import { deriveSiteStatus, type SiteStatus } from '../domain/site-status';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { DRIZZLE_DATABASE, type DatabaseProvider } from '../database/provider';
 import { SurveyStatusReader, type LatestSurveySummary } from '../surveys/survey-status-reader';
+import { SITE_SURVEY_CONSTRAINTS_PORT, type SiteSurveyConstraintsPort } from '../surveys/site-survey-constraints.port';
+import { deriveSiteStatus, type SiteStatus } from '../domain/site-status';
+import { SITE_WRITE_PORT, type SitePatch, type SiteSpatial, type SiteWriteInput, type SiteWritePort, type SiteWriteTransaction } from './site-write.port';
 
 @Injectable()
 export class SiteSurveyCoordinator {
-  constructor(private readonly surveys: SurveyStatusReader) {}
+  constructor(
+    private readonly surveys: SurveyStatusReader,
+    @Inject(DRIZZLE_DATABASE) private readonly db: DatabaseProvider['db'],
+    @Inject(SITE_WRITE_PORT) private readonly sites: SiteWritePort,
+    @Inject(SITE_SURVEY_CONSTRAINTS_PORT) private readonly surveyConstraints: SiteSurveyConstraintsPort,
+  ) {}
 
   async statuses(siteIds: readonly string[]): Promise<Map<string, SiteStatus>> {
     const coverPercentages = await this.surveys.latestCoverPercentages(siteIds);
@@ -13,5 +21,48 @@ export class SiteSurveyCoordinator {
 
   latestSurvey(siteId: string): Promise<LatestSurveySummary | null> {
     return this.surveys.latestSurvey(siteId);
+  }
+
+  create(site: SiteWriteInput, actorId: string) {
+    return this.transaction((tx) => this.sites.create(tx, site, actorId));
+  }
+
+  transaction<T>(work: (tx: SiteWriteTransaction) => Promise<T>): Promise<T> {
+    return this.db.transaction(work);
+  }
+
+  update(code: string, patch: SitePatch, actorId: string) {
+    return this.transaction(async (tx) => {
+      const current = await this.sites.lock(tx, code);
+      if (!current) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      if (current.version !== patch.version) {
+        throw new ConflictException({ code: 'VERSION_CONFLICT', message: 'Site version conflict', details: { current: {
+          type: 'Feature',
+          geometry: current.geometry,
+          properties: { code, name: current.name, province_code: current.provinceCode, area_rai: Number(current.areaRai), version: current.version },
+        } } });
+      }
+      let spatial: SiteSpatial | undefined;
+      if (patch.geometry) {
+        const source = JSON.stringify(patch.geometry);
+        const derived = await this.sites.deriveSpatial(tx, source);
+        if (await this.surveyConstraints.hasSurveysOutside(tx, current.id, source)) {
+          throw new ConflictException({ code: 'SURVEYS_OUTSIDE', message: 'Geometry would strand linked Surveys', details: {} });
+        }
+        spatial = { ...derived, source };
+      }
+      return this.sites.update(tx, current, patch, actorId, spatial);
+    });
+  }
+
+  retire(code: string, actorId: string): Promise<void> {
+    return this.transaction(async (tx) => {
+      const current = await this.sites.lock(tx, code);
+      if (!current) throw new NotFoundException({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
+      if (await this.surveyConstraints.hasSurveys(tx, current.id)) {
+        throw new ConflictException({ code: 'SITE_HAS_SURVEYS', message: 'Site has linked Surveys', details: {} });
+      }
+      await this.sites.retire(tx, current, actorId);
+    });
   }
 }
