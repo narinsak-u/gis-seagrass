@@ -4,7 +4,7 @@
 
 **Blocked by:** 04: Move Site writes and version conflicts; 06: Move Survey writes and shared transactions; 07: Move importer reference-data workflow.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Import delegates Site and Survey persistence to their owning application operations and the Site–Survey coordinator.
 - [ ] The CLI preserves source parsing, rejection reasons, idempotency, the pinned advisory lock, per-Survey transactions, and full import reports.

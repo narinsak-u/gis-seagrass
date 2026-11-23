@@ -4,7 +4,7 @@
 
 **Blocked by:** 04: Move Site writes and version conflicts; 05: Move protected Survey reads.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Survey create, PATCH, and delete require an active admin and preserve existing response, validation, and error contracts.
 - [ ] The Site–Survey coordinator shares one Drizzle transaction across module-owned persistence ports; no circular dependency or direct cross-module data access remains.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Add the Drizzle provider and AuthGuard pilot.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Import parsing, reporting, and CLI orchestration remain independent from HTTP DTOs and do not require starting the Nest application.
 - [ ] Province and Species seed persistence belongs to Import infrastructure and preserves existing validation, idempotency, and reported outcomes.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Move authentication into its module; 03: Move public Site reads and status.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Site create, name/geometry PATCH, and soft delete require an active admin and preserve existing responses, validation, and shared error behavior.
 - [ ] Server audit fields use the authenticated actor and clock; client-supplied audit values cannot impersonate another user.

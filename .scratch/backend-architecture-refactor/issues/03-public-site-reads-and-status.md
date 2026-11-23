@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Add the Drizzle provider and AuthGuard pilot.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Public Site list, GeoJSON, and detail routes preserve their existing filters, pagination, response shapes, and active-Site visibility.
 - [ ] Every public Site read includes current derived `siteStatus`, including `no_data`; latest-date averaging and recomputation after Survey changes remain intact.

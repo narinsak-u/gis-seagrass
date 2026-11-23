@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Move authentication into its module; 03: Move public Site reads and status.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Active viewer, editor, and admin tokens can read Survey pages; anonymous, invalid, inactive, or deleted-user tokens receive the existing unauthorized response.
 - [ ] Current roles are resolved per request, and authorization precedes Site lookup for protected requests.

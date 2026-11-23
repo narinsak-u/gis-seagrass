@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Add the Drizzle provider and AuthGuard pilot.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Login, token verification, active-user checks, role resolution, and development account seeding retain existing behavior and public contracts.
 - [ ] A global transforming ValidationPipe rejects unknown fields, explicitly transforms query values, and does not coerce request-body values.

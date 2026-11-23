@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The API owns one pool-backed Drizzle provider shared by migrations, startup import, and Nest; shutdown closes it once. Health retains its pool-level PostGIS check.
 - [ ] The AuthGuard's active-user/current-role lookup uses Drizzle and preserves immediate account disablement and role changes.
