@@ -1,327 +1,103 @@
-import { describe, expect, it } from "vitest";
-import type { BboxBounds, SiteFeature, SiteFeatureCollection } from "../types";
-import { createViewportSitesController, formatBbox, type ViewportSitesState } from "../viewport";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
+import { apiClient } from "@/src/lib/api";
+import type { BboxBounds } from "../types";
+import { createViewportDebouncer, formatBbox, isValidBboxBounds, normalizeBboxBounds, siteViewportQueryOptions } from "../viewport";
 
-function makeSite(code: string, siteStatus: SiteFeature["properties"]["siteStatus"]): SiteFeature {
-  return {
-    type: "Feature",
-    geometry: {
-      type: "MultiPolygon",
-      coordinates: [[[[98.5, 7.5], [98.6, 7.5], [98.6, 7.6], [98.5, 7.6], [98.5, 7.5]]]],
-    },
-    properties: {
-      code,
-      name: `Site ${code}`,
-      province_code: "92",
-      area_rai: 120,
-      version: 1,
-      siteStatus,
-    },
-  };
-}
+describe("Site viewport bounds", () => {
 
-function makeCollection(...features: SiteFeature[]): SiteFeatureCollection {
-  return { type: "FeatureCollection", features };
-}
-
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason: unknown) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-class FakeScheduler {
-  private nextId = 1;
-  private timers = new Map<number, { fn: () => void; runAt: number }>();
-  now = 0;
-
-  setTimeout = (fn: () => void, ms: number): number => {
-    const id = this.nextId++;
-    this.timers.set(id, { fn, runAt: this.now + ms });
-    return id;
-  };
-
-  clearTimeout = (id: number): void => {
-    this.timers.delete(id);
-  };
-
-  advance(ms: number): void {
-    this.now += ms;
-    const due = [...this.timers.entries()]
-      .filter(([, timer]) => timer.runAt <= this.now)
-      .sort((a, b) => a[1].runAt - b[1].runAt);
-    for (const [id, timer] of due) {
-      if (this.timers.delete(id)) {
-        timer.fn();
-      }
+  it("keys bounded requests by province and cancels the prior viewport Query", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    const previousAdapter = apiClient.defaults.adapter;
+    const signals: { aborted: boolean }[] = [];
+    apiClient.defaults.adapter = async (config) => {
+      if (config.signal) signals.push(config.signal);
+      return new Promise<never>(() => {});
+    };
+    const observer = new QueryObserver(
+      client,
+      siteViewportQueryOptions("98,7,99,8", "92"),
+    );
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      expect(siteViewportQueryOptions("98,7,99,8", "92").queryKey).toEqual([
+        "sites",
+        "viewport",
+        "98,7,99,8",
+        "92",
+        "active",
+      ]);
+      await vi.waitFor(() => expect(signals).toHaveLength(1));
+      observer.setOptions(siteViewportQueryOptions("98.5,7.5,99,8", "92"));
+      await vi.waitFor(() => expect(signals[0].aborted).toBe(true));
+    } finally {
+      unsubscribe();
+      client.clear();
+      apiClient.defaults.adapter = previousAdapter;
     }
-  }
-}
+  });
 
-describe("formatBbox", () => {
-  it("formats WGS84 bounds strictly as minLon,minLat,maxLon,maxLat", () => {
-    const bbox = formatBbox({
+  it("settles only the latest bounds after the 250 ms debounce", () => {
+    vi.useFakeTimers();
+    const onSettle = vi.fn();
+    const debouncer = createViewportDebouncer(onSettle);
+    const first = { minLon: 98, minLat: 7, maxLon: 99, maxLat: 8 };
+    const latest = { minLon: 98.5, minLat: 7.5, maxLon: 99.5, maxLat: 8.5 };
+    try {
+      debouncer.schedule(first);
+      vi.advanceTimersByTime(200);
+      debouncer.schedule(latest);
+      vi.advanceTimersByTime(249);
+      expect(onSettle).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(onSettle).toHaveBeenCalledOnce();
+      expect(onSettle).toHaveBeenCalledWith(latest);
+    } finally {
+      debouncer.cancel();
+      vi.useRealTimers();
+    }
+  });
+  it("formats valid bounds in deterministic minLon,minLat,maxLon,maxLat order", () => {
+    expect(formatBbox({
       minLon: 98.1234567,
       minLat: 7.05,
       maxLon: 99.6,
       maxLat: 9.0342091,
-    });
-    expect(bbox).toBe("98.123457,7.05,99.6,9.034209");
+    })).toBe("98.123457,7.05,99.6,9.034209");
   });
 
-  it("clamps wrapped or out-of-range bounds to valid WGS84 ranges", () => {
-    const bbox = formatBbox({
-      minLon: -210,
-      minLat: -95,
-      maxLon: 205,
-      maxLat: 92,
+  it("normalizes finite coordinates to six decimals", () => {
+    expect(normalizeBboxBounds({
+      minLon: 98.1234567,
+      minLat: 7.05,
+      maxLon: 99.6,
+      maxLat: 9.0342091,
+    })).toEqual({
+      minLon: 98.123457,
+      minLat: 7.05,
+      maxLon: 99.6,
+      maxLat: 9.034209,
     });
-    expect(bbox).toBe("-180,-90,180,90");
-  });
-});
-
-describe("createViewportSitesController", () => {
-  const initialBounds: BboxBounds = { minLon: 98.0, minLat: 7.0, maxLon: 99.5, maxLat: 9.0 };
-  const movedBoundsA: BboxBounds = { minLon: 98.2, minLat: 7.2, maxLon: 99.2, maxLat: 8.5 };
-  const movedBoundsB: BboxBounds = { minLon: 98.5, minLat: 7.5, maxLon: 99.0, maxLat: 8.2 };
-
-  it("loads immediately on initial viewport and transitions to ready or empty", async () => {
-    const states: ViewportSitesState[] = [];
-    const requests: string[] = [];
-    const req1 = deferred<SiteFeatureCollection>();
-
-    const controller = createViewportSitesController({
-      debounceMs: 250,
-      fetchSites: ({ bbox }) => {
-        requests.push(bbox);
-        return req1.promise;
-      },
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    expect(requests).toEqual(["98,7,99.5,9"]);
-    expect(states.at(-1)?.status).toBe("loading");
-
-    req1.resolve(makeCollection(makeSite("S-01", "very_good")));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(states.at(-1)?.status).toBe("ready");
-    expect(states.at(-1)?.data?.features.length).toBe(1);
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("S-01");
   });
 
-  it("transitions to empty when viewport returns zero active Sites", async () => {
-    const states: ViewportSitesState[] = [];
-    const controller = createViewportSitesController({
-      debounceMs: 250,
-      fetchSites: async () => makeCollection(),
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(states.at(-1)?.status).toBe("empty");
-    expect(states.at(-1)?.data?.features).toEqual([]);
+  it.each([
+    { minLon: -180, minLat: -90, maxLon: 180, maxLat: 90 },
+    { minLon: 99, minLat: 7, maxLon: 98, maxLat: 8 },
+    { minLon: 98, minLat: 7, maxLon: 99, maxLat: 7 },
+    { minLon: Number.NaN, minLat: 7, maxLon: 99, maxLat: 8 },
+    { minLon: -181, minLat: 7, maxLon: 99, maxLat: 8 },
+  ] satisfies BboxBounds[])("rejects invalid or unbounded bounds: %o", (bounds) => {
+    expect(isValidBboxBounds(bounds)).toBe(false);
   });
 
-  it("debounces rapid settled moves and only requests the final settled viewport", async () => {
-    const scheduler = new FakeScheduler();
-    const requests: string[] = [];
-    const controller = createViewportSitesController({
-      debounceMs: 250,
-      scheduler,
-      fetchSites: async ({ bbox }) => {
-        requests.push(bbox);
-        return makeCollection(makeSite("S-FINAL", "good"));
-      },
-      onStateChange: () => {},
-    });
-
-    controller.onViewportSettled(initialBounds);
-    scheduler.advance(100);
-    controller.onViewportSettled(movedBoundsA);
-    scheduler.advance(150);
-    controller.onViewportSettled(movedBoundsB);
-    scheduler.advance(249);
-    expect(requests).toEqual([]);
-
-    scheduler.advance(1);
-    expect(requests).toEqual(["98.5,7.5,99,8.2"]);
-  });
-
-  it("aborts superseded requests and ignores a stale success after a newer success", async () => {
-    const scheduler = new FakeScheduler();
-    const states: ViewportSitesState[] = [];
-    const signals: AbortSignal[] = [];
-    const pending: Array<Deferred<SiteFeatureCollection>> = [];
-
-    const controller = createViewportSitesController({
-      debounceMs: 100,
-      scheduler,
-      fetchSites: ({ signal }) => {
-        signals.push(signal);
-        const d = deferred<SiteFeatureCollection>();
-        pending.push(d);
-        return d.promise;
-      },
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    controller.onViewportSettled(movedBoundsB);
-    scheduler.advance(100);
-
-    expect(signals.length).toBe(2);
-    expect(signals[0].aborted).toBe(true);
-    expect(signals[1].aborted).toBe(false);
-
-    // Newer request resolves first
-    pending[1].resolve(makeCollection(makeSite("NEWER", "fair")));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("NEWER");
-
-    // Stale older request resolves late (e.g. fetch ignored abort)
-    pending[0].resolve(makeCollection(makeSite("STALE", "poor")));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(states.at(-1)?.status).toBe("ready");
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("NEWER");
-  });
-
-  it("prevents a stale success from overwriting a newer request failure", async () => {
-    const scheduler = new FakeScheduler();
-    const states: ViewportSitesState[] = [];
-    const pending: Array<Deferred<SiteFeatureCollection>> = [];
-
-    const controller = createViewportSitesController({
-      debounceMs: 100,
-      scheduler,
-      fetchSites: () => {
-        const d = deferred<SiteFeatureCollection>();
-        pending.push(d);
-        return d.promise;
-      },
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    controller.onViewportSettled(movedBoundsB);
-    scheduler.advance(100);
-
-    // Newer request fails
-    pending[1].reject(new Error("Gateway timeout"));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.status).toBe("error");
-    expect(states.at(-1)?.error?.message ?? "").toMatch(/Gateway timeout/);
-
-    // Older request resolves after newer failure — must be ignored
-    pending[0].resolve(makeCollection(makeSite("STALE-AFTER-ERROR", "good")));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(states.at(-1)?.status).toBe("error");
-    expect(states.at(-1)?.error?.message ?? "").toMatch(/Gateway timeout/);
-  });
-
-  it("prevents a stale failure from overwriting a newer request success and supports retry", async () => {
-    const scheduler = new FakeScheduler();
-    const states: ViewportSitesState[] = [];
-    const pending: Array<Deferred<SiteFeatureCollection>> = [];
-
-    const controller = createViewportSitesController({
-      debounceMs: 100,
-      scheduler,
-      fetchSites: () => {
-        const d = deferred<SiteFeatureCollection>();
-        pending.push(d);
-        return d.promise;
-      },
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    controller.onViewportSettled(movedBoundsA);
-    scheduler.advance(100);
-
-    // Newer succeeds first
-    pending[1].resolve(makeCollection(makeSite("FRESH", "no_data")));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.status).toBe("ready");
-
-    // Stale older request rejects late — must be ignored
-    pending[0].reject(new Error("Old network failure"));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.status).toBe("ready");
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("FRESH");
-
-    // Trigger a failure on a newer move, then retry and succeed
-    controller.onViewportSettled(movedBoundsB);
-    scheduler.advance(100);
-    pending[2].reject(new Error("Temporary outage"));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.status).toBe("error");
-
-    controller.retry();
-    expect(states.at(-1)?.status).toBe("loading");
-    pending[3].resolve(makeCollection(makeSite("RECOVERED", "very_good")));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(states.at(-1)?.status).toBe("ready");
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("RECOVERED");
-  });
-
-  it("ignores a late response from an older viewport when a newer settled move is queued for debounce", async () => {
-    const scheduler = new FakeScheduler();
-    const states: ViewportSitesState[] = [];
-    const pending: Array<Deferred<SiteFeatureCollection>> = [];
-
-    const controller = createViewportSitesController({
-      debounceMs: 200,
-      scheduler,
-      fetchSites: () => {
-        const d = deferred<SiteFeatureCollection>();
-        pending.push(d);
-        return d.promise;
-      },
-      onStateChange: (state) => states.push(state),
-    });
-
-    controller.loadInitial(initialBounds);
-    controller.onViewportSettled(movedBoundsB);
-
-    // Before debounce fires for movedBoundsB, initialBounds resolves late
-    pending[0].resolve(makeCollection(makeSite("OLD-VIEW", "poor")));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(states.at(-1)?.data).toBe(null);
-
-    // Debounce fires and movedBoundsB succeeds
-    scheduler.advance(200);
-    pending[1].resolve(makeCollection(makeSite("NEW-VIEW", "very_good")));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(states.at(-1)?.status).toBe("ready");
-    expect(states.at(-1)?.data?.features[0].properties.code).toBe("NEW-VIEW");
+  it("accepts a bounded WGS84 viewport", () => {
+    expect(isValidBboxBounds({
+      minLon: 98,
+      minLat: 7,
+      maxLon: 99,
+      maxLat: 8,
+    })).toBe(true);
   });
 });

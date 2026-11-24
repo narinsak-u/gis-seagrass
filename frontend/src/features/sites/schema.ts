@@ -9,6 +9,24 @@ const geometrySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("MultiPolygon"), coordinates: z.array(polygonSchema).min(1) }),
 ]);
 
+export const siteFeatureSchema = z.object({
+  type: z.literal("Feature"),
+  geometry: geometrySchema,
+  properties: z.object({
+    code: z.string().min(1),
+    name: z.string().min(1),
+    province_code: z.string().min(1),
+    area_rai: z.number().finite(),
+    version: z.number().int().finite(),
+    siteStatus: z.enum(SITE_STATUS_VALUES),
+  }),
+});
+
+export const siteFeatureCollectionSchema = z.object({
+  type: z.literal("FeatureCollection"),
+  features: z.array(siteFeatureSchema),
+});
+
 export const siteDetailSchema = z.object({
   type: z.literal("Feature"),
   geometry: geometrySchema,
