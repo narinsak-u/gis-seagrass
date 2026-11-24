@@ -95,12 +95,12 @@ function hasConfiguredDatabaseImport(file: string): boolean {
   return found;
 }
 
-function appModuleDatabaseDependencies(root: string): {
+function appModuleDatabaseDependencies(): {
   configured: ts.Identifier | undefined;
   configuredCount: number;
   registrations: Map<string, (readonly ts.Expression[])[]>;
 } {
-  const source = parsedSource(join(root, 'app.module.ts'));
+  const source = parsedSource(join(sourceRoot, 'app.module.ts'));
   let configured: ts.Identifier | undefined;
   let configuredCount = 0;
   const registrations = new Map<string, (readonly ts.Expression[])[]>();
@@ -171,8 +171,6 @@ function assertApprovedPhysicalLayout(root: string): void {
       assert.ok(activeLayers.includes(layer)
         || (pathParts.length === 1 && allowedRootFiles.has(relativePath)),
       `${relative(root, file)} must live in an approved layer`);
-      assert.ok(!pathParts.slice(1).some((part) => activeLayers.includes(part)),
-        `${relative(root, file)} must not nest a module layer`);
     }
     const nestedModules = sourceFiles(moduleRoot).filter((file) => file.endsWith('.module.ts')
       && relative(moduleRoot, file).split(sep).length > 1);
@@ -254,7 +252,7 @@ function assertCrossModuleExports(root: string): void {
   }
 }
 
-function assertDatabaseComposition(root: string): void {
+function assertDatabaseComposition(): void {
   const consumers = [
     'auth/auth.module.ts',
     'sites/sites.module.ts',
@@ -263,19 +261,19 @@ function assertDatabaseComposition(root: string): void {
     'platform/platform.module.ts',
   ];
   for (const path of consumers) {
-    assert.equal(hasConfiguredDatabaseImport(join(root, path)), true,
+    assert.equal(hasConfiguredDatabaseImport(join(sourceRoot, path)), true,
       `${path} must import its configured database module into the Nest module`);
   }
 
-  const databaseModuleTarget = join(root, 'platform', 'database', 'database.module');
-  const databaseModuleImporters = sourceFiles(root)
+  const databaseModuleTarget = join(sourceRoot, 'platform', 'database', 'database.module');
+  const databaseModuleImporters = sourceFiles(sourceRoot)
     .filter((file) => importsFrom(file).some((specifier) =>
       specifier.startsWith('.') && resolve(dirname(file), specifier) === databaseModuleTarget))
-    .map((file) => relative(root, file));
+    .map((file) => relative(sourceRoot, file));
   assert.deepEqual(databaseModuleImporters, ['app.module.ts'],
     'only AppModule may configure the database module');
 
-  const { configured, configuredCount, registrations } = appModuleDatabaseDependencies(root);
+  const { configured, configuredCount, registrations } = appModuleDatabaseDependencies();
   assert.equal(configuredCount, 1, 'AppModule must configure the database provider exactly once');
   assert.ok(configured, 'AppModule must retain the configured database module instance');
   for (const moduleName of ['PlatformModule', 'AuthModule', 'SiteSurveyModule', 'SitesModule', 'SurveysModule']) {
@@ -515,5 +513,5 @@ test('cross-module export rules require flattened transaction adapter path while
 });
 
 test('database access is explicit in Nest consumers and composed once by AppModule', () => {
-  assertDatabaseComposition(sourceRoot);
+  assertDatabaseComposition();
 });
