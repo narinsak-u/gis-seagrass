@@ -48,6 +48,7 @@ export function createAuthFixture() {
         [fixture.userId, fixture.email, await hashPassword('correct horse battery staple'), 'admin'],
       );
       fixture.app = await NestFactory.create(AppModule.register(provider), { logger: false });
+      fixture.app.getHttpAdapter().getInstance().set('trust proxy', 1);
       setupSwagger(fixture.app);
       await fixture.app.listen(0, '127.0.0.1');
       const address = fixture.app.getHttpServer().address();

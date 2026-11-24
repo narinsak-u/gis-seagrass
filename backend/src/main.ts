@@ -15,6 +15,7 @@ async function bootstrap(): Promise<void> {
     await runImport(database);
     await seedDevelopmentAccounts(database, process.env.SEED_DEVELOPMENT_ACCOUNTS === 'true');
     const app = await NestFactory.create(AppModule.register(database), { rawBody: true });
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
     app.enableShutdownHooks();
     setupSwagger(app);
     await app.listen(Number(process.env.PORT ?? 3000), '0.0.0.0');
