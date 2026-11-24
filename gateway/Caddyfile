@@ -1,0 +1,27 @@
+:80 {
+	handle_errors {
+		@bad_gateway expression {http.error.status_code} == 502
+		handle @bad_gateway {
+			header Content-Type application/json
+			respond `{"error":{"code":"UPSTREAM_UNAVAILABLE","message":"Unable to reach the monitoring API service.","details":{}}}` 502
+		}
+	}
+
+	@api_root path /api
+	handle @api_root {
+		rewrite * /
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.remote.host}
+		}
+	}
+
+	handle_path /api/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.remote.host}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
