@@ -115,6 +115,32 @@ export const SITE_FEATURE_COLLECTION_SCHEMA = {
   },
 } satisfies SchemaObject;
 
+const provinceFeatureSchema = {
+  type: 'object',
+  required: ['type', 'geometry', 'properties'],
+  properties: {
+    type: { type: 'string', enum: ['Feature'] },
+    geometry,
+    properties: {
+      type: 'object',
+      required: ['code', 'name_th'],
+      properties: {
+        code: { type: 'string' },
+        name_th: { type: 'string' },
+      },
+    },
+  },
+} satisfies SchemaObject;
+
+export const PROVINCE_FEATURE_COLLECTION_SCHEMA = {
+  type: 'object',
+  required: ['type', 'features'],
+  properties: {
+    type: { type: 'string', enum: ['FeatureCollection'] },
+    features: { type: 'array', items: provinceFeatureSchema },
+  },
+} satisfies SchemaObject;
+
 export const SITE_CREATE_BODY_SCHEMA = {
   type: 'object',
   required: ['type', 'geometry', 'properties'],

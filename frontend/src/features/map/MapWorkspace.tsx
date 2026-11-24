@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type * as maplibregl from "maplibre-gl";
 import { fetchActiveSitesGeoJson } from "@/src/lib/api";
+import { fetchProvincesGeoJson } from "@/src/features/provinces/api";
+import {
+  createViewportProvincesController,
+  type ViewportProvincesController,
+  type ViewportProvincesState,
+} from "@/src/features/provinces/provinces-viewport";
+import type { ProvinceFeature } from "@/src/features/provinces/types";
 import type {
   BboxBounds,
   SiteFeature,
@@ -37,6 +44,8 @@ export interface MapWorkspaceProps {
   onViewportBoundsChange?: (bounds: BboxBounds) => void;
   /** Incrementing signal from sidePanel to retry the active viewport request. */
   retrySignal?: number;
+  /** Callback whenever viewport Province features load so filters can enrich labels (Ticket 02). */
+  onProvincesChange?: (provinces: ProvinceFeature[]) => void;
 }
 
 const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
@@ -46,6 +55,14 @@ const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
   bbox: null,
   bboxString: null,
   province: undefined,
+};
+
+const INITIAL_PROVINCES_STATE: ViewportProvincesState = {
+  status: "idle",
+  data: null,
+  error: null,
+  bbox: null,
+  bboxString: null,
 };
 
 export function MapWorkspace({
@@ -59,21 +76,28 @@ export function MapWorkspace({
   onViewportStateChange,
   onViewportBoundsChange,
   retrySignal = 0,
+  onProvincesChange,
 }: MapWorkspaceProps) {
   const [viewportState, setViewportState] = useState<ViewportSitesState>(
     INITIAL_VIEWPORT_STATE,
+  );
+  const [provincesState, setProvincesState] = useState<ViewportProvincesState>(
+    INITIAL_PROVINCES_STATE,
   );
   const [basemapNotice, setBasemapNotice] = useState<string | null>(null);
   const [resetViewSignal, setResetViewSignal] = useState(0);
 
   const controllerRef = useRef<ViewportSitesController | null>(null);
+  const provincesControllerRef = useRef<ViewportProvincesController | null>(null);
   const provinceFilterRef = useRef(provinceFilter);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
+  const onProvincesChangeRef = useRef(onProvincesChange);
 
   provinceFilterRef.current = provinceFilter;
   onViewportStateChangeRef.current = onViewportStateChange;
   onViewportBoundsChangeRef.current = onViewportBoundsChange;
+  onProvincesChangeRef.current = onProvincesChange;
 
   useEffect(() => {
     const controller = createViewportSitesController({
@@ -87,9 +111,24 @@ export function MapWorkspace({
     });
     controllerRef.current = controller;
 
+    const provincesController = createViewportProvincesController({
+      debounceMs: 250,
+      fetchProvinces: ({ bbox, signal }) =>
+        fetchProvincesGeoJson({ bbox, signal }),
+      onStateChange: (next) => {
+        setProvincesState(next);
+        if (next.status === "ready" || next.status === "empty") {
+          onProvincesChangeRef.current?.(next.data?.features ?? []);
+        }
+      },
+    });
+    provincesControllerRef.current = provincesController;
+
     return () => {
       controller.dispose();
       controllerRef.current = null;
+      provincesController.dispose();
+      provincesControllerRef.current = null;
     };
   }, []);
 
@@ -111,15 +150,21 @@ export function MapWorkspace({
   const handleInitialBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
     controllerRef.current?.loadInitial(bounds, provinceFilterRef.current);
+    provincesControllerRef.current?.loadInitial(bounds);
   }, []);
 
   const handleSettledBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
     controllerRef.current?.onViewportSettled(bounds, provinceFilterRef.current);
+    provincesControllerRef.current?.onViewportSettled(bounds);
   }, []);
 
   const handleRetry = useCallback(() => {
     controllerRef.current?.retry();
+  }, []);
+
+  const handleRetryProvinces = useCallback(() => {
+    provincesControllerRef.current?.retry();
   }, []);
 
   const handleResetView = useCallback(() => {
@@ -129,6 +174,7 @@ export function MapWorkspace({
   const displayedSites =
     visibleSitesOverride !== undefined ? visibleSitesOverride : viewportState.data;
   const siteCount = displayedSites?.features.length ?? 0;
+  const provinceCount = provincesState.data?.features.length ?? 0;
 
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-[#EEF4F5] text-[#0F292E]">
@@ -172,6 +218,7 @@ export function MapWorkspace({
         >
           <SeagrassMap
             sites={displayedSites}
+            provinces={provincesState.data}
             selectedSiteCode={selectedSiteCode}
             resetViewSignal={resetViewSignal}
             onInitialBounds={handleInitialBounds}
@@ -248,6 +295,67 @@ export function MapWorkspace({
                   className="mt-2 rounded-lg bg-[#8F2F1B] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#702313] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8F2F1B]"
                 >
                   Retry request
+                </button>
+              </div>
+            )}
+
+            {provincesState.status === "loading" && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="pointer-events-auto inline-flex w-fit items-center gap-2 rounded-xl border border-[#CBD6EA] bg-[#FAFCFC]/95 px-3 py-1.5 text-xs font-medium text-[#1E3A6D] shadow-sm backdrop-blur-sm"
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 animate-spin rounded-full border-2 border-[#2B4C8C]/25 border-t-[#2B4C8C]"
+                />
+                <span>Loading province boundaries…</span>
+              </div>
+            )}
+
+            {provincesState.status === "ready" && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="pointer-events-auto inline-flex w-fit items-center gap-2 rounded-xl border border-[#CBD6EA] bg-[#FAFCFC]/95 px-3 py-1.5 text-xs font-medium text-[#1E3A6D] shadow-sm backdrop-blur-sm tabular-nums"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-4 border-t-2 border-dashed border-[#2B4C8C]"
+                />
+                <span>
+                  {provinceCount} {provinceCount === 1 ? "province" : "provinces"} in view
+                </span>
+              </div>
+            )}
+
+            {provincesState.status === "empty" && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="pointer-events-auto inline-flex w-fit items-center gap-2 rounded-xl border border-[#CFDDE0] bg-[#FAFCFC]/95 px-3 py-1.5 text-xs text-[#436066] shadow-sm backdrop-blur-sm"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-4 border-t-2 border-dashed border-[#8CA0AE]"
+                />
+                <span>No province boundaries in view</span>
+              </div>
+            )}
+
+            {provincesState.status === "error" && provincesState.error && (
+              <div
+                role="alert"
+                className="pointer-events-auto rounded-xl border border-[#D8CBE8] bg-[#FAF8FF]/98 px-3.5 py-2.5 text-xs text-[#312456] shadow-md backdrop-blur-sm"
+              >
+                <p className="font-semibold">Province boundaries unavailable</p>
+                <p className="mt-0.5 text-[#4B3A7A]">{provincesState.error.message}</p>
+                <button
+                  type="button"
+                  onClick={handleRetryProvinces}
+                  className="mt-2 rounded-lg bg-[#2B4C8C] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#1E3A6D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2B4C8C]"
+                >
+                  Retry provinces
                 </button>
               </div>
             )}

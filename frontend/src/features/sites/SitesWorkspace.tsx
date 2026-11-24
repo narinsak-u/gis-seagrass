@@ -11,6 +11,7 @@ import {
 import type * as maplibregl from "maplibre-gl";
 import { fetchSiteDetail } from "@/src/lib/api";
 import { MapWorkspace } from "@/src/features/map/MapWorkspace";
+import type { ProvinceFeature } from "@/src/features/provinces/types";
 import {
   createSiteDetailController,
   INITIAL_SITE_DETAIL_STATE,
@@ -79,6 +80,9 @@ export function SitesWorkspace({
   );
   const [filters, setFilters] = useState<SiteFilterCriteria>(EMPTY_SITE_FILTERS);
   const [knownProvinceCodes, setKnownProvinceCodes] = useState<string[]>([]);
+  const [viewportProvinceNames, setViewportProvinceNames] = useState<
+    Record<string, string>
+  >({});
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedFeature, setSelectedFeature] = useState<SiteFeature | null>(null);
   const [detailState, setDetailState] = useState<SiteDetailState>(
@@ -135,15 +139,48 @@ export function SitesWorkspace({
   const filteredFeaturesRef = useRef<readonly SiteFeature[]>(filteredFeatures);
   filteredFeaturesRef.current = filteredFeatures;
 
+  const handleProvincesChange = useCallback((provinces: ProvinceFeature[]) => {
+    if (provinces.length === 0) return;
+    setViewportProvinceNames((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const province of provinces) {
+        const code = province.properties.code?.trim();
+        const nameTh = province.properties.name_th?.trim();
+        if (code && nameTh && next[code] !== nameTh) {
+          next[code] = nameTh;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const mergedProvinceNames = useMemo(() => {
+    const merged = new Map<string, string>(Object.entries(viewportProvinceNames));
+    if (provinceNames) {
+      if (provinceNames instanceof Map) {
+        for (const [code, name] of provinceNames.entries()) {
+          merged.set(code, name);
+        }
+      } else {
+        for (const [code, name] of Object.entries(provinceNames)) {
+          merged.set(code, name);
+        }
+      }
+    }
+    return merged;
+  }, [viewportProvinceNames, provinceNames]);
+
   const provinceOptions = useMemo(
     () =>
       deriveProvinceOptions({
         knownCodes: knownProvinceCodes,
         viewportFeatures: viewportState.data?.features ?? [],
         activeProvince: filters.province,
-        provinceNames,
+        provinceNames: mergedProvinceNames,
       }),
-    [knownProvinceCodes, viewportState.data, filters.province, provinceNames],
+    [knownProvinceCodes, viewportState.data, filters.province, mergedProvinceNames],
   );
 
   const handleMapReady = useCallback((map: maplibregl.Map) => {
@@ -268,7 +305,7 @@ export function SitesWorkspace({
           viewportStatus={viewportState.status}
           viewportError={viewportState.error}
           hasActiveFilters={filtersActive}
-          provinceNames={provinceNames}
+          provinceNames={mergedProvinceNames}
           onSelectRow={handleSelectRow}
           onPageChange={setCurrentPage}
           onClearFilters={handleClearFilters}
@@ -278,7 +315,7 @@ export function SitesWorkspace({
         <SiteDetailPanel
           selectedFeature={selectedFeature}
           detailState={detailState}
-          provinceNames={provinceNames}
+          provinceNames={mergedProvinceNames}
           onClose={handleCloseDetail}
           onRetry={handleRetryDetail}
           renderSurveyHistory={renderSurveyHistory}
@@ -298,6 +335,7 @@ export function SitesWorkspace({
       onMapReady={handleMapReady}
       onViewportStateChange={handleViewportStateChange}
       onViewportBoundsChange={onViewportBoundsChange}
+      onProvincesChange={handleProvincesChange}
       retrySignal={retrySignal}
     />
   );
