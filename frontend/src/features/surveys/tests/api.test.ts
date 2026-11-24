@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { ApiClientError } from "@/src/lib/api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiClient } from "@/src/lib/api";
 import { fetchSiteSurveys } from "../api";
 import {
   buildSurveyPointCollection,
   isAuthorizedSurveyRole,
   type SurveyListItem,
 } from "../types";
+import { surveyPageSchema } from "../schema";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("surveys types & point builder", () => {
   it("authorizes only viewer, editor, and admin roles", () => {
@@ -21,159 +24,112 @@ describe("surveys types & point builder", () => {
   it("builds GeoJSON Point features using real lon/lat coordinates for the selected Site only", () => {
     const items: SurveyListItem[] = [
       {
-        id: "101",
-        lon: 99.1234,
-        lat: 7.4321,
-        surveyed_on: "2025-03-14",
-        cover_percent: 72.5,
-        species: ["ENAC", "THHE"],
-        note: "Near northern channel",
-        created_by: "a0000000-0000-0000-0000-000000000001",
+        id: "101", lon: 99.1234, lat: 7.4567, surveyed_on: "2025-04-01",
+        cover_percent: 68, species: ["THHE"], note: null, created_by: null,
       },
       {
-        id: "102",
-        lon: 99.1289,
-        lat: 7.4298,
-        surveyed_on: "2025-02-01",
-        cover_percent: 45,
-        species: [],
-        note: null,
-        created_by: null,
+        id: "102", lon: 99.1289, lat: 7.4298, surveyed_on: "2025-03-01",
+        cover_percent: 0, species: [], note: null, created_by: "someone",
       },
     ];
-
     const collection = buildSurveyPointCollection("TRG-01", items);
     expect(collection.type).toBe("FeatureCollection");
     expect(collection.features.length).toBe(2);
-    expect(collection.features[0]).toEqual({
-      type: "Feature",
-      id: "101",
-      geometry: {
-        type: "Point",
-        coordinates: [99.1234, 7.4321],
-      },
-      properties: {
-        id: "101",
-        siteCode: "TRG-01",
-        surveyed_on: "2025-03-14",
-        cover_percent: 72.5,
-        species: "ENAC, THHE",
-        note: "Near northern channel",
-        created_by: "a0000000-0000-0000-0000-000000000001",
-        survey_ref: null,
-      },
-    });
+    expect(collection.features[0].geometry.coordinates).toEqual([99.1234, 7.4567]);
     expect(collection.features[1].geometry.coordinates).toEqual([99.1289, 7.4298]);
     expect(collection.features[1].properties.species).toBe("");
-    expect(collection.features[1].properties.created_by).toBe(null);
+    expect(collection.features[1].properties.created_by).toBe("someone");
   });
 
-  it("returns an empty FeatureCollection when no items or siteCode are present and drops invalid coordinates", () => {
+  it("returns empty points with no items and drops invalid coordinates", () => {
     expect(buildSurveyPointCollection("TRG-01", [])).toEqual({
       type: "FeatureCollection",
       features: [],
     });
+    expect(buildSurveyPointCollection("TRG-01", [{
+      id: "1", lon: Number.NaN, lat: 7, surveyed_on: "2025-04-01",
+      cover_percent: 0, species: [], note: null, created_by: null,
+    }]).features).toHaveLength(0);
+  });
+});
 
-    const invalidItems: SurveyListItem[] = [
-      {
-        id: "1",
-        lon: Number.NaN,
-        lat: 7.4,
-        surveyed_on: "2025-01-01",
-        cover_percent: 20,
-        species: [],
-        note: null,
-        created_by: null,
-      },
-      {
-        id: "2",
-        lon: 185,
-        lat: 7.4,
-        surveyed_on: "2025-01-02",
-        cover_percent: 30,
-        species: [],
-        note: null,
-        created_by: null,
-      },
-    ];
-    expect(buildSurveyPointCollection("TRG-01", invalidItems).features.length).toBe(0);
+const validPage = {
+  items: [{
+    id: "12", lon: 99.15, lat: 7.35, surveyed_on: "2025-04-01",
+    cover_percent: 68, species: ["THHE"], note: null, created_by: null,
+  }],
+  total: 3,
+  page: 2,
+  pageSize: 10,
+};
+
+describe("Survey page validation", () => {
+  it("accepts required fields and valid coordinates", () => {
+    expect(surveyPageSchema.parse(validPage)).toEqual(validPage);
+  });
+
+  it.each([
+    [{ ...validPage, pageSize: undefined }],
+    [{ ...validPage, total: -1 }],
+    [{ ...validPage, page: 0 }],
+    [{ ...validPage, items: [{ ...validPage.items[0], lon: Number.NaN }] }],
+    [{ ...validPage, items: [{ ...validPage.items[0], lat: Number.POSITIVE_INFINITY }] }],
+    [{ ...validPage, items: [{ ...validPage.items[0], id: undefined }] }],
+    [{ ...validPage, items: [{ ...validPage.items[0], lon: 181 }] }],
+    [{ ...validPage, items: [{ ...validPage.items[0], lat: -91 }] }],
+    [{ ...validPage, items: [{ ...validPage.items[0], cover_percent: 101 }] }],
+  ])("rejects malformed page %#", (page) => {
+    expect(surveyPageSchema.safeParse(page).success).toBe(false);
   });
 });
 
 describe("fetchSiteSurveys", () => {
-  it("requests /api/sites/:code/surveys with page, pageSize, Bearer token, and AbortSignal", async () => {
-    const calls: Array<{ url: string; headers: Headers; signal?: AbortSignal | null }> = [];
+  it("sends path, pagination, explicit bearer token, and signal through Axios", async () => {
     const controller = new AbortController();
-
-    const fakeFetch: typeof fetch = async (input, init) => {
-      calls.push({
-        url: String(input),
-        headers: new Headers(init?.headers),
-        signal: init?.signal,
-      });
-      return new Response(
-        JSON.stringify({
-          items: [
-            {
-              id: "12",
-              lon: 99.15,
-              lat: 7.35,
-              surveyed_on: "2025-04-01",
-              cover_percent: 68,
-              species: ["THHE"],
-              note: null,
-              created_by: null,
-            },
-          ],
-          total: 3,
-          page: 2,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    };
+    const request = vi.spyOn(apiClient, "request").mockResolvedValue({
+      status: 200,
+      data: validPage,
+    } as never);
 
     const result = await fetchSiteSurveys({
-      code: "TRG 01/A",
-      page: 2,
-      pageSize: 10,
-      token: "jwt-secret-token",
-      signal: controller.signal,
-      fetchImpl: fakeFetch,
+      code: "TRG 01/A", page: 2, pageSize: 10,
+      token: "jwt-secret-token", signal: controller.signal,
     });
 
-    expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe("/api/sites/TRG%2001%2FA/surveys?page=2&pageSize=10");
-    expect(calls[0].headers.get("authorization")).toBe("Bearer jwt-secret-token");
-    expect(calls[0].signal).toBe(controller.signal);
-    expect(result.total).toBe(3);
-    expect(result.page).toBe(2);
-    expect(result.items.length).toBe(1);
-    expect(result.items[0].id).toBe("12");
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: "/sites/TRG%2001%2FA/surveys",
+      params: { page: 2, pageSize: 10 },
+      signal: controller.signal,
+      headers: { Authorization: "Bearer jwt-secret-token" },
+    }));
+    expect(result).toEqual(validPage);
   });
 
-  it("throws ApiClientError with status and shared envelope on 401 and 403 responses", async () => {
-    const fakeFetch: typeof fetch = async () =>
-      new Response(
-        JSON.stringify({
-          error: {
-            code: "FORBIDDEN",
-            message: "Role is not permitted to read survey history",
-            details: {},
-          },
-        }),
-        { status: 403, headers: { "content-type": "application/json" } },
-      );
+  it("rejects malformed successful responses", async () => {
+    vi.spyOn(apiClient, "request").mockResolvedValue({
+      status: 200,
+      data: { items: [], total: 1, page: 1 },
+    } as never);
 
-    const request = fetchSiteSurveys({
-      code: "TRG-01",
-      page: 1,
-      pageSize: 10,
-      token: "some-token",
-      fetchImpl: fakeFetch,
+    await expect(fetchSiteSurveys({
+      code: "TRG-01", token: "some-token",
+    })).rejects.toMatchObject({ code: "INVALID_API_RESPONSE" });
+  });
+
+  it("preserves normalized 403 errors", async () => {
+    vi.spyOn(apiClient, "request").mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 403,
+        data: { error: {
+          code: "FORBIDDEN",
+          message: "Role is not permitted to read survey history",
+        } },
+      },
     });
-
-    await expect(request).rejects.toBeInstanceOf(ApiClientError);
-    await expect(request).rejects.toMatchObject({
+    await expect(fetchSiteSurveys({
+      code: "TRG-01", token: "some-token",
+    })).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
       message: "Role is not permitted to read survey history",

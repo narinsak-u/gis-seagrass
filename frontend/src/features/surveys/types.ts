@@ -24,7 +24,36 @@ export interface SurveyPageResponse {
   items: SurveyListItem[];
   total: number;
   page: number;
-  pageSize?: number;
+  pageSize: number;
+}
+export type SurveyHistoryStatus =
+  | "idle"
+  | "unauthenticated"
+  | "unauthorized_role"
+  | "loading"
+  | "loading_more"
+  | "ready"
+  | "empty"
+  | "forbidden"
+  | "error";
+
+export interface SurveyHistoryError {
+  code: string;
+  message: string;
+  status?: number;
+}
+
+export interface SurveyHistoryState {
+  status: SurveyHistoryStatus;
+  siteCode: string | null;
+  items: SurveyListItem[];
+  points: SurveyPointFeatureCollection;
+  total: number;
+  loadedPages: number;
+  pageSize: number;
+  hasMore: boolean;
+  isPartialCoverage: boolean;
+  error: SurveyHistoryError | null;
 }
 
 export interface SurveyPointProperties {
@@ -56,6 +85,18 @@ export interface SurveyPointFeatureCollection {
 export const EMPTY_SURVEY_POINT_COLLECTION: SurveyPointFeatureCollection = {
   type: "FeatureCollection",
   features: [],
+};
+export const INITIAL_SURVEY_HISTORY_STATE: SurveyHistoryState = {
+  status: "idle",
+  siteCode: null,
+  items: [],
+  points: EMPTY_SURVEY_POINT_COLLECTION,
+  total: 0,
+  loadedPages: 0,
+  pageSize: DEFAULT_SURVEY_PAGE_SIZE,
+  hasMore: false,
+  isPartialCoverage: false,
+  error: null,
 };
 
 export function isAuthorizedSurveyRole(role: unknown): role is ActorRole {
@@ -113,4 +154,18 @@ export function buildSurveyPointCollection(
     type: "FeatureCollection",
     features,
   };
+}
+export function mergeSurveyHistoryItems(
+  pages: readonly (readonly SurveyListItem[])[],
+): SurveyListItem[] {
+  const seen = new Set<string>();
+  const items: SurveyListItem[] = [];
+  for (const page of pages) {
+    for (const item of page) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      items.push(item);
+    }
+  }
+  return items;
 }
