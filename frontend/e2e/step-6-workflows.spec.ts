@@ -216,6 +216,57 @@ test("E2E-05 viewer identity is shown, no write controls appear, and sign-out cl
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 });
 
+test("E2E-08 changing accounts hides prior Survey history before new results load", async ({ page }) => {
+  await openWorkspace(page);
+  await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
+  await page.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) }).click();
+  const history = page.getByTestId("survey-history-section");
+  let requestCount = 0;
+  const { promise: editorRequestStarted, resolve: notifyEditorRequest } =
+    Promise.withResolvers<void>();
+  const { promise: editorResponseGate, resolve: releaseEditorRequest } =
+    Promise.withResolvers<void>();
+  await page.route(`**/api/sites/${siteCode}/surveys*`, async (route) => {
+    requestCount += 1;
+    const note = requestCount === 1 ? "VIEWER-SESSION-SURVEY" : "EDITOR-SESSION-SURVEY";
+    if (requestCount > 1) {
+      notifyEditorRequest();
+      await editorResponseGate;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          id: note,
+          lon: surveyLocation.lon,
+          lat: surveyLocation.lat,
+          surveyed_on: surveyLocation.surveyed_on,
+          cover_percent: 50,
+          species: surveyLocation.species,
+          note,
+          created_by: null,
+          survey_ref: null,
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 10,
+      }),
+    });
+  });
+
+  await signIn(page, "viewer");
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toHaveCount(0);
+
+  await signIn(page, "editor");
+  await editorRequestStarted;
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toHaveCount(0);
+  releaseEditorRequest();
+  await expect(history.getByText("EDITOR-SESSION-SURVEY", { exact: true })).toBeVisible();
+});
+
 test("E2E-06 admin Survey API write is visible in Site history UI", async ({ page, request }) => {
   const token = await apiToken(request, "admin");
   const note = `Playwright E2E ${Date.now()}`;

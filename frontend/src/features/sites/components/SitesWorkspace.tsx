@@ -106,9 +106,10 @@ export function SitesWorkspace({
   } = useSurveyHistory({
     siteCode: selectedSiteCode,
     token,
+    sessionEpoch,
     role: user?.role,
-    onUnauthorized: (message, requestToken) =>
-      handleUnauthorized(message, requestToken, sessionEpoch),
+    onUnauthorized: (message, requestToken, expectedEpoch) =>
+      handleUnauthorized(message, requestToken, expectedEpoch),
   });
 
   const mapRef = useRef<maplibregl.Map | null>(null);
