@@ -2,7 +2,7 @@
 
 ## Development stack and seed import
 
-Copy example configuration, then start the `db`, `api`, and `web` services:
+Copy example configuration, then start the database, API, web, and Caddy gateway:
 
 ```sh
 cp .env.example .env
@@ -11,7 +11,7 @@ docker compose up --build --wait -d
 
 Set a private `JWT_SECRET` of at least 32 characters in `.env` for deployments; the example value is for local development only. Compose enables development-account seeding explicitly.
 
-API startup applies migrations, imports the four files in `backend/seed-data/`, seeds only missing development accounts, then listens. Open the web app at <http://localhost:3001>; API health is at <http://localhost:3000/health>.
+API startup applies migrations, imports the four files in `backend/seed-data/`, seeds only missing development accounts, then listens internally. Open the app and API through Caddy at <http://localhost:8080>; API health is <http://localhost:8080/api/health>.
 
 To run the same importer manually:
 
@@ -47,12 +47,14 @@ The local Compose stack seeds these accounts only when `SEED_DEVELOPMENT_ACCOUNT
 Use these credentials only on a local development stack. Do not enable account seeding or use the example signing secret in deployments. `JWT_SECRET` is required before API startup and must be set privately outside development.
 
 ```sh
-curl -X POST 'http://localhost:3000/auth/login' \
+curl -X POST 'http://localhost:8080/api/auth/login' \
   -H 'Content-Type: application/json' \
   -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}'
 ```
 
 Success returns `access_token`, `token_type: "Bearer"`, and `expires_in: 900`. Login errors use the shared `{ "error": { "code": "...", "message": "...", "details": {} } }` envelope.
+
+Only `POST /api/auth/login` is limited: 20 attempts per 60 seconds per client IP. Caddy overwrites `X-Forwarded-For`; NestJS trusts one proxy hop. The in-memory limit resets on API restart and is not shared across replicas.
 
 | Action | Anonymous | Viewer | Editor | Admin |
 | --- | --- | --- | --- | --- |
@@ -71,9 +73,9 @@ Every public Site list item, GeoJSON feature property, and Site detail feature p
 Start the stack as above, then try these read-only requests:
 
 ```sh
-curl 'http://localhost:3000/sites?page=1&pageSize=2'
-curl 'http://localhost:3000/sites.geojson?bbox=99,7,100,8'
-curl 'http://localhost:3000/sites/TRG-001'
+curl 'http://localhost:8080/api/sites?page=1&pageSize=2'
+curl 'http://localhost:8080/api/sites.geojson?bbox=99,7,100,8'
+curl 'http://localhost:8080/api/sites/TRG-001'
 ```
 
 Run unit and isolated PostGIS integration tests:
@@ -82,7 +84,7 @@ Run unit and isolated PostGIS integration tests:
 (cd backend && npm test)
 ```
 
-`npm test` builds the backend and runs its tests. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database; use the container and test command below to run them. The isolated Step 3 PostGIS suite has 37 passing tests. Swagger UI was browser-verified at <http://localhost:3000/docs>; OpenAPI JSON at <http://localhost:3000/docs-json> returned HTTP 200. The read requests above were verified against the running API.
+`npm test` builds the backend and runs unit and PostGIS integration suites. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database. Swagger UI is at <http://localhost:8080/api/docs>; OpenAPI JSON is at <http://localhost:8080/api/docs-json>. These API routes are available only through Caddy.
 
 ## Step 4 Survey API
 
@@ -91,22 +93,22 @@ Survey routes list observations for an active Site, create observations, partial
 Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion. Site and Survey inserts store `created_by` and `updated_by` from the admin token; successful updates set `updated_by` and `updated_at`, including species-only Survey edits and Site soft deletion. Client-supplied audit fields cannot impersonate actors. Survey hard deletion leaves no retained actor record. Password hashes and signing secrets are never returned.
 
 ```sh
-TOKEN="$(curl -s -X POST 'http://localhost:3000/auth/login' \
+TOKEN="$(curl -s -X POST 'http://localhost:8080/api/auth/login' \
   -H 'Content-Type: application/json' \
   -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}' | jq -r .access_token)"
-curl 'http://localhost:3000/sites/TRG-001/surveys?page=1&pageSize=20' \
+curl 'http://localhost:8080/api/sites/TRG-001/surveys?page=1&pageSize=20' \
   -H "Authorization: Bearer $TOKEN"
-ADMIN_TOKEN="$(curl -s -X POST 'http://localhost:3000/auth/login' \
+ADMIN_TOKEN="$(curl -s -X POST 'http://localhost:8080/api/auth/login' \
   -H 'Content-Type: application/json' \
   -d '{"email":"dev-admin@example.test","password":"dev-admin-password"}' | jq -r .access_token)"
-curl -X POST 'http://localhost:3000/sites/TRG-001/surveys' \
+curl -X POST 'http://localhost:8080/api/sites/TRG-001/surveys' \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"lon":99.538168,"lat":7.330521,"surveyed_on":"2025-03-08","cover_percent":62.2,"species":["TH","CR","EA"],"note":null}'
-curl -X PATCH 'http://localhost:3000/surveys/123' \
+curl -X PATCH 'http://localhost:8080/api/surveys/123' \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H 'Content-Type: application/json' -d '{"cover_percent":50}'
-curl -X DELETE 'http://localhost:3000/surveys/123' \
+curl -X DELETE 'http://localhost:8080/api/surveys/123' \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -116,7 +118,7 @@ Compose defaults are development-only: database user `seagrass`, password `seagr
 
 ## Step 6 map workspace
 
-The web app at <http://localhost:3001> provides public, viewport-bounded Site browsing with the OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Search and pagination use only the current viewport's Site features. Selecting a row zooms to its Site; selecting a polygon opens its detail.
+The web app at <http://localhost:8080> provides public, viewport-bounded Site browsing with the OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Search and pagination use only the current viewport's Site features. Selecting a row zooms to its Site; selecting a polygon opens its detail.
 
 Sign in with one of the development accounts above to see the current email and role and read protected Survey history for the selected Site. Survey points come only from loaded history pages. The token stays in tab memory; sign-out or token rejection clears protected data while public browsing remains available. `GET /provinces.geojson` requires a WGS84 `bbox`; `GET /auth/me` returns the active user's email and role.
 
@@ -136,6 +138,19 @@ npm run test:e2e
 Set `E2E_GATEWAY_PORT` if port `18080` is occupied. The command is repeatable and does not use or stop the development Compose project. Playwright HTML reports, traces, screenshots, and the isolated import report stay in ignored `frontend/playwright-report/` and `frontend/test-results/`; inspect them after failures. The browser supplies an empty local MapLibre style, so application layers and map interactions do not depend on OpenFreeMap uptime.
 
 The seeded development accounts are used only inside this disposable database. E2E covers public map and viewport reads, synchronized filters/details/history, viewer login/logout, admin Survey creation through the API plus UI history readback, and editor-role `403` authorization. Step 6 has no mutation UI; no Site or Survey mutation controls are added.
+
+## CI workflows
+
+GitHub Actions runs backend unit tests when `backend/**` changes and frontend Vitest tests when `frontend/**` changes. Each workflow also runs when its own workflow file changes. PostGIS integration and Playwright E2E remain local checks.
+
+Run the same test commands locally:
+
+```sh
+(cd backend && npm run test:unit)
+(cd frontend && npm test)
+```
+
+CI does not build or publish Docker images, deploy, or run PostGIS integration or browser E2E tests.
 
 
 Frontend uses feature-first modules: UI lives in each feature's `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts stay in their feature modules. TanStack Query owns server-data caching; Zustand owns shared Site workspace filters, pagination, and selection. Authentication tokens stay in tab memory, never in query keys or persistent storage; logout and `401` clear protected Survey cache.
@@ -161,7 +176,7 @@ npm run build
 
 ## Backend tests
 
-`cd backend && npm test` builds the backend, then runs colocated Vitest `.spec.ts` suites serially. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` is set. Use a separate disposable PostGIS container, never the development database:
+`cd backend && npm test` builds the backend, then runs `.unit.spec.ts` and `.integration.spec.ts` Vitest projects serially. `npm run test:unit` runs unit tests without PostGIS; `npm run test:integration` requires `IMPORT_TEST_DATABASE_URL` pointing at disposable PostGIS. CI runs only backend unit tests.
 
 ```sh
 docker run --rm --name seagrass-step2-test \
@@ -176,7 +191,7 @@ Keep the container running, then run in another terminal:
 
 ```sh
 cd backend
-IMPORT_TEST_DATABASE_URL=postgresql://seagrass_test:seagrass_test_only@127.0.0.1:55432/seagrass_test npm test
+IMPORT_TEST_DATABASE_URL=postgresql://seagrass_test:seagrass_test_only@127.0.0.1:55432/seagrass_test npm run test:integration
 ```
 
 The container has no persistent volume. Stop it after tests; `--rm` removes its database. `.env.example` records the test URL separately from Compose development settings.
@@ -184,31 +199,27 @@ The container has no persistent volume. Stop it after tests; `--rm` removes its 
 
 ## Disposable Compose verification
 
-`docker-compose.verify.yml` isolates verification from development: use a unique Compose project and named database volume, loopback-only ports `55433`, `38081`, and `38082`, and a temporary host report directory. The override uses separate database credentials and keeps seed files read-only.
+`docker-compose.verify.yml` isolates gateway smoke checks from development: use a unique Compose project and named database volume, loopback-only database and gateway ports, and a temporary host report directory. The API and Web have no published host ports.
 
-Run from the repository root. Choose unused ports if these defaults are occupied:
+Run from the repository root. Choose unused ports if defaults are occupied:
 
 ```sh
-export VERIFY_PROJECT="gis-seagrass-step2-$(date +%s)"
+export VERIFY_PROJECT="gis-seagrass-step9-$(date +%s)"
 export VERIFY_DB_VOLUME="${VERIFY_PROJECT}-db"
 export VERIFY_REPORT_DIR="$(mktemp -d)"
-export VERIFY_DB_PORT=55433 VERIFY_API_PORT=38081 VERIFY_WEB_PORT=38082
+export VERIFY_DB_PORT=55433 VERIFY_GATEWAY_PORT=38080
 dc() { docker compose --project-name "$VERIFY_PROJECT" -f docker-compose.yml -f docker-compose.verify.yml "$@"; }
 
 dc config
 dc up --build --wait -d
-curl --fail http://127.0.0.1:$VERIFY_API_PORT/health
+curl --fail http://127.0.0.1:$VERIFY_GATEWAY_PORT/api/health
 cat "$VERIFY_REPORT_DIR/import_report.csv"
-before="$(dc exec -T db psql -U seagrass_verify -d seagrass_verify -Atc 'SELECT count(*) FROM surveys')"
-dc down
-dc up --build --wait -d
-after="$(dc exec -T db psql -U seagrass_verify -d seagrass_verify -Atc 'SELECT count(*) FROM surveys')"
-test "$before" = "$after"
 dc down --volumes --remove-orphans
 rm -rf "$VERIFY_REPORT_DIR"
 ```
 
 The unique project, explicit volume name, and temporary report directory keep development resources untouched. `down --volumes` is safe here only because it targets this disposable project and its unique volume; never use it for the development project.
+
 
 
 ## Database checks

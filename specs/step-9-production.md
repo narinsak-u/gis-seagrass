@@ -1,7 +1,7 @@
 # Step 9 — Gateway, E2E Testing & CI
 
 **Project:** Seagrass Monitoring System  
-**Status:** Confirmed for implementation — decisions recorded in section 10; implementation and verification pending  
+**Status:** Implemented and locally verified; GitHub Actions execution not observed
 **Prerequisites:** Steps 1–6 implemented and verified; Step 7/8 are optional and are not prerequisites  
 **Commit prefix:** `step-9:`
 
@@ -217,15 +217,15 @@ seagrass-monitoring/
 
 ## 9. Acceptance criteria / Definition of done
 
-- [ ] Caddy is the documented single browser entrypoint; routing works for frontend and backend only.
-- [ ] Only `POST /auth/login` is throttled in NestJS at 20 attempts/60 seconds/client IP; 429 envelope and trusted proxy IP are verified. No Caddy rate limiting is added.
-- [ ] Existing browser authentication, role rules, `/api/docs`, API error envelopes and Site/Survey features remain functional through gateway.
-- [ ] Playwright covers agreed Steps 1–6 user flows on an isolated and repeatable environment; no Step 7 map-drawing or geometry editing tests added.
-- [ ] Tests don't modify the development/production database, seed inputs or unowned Docker volumes.
-- [ ] Backend-unit and frontend-test GitHub Actions workflows trigger independently by changed paths; PostGIS integration and E2E remain documented local checks.
-- [ ] CI does not build/push Docker images or deploy anything.
-- [ ] README provides gateway/E2E/CI commands, login-throttle policy, test-only setup and known limitations.
-- [ ] Verification evidence available; Git commits use `step-9:`.
+- [x] Caddy is the documented single browser entrypoint; routing works for frontend and backend only.
+- [x] Only `POST /auth/login` is throttled in NestJS at 20 attempts/60 seconds/client IP; 429 envelope and trusted proxy IP are verified. No Caddy rate limiting is added.
+- [x] Existing browser authentication, role rules, `/api/docs`, API error envelopes and Site/Survey features remain functional through gateway.
+- [x] Playwright covers agreed Steps 1–6 user flows on an isolated and repeatable environment; no Step 7 map-drawing or geometry editing tests added.
+- [x] Tests don't modify the development/production database, seed inputs or unowned Docker volumes.
+- [x] Backend-unit and frontend-test GitHub Actions workflows trigger independently by changed paths; PostGIS integration and E2E remain documented local checks.
+- [x] CI does not build/push Docker images or deploy anything.
+- [x] README provides gateway/E2E/CI commands, login-throttle policy, test-only setup and known limitations.
+- [x] Verification evidence available; Git commits use `step-9:`.
 
 ## 10. Confirmed decisions
 

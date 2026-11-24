@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # Step 9 — Gateway, E2E and unit-only CI
 

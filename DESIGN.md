@@ -68,4 +68,8 @@ No worker model, replicas, load balancing, or production scaling configuration e
 
 ## Development security limits
 
-Compose defaults use development-only credentials and publish database and API ports on loopback by default. `.env` is for private local overrides, not committed secrets. Authentication does not make this stack production-ready: development accounts and example secrets are public in the repository, and there is no production secret management or hardening. Do not enable development seeding or use the example signing secret in deployments.
+Compose publishes the database for local tooling and Caddy as the only browser-facing entrypoint; API and Web have no host ports. Caddy overwrites `X-Forwarded-For`, and Nest trusts exactly one proxy hop.
+
+Only `POST /auth/login` is throttled at 20 attempts per 60 seconds per client IP. Nest's in-memory counters reset on restart and do not span API replicas; shared storage is out of scope.
+
+Compose credentials and development accounts are not production-safe. `.env` is for private local overrides, not committed secrets. This stack has no production secret management or hardening; do not enable development seeding or use the example signing secret in deployments.
