@@ -77,6 +77,7 @@ function extractApiError(payload: unknown, fallbackStatus: number): ApiErrorPayl
 export interface ApiRequestOptions {
   method?: AxiosRequestConfig["method"];
   params?: AxiosRequestConfig["params"];
+  data?: AxiosRequestConfig["data"];
   signal?: AbortSignal;
   token?: string | null;
 }

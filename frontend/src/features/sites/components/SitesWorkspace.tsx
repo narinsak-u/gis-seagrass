@@ -76,6 +76,7 @@ export function SitesWorkspace({
   pageSize = DEFAULT_PAGE_SIZE,
 }: SitesWorkspaceProps) {
   const token = useAuthStore((state) => state.token);
+  const sessionEpoch = useAuthStore((state) => state.sessionEpoch);
   const user = useAuthStore((state) => state.user);
   const setSignInOpen = useAuthStore((state) => state.setSignInOpen);
   const handleUnauthorized = useAuthStore((state) => state.handleUnauthorized);
@@ -106,7 +107,8 @@ export function SitesWorkspace({
     siteCode: selectedSiteCode,
     token,
     role: user?.role,
-    onUnauthorized: handleUnauthorized,
+    onUnauthorized: (message, requestToken) =>
+      handleUnauthorized(message, requestToken, sessionEpoch),
   });
 
   const mapRef = useRef<maplibregl.Map | null>(null);

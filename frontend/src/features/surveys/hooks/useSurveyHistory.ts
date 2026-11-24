@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { ActorRole } from "@/src/features/auth/auth-session";
 import { ApiClientError } from "@/src/lib/api";
@@ -19,7 +18,7 @@ interface UseSurveyHistoryOptions {
   siteCode: string | null;
   token: string | null;
   role: ActorRole | string | null | undefined;
-  onUnauthorized: (message: string) => void;
+  onUnauthorized: (message: string, token: string) => void;
   pageSize?: number;
 }
 
@@ -32,15 +31,15 @@ export function useSurveyHistory({
 }: UseSurveyHistoryOptions) {
   const authorized = Boolean(siteCode && token && isAuthorizedSurveyRole(role));
   const query = useInfiniteQuery({
-    ...surveyHistoryQueryOptions(siteCode ?? "", token ?? "", pageSize),
+    ...surveyHistoryQueryOptions(
+      siteCode ?? "",
+      token ?? "",
+      pageSize,
+      undefined,
+      onUnauthorized,
+    ),
     enabled: authorized,
   });
-
-  useEffect(() => {
-    if (query.error instanceof ApiClientError && query.error.status === 401) {
-      onUnauthorized(query.error.message);
-    }
-  }, [onUnauthorized, query.error]);
 
   const items = authorized
     ? query.data?.pages.flatMap((page) => page.items) ?? []
