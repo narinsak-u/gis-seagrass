@@ -17,11 +17,11 @@ export class DrizzleAuthRepository implements AuthRepository {
     return user ?? null;
   }
   async findActiveActorById(id: string): Promise<AuthenticatedActor | null> {
-    const [user] = await this.db.select({ id: users.id, role: users.role })
+    const [user] = await this.db.select({ id: users.id, email: users.email, role: users.role })
       .from(users)
       .where(and(eq(users.id, id), eq(users.isActive, true)))
       .limit(1);
-    return user ? { id: user.id, role: user.role as ActorRole } : null;
+    return user ? { id: user.id, email: user.email, role: user.role as ActorRole } : null;
   }
 
 

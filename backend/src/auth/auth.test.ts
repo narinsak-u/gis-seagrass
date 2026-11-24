@@ -11,6 +11,9 @@ import { runMigrations } from '../platform/database';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { setupSwagger } from '../swagger';
 import { hashPassword, signAccessToken, verifyAccessToken } from './application/auth-token';
+import { AuthService } from './application/auth.service';
+import type { AuthRepository } from './application/auth.repository';
+import { AuthController } from './presentation/auth.controller';
 import { seedDevelopmentAccounts } from './auth.module';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
@@ -185,15 +188,130 @@ integration('protected requests resolve current role and active status for each 
   }
 });
 
-integration('Swagger documents login request, success, and error envelopes', async () => {
+integration('GET /auth/me returns current email and role and reflects database role changes on the next request', async () => {
+  const meUserId = randomUUID();
+  const meEmail = `${generatedEmailPrefix}-me@example.test`;
+  await pool!.query(
+    'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
+    [meUserId, meEmail, await hashPassword('me-test-password'), 'viewer'],
+  );
+  try {
+    const loginResult = await login({ email: meEmail, password: 'me-test-password' });
+    assert.equal(loginResult.response.status, 200);
+    const token = String(loginResult.body.access_token);
+
+    const first = await fetch(`${origin}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), { email: meEmail, role: 'viewer' });
+
+    await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['editor', meUserId]);
+    const second = await fetch(`${origin}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), { email: meEmail, role: 'editor' });
+
+    await pool!.query('UPDATE users SET role = $1 WHERE id = $2', ['admin', meUserId]);
+    const third = await fetch(`${origin}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(third.status, 200);
+    assert.deepEqual(await third.json(), { email: meEmail, role: 'admin' });
+  } finally {
+    await pool!.query('DELETE FROM users WHERE id = $1', [meUserId]);
+  }
+});
+
+integration('GET /auth/me rejects missing, invalid, expired, inactive, and deleted user tokens with 401 in the shared error envelope', async () => {
+  const expectedEnvelope = {
+    error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: {} },
+  };
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+
+  const meUserId = randomUUID();
+  const meEmail = `${generatedEmailPrefix}-me-reject@example.test`;
+  await pool!.query(
+    'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
+    [meUserId, meEmail, 'unused', 'viewer'],
+  );
+  const validToken = signAccessToken(meUserId);
+  const [header, payload, signature] = validToken.split('.');
+  const alteredToken = `${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+  const expiredContent = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: meUserId, iat: 1, exp: 2 })}`;
+  const expiredToken = `${expiredContent}.${createHmac('sha256', testSecret).update(expiredContent).digest('base64url')}`;
+
+  try {
+    const missing = await fetch(`${origin}/auth/me`);
+    assert.equal(missing.status, 401);
+    assert.deepEqual(await missing.json(), expectedEnvelope);
+
+    for (const authorization of ['Basic abc', 'Bearer ', 'Bearer not-a-jwt', `Bearer ${alteredToken}`, `Bearer ${expiredToken}`]) {
+      const response = await fetch(`${origin}/auth/me`, { headers: { authorization } });
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), expectedEnvelope);
+    }
+
+    await pool!.query('UPDATE users SET is_active = false WHERE id = $1', [meUserId]);
+    const inactive = await fetch(`${origin}/auth/me`, {
+      headers: { authorization: `Bearer ${validToken}` },
+    });
+    assert.equal(inactive.status, 401);
+    assert.deepEqual(await inactive.json(), expectedEnvelope);
+
+    await pool!.query('DELETE FROM users WHERE id = $1', [meUserId]);
+    const deleted = await fetch(`${origin}/auth/me`, {
+      headers: { authorization: `Bearer ${validToken}` },
+    });
+    assert.equal(deleted.status, 401);
+    assert.deepEqual(await deleted.json(), expectedEnvelope);
+  } finally {
+    await pool!.query('DELETE FROM users WHERE id = $1', [meUserId]);
+  }
+});
+
+integration('Swagger documents login and current-identity endpoints with Bearer auth and error envelopes', async () => {
   const response = await fetch(`${origin}/docs-json`);
   assert.equal(response.status, 200);
-  const document = await response.json() as { paths: Record<string, { post?: { requestBody?: unknown; responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> } }> };
+  const document = await response.json() as {
+    paths: Record<string, {
+      post?: { requestBody?: unknown; responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> };
+      get?: { security?: Array<Record<string, unknown>>; responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> };
+    }>;
+  };
   const loginOperation = document.paths['/auth/login']?.post;
   assert.ok(loginOperation?.requestBody);
   assert.ok(loginOperation.responses?.['200']?.content?.['application/json']?.schema);
   assert.ok(loginOperation.responses?.['400']?.content?.['application/json']?.schema);
   assert.ok(loginOperation.responses?.['401']?.content?.['application/json']?.schema);
+
+  const meOperation = document.paths['/auth/me']?.get;
+  assert.ok(meOperation);
+  assert.ok(meOperation.security?.some((entry) => 'access-token' in entry));
+  assert.ok(meOperation.responses?.['200']?.content?.['application/json']?.schema);
+  assert.ok(meOperation.responses?.['401']?.content?.['application/json']?.schema);
+});
+
+test('AuthService.resolveAccessToken includes email and AuthController.me returns only { email, role }', async () => {
+  process.env.JWT_SECRET = testSecret;
+  const actorId = randomUUID();
+  const fakeRepository: AuthRepository = {
+    async findByEmail() { return null; },
+    async findActiveActorById(id) {
+      return id === actorId ? { id: actorId, email: 'viewer@example.test', role: 'viewer' } : null;
+    },
+    async hasEmail() { return false; },
+    async insertIfAbsent() {},
+  };
+  const service = new AuthService(fakeRepository);
+  const controller = new AuthController(service);
+  const actor = await service.resolveAccessToken(signAccessToken(actorId));
+  assert.deepEqual(actor, { id: actorId, email: 'viewer@example.test', role: 'viewer' });
+  assert.deepEqual(
+    controller.me({ user: actor!, headers: {} }),
+    { email: 'viewer@example.test', role: 'viewer' },
+  );
 });
 
 test('API process refuses startup without JWT_SECRET before accessing the database', () => {
