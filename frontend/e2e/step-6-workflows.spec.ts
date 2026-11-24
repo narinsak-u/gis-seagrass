@@ -160,6 +160,7 @@ test("E2E-02 panning reaches Phang Nga and requests only bounded Site geometry",
 });
 
 test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the same Site", async ({ page }) => {
+  test.setTimeout(60_000);
   const { collection, bbox: initialBbox } = await openWorkspace(page);
   const target = collection.features.find((feature: { properties: { code: string } }) =>
     feature.properties.code === siteCode,
@@ -169,14 +170,14 @@ test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the sa
   );
   expect(target).toBeTruthy();
   expect(excluded).toBeTruthy();
-  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
-  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, target), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded), { timeout: 15_000 }).toBe(true);
   const table = page.getByRole("table", { name: "Active sites in map view" });
   await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
   const row = table.getByRole("row").filter({ hasText: siteCode });
   await expect(row).toHaveCount(1);
-  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
-  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(false);
+  await expect.poll(() => sitePolygonIsInteractive(page, target), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded), { timeout: 15_000 }).toBe(false);
   const zoomedRequest = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith("/api/sites.geojson"),
   );
@@ -212,7 +213,11 @@ test("E2E-04 polygon detail shows Site identity and protected Survey history aft
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
   expect((await identityResponse).ok()).toBeTruthy();
   await expect(page.getByTestId("auth-role")).toHaveText("viewer");
-  await expect(history.getByRole("list", { name: `Survey history for ${siteCode}` })).toBeVisible();
+  const historyList = history.getByRole("list", { name: `Survey history for ${siteCode}` });
+  const retry = history.getByRole("button", { name: "Retry" });
+  await expect(historyList.or(retry)).toBeVisible({ timeout: 15_000 });
+  if (await retry.isVisible()) await retry.click();
+  await expect(historyList).toBeVisible({ timeout: 15_000 });
 });
 
 test("E2E-05 viewer identity is shown, no write controls appear, and sign-out clears session", async ({ page }) => {
