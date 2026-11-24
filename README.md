@@ -122,6 +122,22 @@ Sign in with one of the development accounts above to see the current email and 
 
 The map depends on OpenFreeMap's third-party tile service, provided without an availability guarantee; it needs network access. Step 6 is read-only: Site/Survey editing, dashboards, and exports are not included.
 
+### Isolated Playwright E2E
+
+The E2E command builds and starts real web, API, and PostGIS services from the committed seed files under a unique Compose project and named database volume. It publishes only the gateway on loopback (default `18080`), uses test-only DB credentials and JWT secret, keeps the seed directory read-only, and removes only that project and volume on exit.
+
+Install browser binaries once, then run from `frontend/`:
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+Set `E2E_GATEWAY_PORT` if port `18080` is occupied. The command is repeatable and does not use or stop the development Compose project. Playwright HTML reports, traces, screenshots, and the isolated import report stay in ignored `frontend/playwright-report/` and `frontend/test-results/`; inspect them after failures. The browser supplies an empty local MapLibre style, so application layers and map interactions do not depend on OpenFreeMap uptime.
+
+The seeded development accounts are used only inside this disposable database. E2E covers public map and viewport reads, synchronized filters/details/history, viewer login/logout, admin Survey creation through the API plus UI history readback, and editor-role `403` authorization. Step 6 has no mutation UI; no Site or Survey mutation controls are added.
+
+
 Frontend uses feature-first modules: UI lives in each feature's `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts stay in their feature modules. TanStack Query owns server-data caching; Zustand owns shared Site workspace filters, pagination, and selection. Authentication tokens stay in tab memory, never in query keys or persistent storage; logout and `401` clear protected Survey cache.
 
 Frontend tests use Vitest `describe`/`it`/`expect` and live in `src/features/<feature>/tests/`; shared library tests live in `src/lib/tests/`.

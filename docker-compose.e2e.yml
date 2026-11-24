@@ -1,0 +1,33 @@
+services:
+  db:
+    environment:
+      POSTGRES_USER: seagrass_e2e
+      POSTGRES_PASSWORD: seagrass_e2e_only
+      POSTGRES_DB: seagrass_e2e
+    ports: !override []
+
+  api:
+    environment:
+      PGUSER: seagrass_e2e
+      PGPASSWORD: seagrass_e2e_only
+      PGDATABASE: seagrass_e2e
+      IMPORT_REPORT_PATH: /app/reports/import_report.csv
+    volumes: !override
+      - ./backend/seed-data:/app/seed-data:ro
+      - type: bind
+        source: ${E2E_REPORT_DIR:?Set E2E_REPORT_DIR to an ignored test-results directory}
+        target: /app/reports
+        bind:
+          create_host_path: false
+    ports: !override []
+
+  web:
+    ports: !override []
+
+  gateway:
+    ports: !override
+      - "127.0.0.1:${E2E_GATEWAY_PORT:-18080}:80"
+
+volumes:
+  seagrass-db-data:
+    name: ${E2E_DB_VOLUME:?Set E2E_DB_VOLUME to a unique disposable volume name}
