@@ -208,6 +208,39 @@ test("E2E-09 375px workspace supports keyboard Site selection and detail", async
   await expect(detail.getByText(siteCode, { exact: true })).toBeVisible();
 });
 
+test("E2E-10 moving the map hides stale Sites while the next viewport loads", async ({ page }) => {
+  const { bbox: initialBbox } = await openWorkspace(page);
+  const { promise: requestStarted, resolve: notifyRequest } = Promise.withResolvers<void>();
+  const { promise: responseGate, resolve: releaseResponse } = Promise.withResolvers<void>();
+  await page.route("**/api/sites.geojson?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("bbox") === initialBbox) {
+      await route.continue();
+      return;
+    }
+    notifyRequest();
+    await responseGate;
+    await route.continue();
+  });
+
+  const table = page.getByRole("table", { name: "Active sites in map view" });
+  await expect(table.getByRole("row").nth(1)).toBeVisible();
+  const canvas = page.getByRole("region", { name: "Seagrass sites interactive map" }).locator("canvas");
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const x = bounds!.x + bounds!.width / 2;
+  const y = bounds!.y + bounds!.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 205, y + 240, { steps: 5 });
+  await page.mouse.up();
+
+  await requestStarted;
+  await expect(page.getByText("Loading active sites in map view…")).toBeVisible();
+  await expect(table).toHaveCount(0);
+  releaseResponse();
+  await expect(table).toBeVisible();
+});
+
 test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
   test.setTimeout(60_000);
   const { collection } = await openWorkspace(page);

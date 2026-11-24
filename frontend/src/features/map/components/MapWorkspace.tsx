@@ -78,6 +78,7 @@ export function MapWorkspace({
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
   const onProvincesChangeRef = useRef(onProvincesChange);
+  const handledRetrySignalRef = useRef(retrySignal);
   const viewportDebouncerRef = useRef<ReturnType<typeof createViewportDebouncer> | null>(null);
   if (!viewportDebouncerRef.current) {
     viewportDebouncerRef.current = createViewportDebouncer((bounds) => {
@@ -132,7 +133,9 @@ export function MapWorkspace({
   }, [provincesQuery.data, bboxString, viewportPending]);
 
   useEffect(() => {
-    if (retrySignal > 0 && bboxString && !viewportPending) void sitesQuery.refetch();
+    if (retrySignal <= handledRetrySignalRef.current) return;
+    handledRetrySignalRef.current = retrySignal;
+    if (bboxString && !viewportPending) void sitesQuery.refetch();
   }, [retrySignal, sitesQuery.refetch, bboxString, viewportPending]);
 
   const handleInitialBounds = useCallback((bounds: BboxBounds) => {
