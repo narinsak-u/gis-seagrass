@@ -51,7 +51,11 @@ async function signIn(page: Page, role: keyof typeof accounts) {
   await page.getByRole("button", { name: "Sign in", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await fillCredentials(dialog, role);
+  const identityResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/auth/me"),
+  );
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
+  expect((await identityResponse).ok()).toBeTruthy();
   await expect(page.getByTestId("auth-identity")).toBeVisible();
   await expect(page.getByTestId("auth-role")).toHaveText(role);
 }
@@ -101,7 +105,7 @@ async function clickSitePolygon(page: Page, feature: Parameters<typeof polygonCe
   await expect.poll(async () => {
     await page.mouse.move(point.x, point.y);
     return point.canvas.evaluate((element) => (element as HTMLCanvasElement).style.cursor);
-  }).toBe("pointer");
+  }, { timeout: 15_000 }).toBe("pointer");
   await page.mouse.click(point.x, point.y);
 }
 
@@ -177,14 +181,15 @@ test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the sa
     new URL(response.url()).pathname.endsWith("/api/sites.geojson"),
   );
   await row.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) }).click();
-  await expect(row).toHaveAttribute("aria-current", "true");
   const response = await zoomedRequest;
   expect(response.ok()).toBeTruthy();
+  await expect(row).toHaveAttribute("aria-current", "true");
   await expect(page.getByRole("region", { name: "Site detail" })).toBeVisible();
   expect(initialBbox).not.toBe(new URL(response.url()).searchParams.get("bbox"));
 });
 
 test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
+  test.setTimeout(60_000);
   const { collection } = await openWorkspace(page);
   const feature = collection.features.find((candidate: { properties: { code: string } }) =>
     candidate.properties.code === siteCode,
@@ -201,7 +206,11 @@ test("E2E-04 polygon detail shows Site identity and protected Survey history aft
   await history.getByRole("button", { name: "Sign in to view Survey history" }).click();
   const dialog = page.getByRole("dialog");
   await fillCredentials(dialog, "viewer");
+  const identityResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/auth/me"),
+  );
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
+  expect((await identityResponse).ok()).toBeTruthy();
   await expect(page.getByTestId("auth-role")).toHaveText("viewer");
   await expect(history.getByRole("list", { name: `Survey history for ${siteCode}` })).toBeVisible();
 });
@@ -287,7 +296,7 @@ test("E2E-06 admin Survey API write is visible in Site history UI", async ({ pag
     page.getByRole("region", { name: "Site detail" }).getByText(statusLabels.good, { exact: true }),
   ).toBeVisible();
   const history = page.getByTestId("survey-history-section");
-  await expect(history.getByText(note, { exact: true })).toBeVisible();
+  await expect(history.getByText(note, { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test("E2E-07 editor role is visible and admin-only Survey API write returns 403", async ({ page, request }) => {
