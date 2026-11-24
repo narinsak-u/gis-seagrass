@@ -1,10 +1,10 @@
 import { ApiExtraModels, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
-import { SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './site-openapi';
+import { SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './sites.openapi';
 import { ApiErrorEnvelope } from '../../platform/http';
 import type { PublicSiteSummary } from '../domain/site.types';
-import { SiteQueries } from '../application/use-cases/site-queries';
-import { SiteGeoJsonQueryDto } from './dto/site.dto';
+import { SiteQueries } from '../application/site-queries';
+import { SiteGeoJsonQueryDto } from './sites.dto';
 
 
 

@@ -1,4 +1,4 @@
-import type { SiteStatus } from '../../domain/site-status';
+import type { SiteStatus } from '../domain/site-status.rules';
 
 export interface SiteSurveyReadContract {
   statuses(siteIds: readonly string[]): Promise<Map<string, SiteStatus>>;

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, sql } from 'drizzle-orm';
-import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../../platform/database';
-import type { SiteDetailRow, SiteReadFilters, SiteReadRepository, SiteReadRow } from '../../application/contracts/site-read-repository';
+import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
+import type { SiteDetailRow, SiteReadFilters, SiteReadRepository, SiteReadRow } from '../application/site-read.repository';
 
 @Injectable()
 export class DrizzleSiteReadRepository implements SiteReadRepository {

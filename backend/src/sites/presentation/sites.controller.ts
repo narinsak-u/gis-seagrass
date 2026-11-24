@@ -6,10 +6,10 @@ import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.mod
 import { parseSiteFeature, SiteValidationError } from '../domain/site-feature';
 import type { SiteSummary } from '../domain/site.types';
 import { SiteSurveyCoordinator } from '../../site-survey-workflows';
-import { SiteQueries, type SiteFeature, type SiteList } from '../application/use-cases/site-queries';
-import { SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './site-openapi';
+import { SiteQueries, type SiteFeature, type SiteList } from '../application/site-queries';
+import { SITE_CREATE_BODY_SCHEMA, SITE_DETAIL_SCHEMA, SITE_ERROR_SCHEMA, SITE_FEATURE_SCHEMA, SITE_LIST_SCHEMA, SITE_PATCH_BODY_SCHEMA, SITE_PATCH_ERROR_SCHEMA } from './sites.openapi';
 import { ApiErrorEnvelope } from '../../platform/http';
-import { SiteFeatureDto, SiteListQueryDto, SitePatchDto } from './dto/site.dto';
+import { SiteFeatureDto, SiteListQueryDto, SitePatchDto } from './sites.dto';
 
 
 

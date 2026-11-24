@@ -1,4 +1,4 @@
-import type { SiteWriteTransaction } from '../../../site-survey-workflows';
+import type { SiteWriteTransaction } from '../../site-survey-workflows';
 
 export interface SiteWriteRepository {
   create(tx: SiteWriteTransaction, site: SiteWriteInput, actorId: string): Promise<SiteFeature>;

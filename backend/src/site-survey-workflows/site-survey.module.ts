@@ -9,7 +9,7 @@ import {
   type SurveyStatusRepository,
   type SurveyWriteRepository,
 } from '../surveys';
-import { DrizzleSiteWriteRepository } from '../sites/infrastructure/repositories/drizzle-site-write-repository';
+import { DrizzleSiteWriteRepository } from '../sites/infrastructure/drizzle-site-write.repository';
 import { DrizzleSiteSurveyConstraintRepository } from '../surveys/infrastructure/repositories/drizzle-site-survey-constraint-repository';
 import { DrizzleSurveyStatusRepository } from '../surveys/infrastructure/repositories/drizzle-survey-status-repository';
 import { DrizzleSurveyWriteRepository } from '../surveys/infrastructure/repositories/drizzle-survey-write-repository';
