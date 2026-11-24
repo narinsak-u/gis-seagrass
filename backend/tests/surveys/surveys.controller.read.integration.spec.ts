@@ -3,7 +3,7 @@ import { signAccessToken } from '../../src/auth/application/auth-token';
 import { request as httpRequest } from 'node:http';
 import { expect, test } from 'vitest';
 import {
-  accessToken, create, expiredToken, origin, pool, request, resetSurveys, siteCode, signedToken,
+  accessToken, create, deletedSiteCode, expiredToken, origin, pool, request, resetSurveys, siteCode, signedToken,
   siteId, speciesCodes, users, validSurvey,
 } from './surveys.spec-helper';
 
@@ -157,6 +157,52 @@ integration('GET /sites/:code/surveys authenticates active current users before 
   for (const role of ['viewer', 'editor', 'admin'] as const) {
     expect((await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken(role))).response.status).toBe(200);
   }
+});
+
+integration('GET /sites/:code/surveys returns sorted species without row duplication, empty array for zero species, and hides soft-deleted Sites', async () => {
+  await resetSurveys();
+  const zeroSpecies = await pool!.query<{ id: string }>(
+    `INSERT INTO surveys (site_id, geom, surveyed_on, cover_percent)
+     VALUES ($1, ST_SetSRID(ST_MakePoint(100.150025, 10.150025), 4326), '2025-01-15', 12.5) RETURNING id::text`,
+    [siteId],
+  );
+  const multiSpecies = await create(await validSurvey({
+    surveyed_on: '2025-02-15',
+    cover_percent: 45.25,
+    species: [speciesCodes[1], speciesCodes[0]],
+    note: 'Multi-species check',
+  }));
+  expect(multiSpecies.response.status).toBe(201);
+
+  const page = await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
+  expect(page.response.status).toBe(200);
+  expect(page.body.total).toBe(2);
+  const items = page.body.items as Array<Record<string, unknown>>;
+  expect(items).toHaveLength(2);
+  expect(items[0]).toStrictEqual({
+    id: multiSpecies.body.id,
+    lon: 100.150025,
+    lat: 10.150025,
+    surveyed_on: '2025-02-15',
+    cover_percent: 45.25,
+    species: [...speciesCodes].sort(),
+    note: 'Multi-species check',
+    created_by: users.admin,
+  });
+  expect(items[1]).toStrictEqual({
+    id: zeroSpecies.rows[0].id,
+    lon: 100.150025,
+    lat: 10.150025,
+    surveyed_on: '2025-01-15',
+    cover_percent: 12.5,
+    species: [],
+    note: null,
+    created_by: null,
+  });
+
+  const retired = await request(`/sites/${deletedSiteCode}/surveys`, 'GET', undefined, accessToken('viewer'));
+  expect(retired.response.status).toBe(404);
+  expect(retired.body.error).toStrictEqual({ code: 'SITE_NOT_FOUND', message: 'Site not found', details: {} });
 });
 
 
