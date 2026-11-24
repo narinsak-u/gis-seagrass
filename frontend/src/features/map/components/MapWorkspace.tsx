@@ -4,10 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query";
 import type * as maplibregl from "maplibre-gl";
 import { ApiClientError } from "@/src/lib/api";
-import { fetchProvincesGeoJson } from "@/src/features/provinces/api";
 import {
-  createViewportProvincesController,
-  type ViewportProvincesController,
+  provinceViewportQueryOptions,
   type ViewportProvincesState,
 } from "@/src/features/provinces/provinces-viewport";
 import type { ProvinceFeature } from "@/src/features/provinces/types";
@@ -56,13 +54,6 @@ export interface MapWorkspaceProps {
 }
 
 
-const INITIAL_PROVINCES_STATE: ViewportProvincesState = {
-  status: "idle",
-  data: null,
-  error: null,
-  bbox: null,
-  bboxString: null,
-};
 
 export function MapWorkspace({
   headerActions,
@@ -79,13 +70,9 @@ export function MapWorkspace({
   onProvincesChange,
 }: MapWorkspaceProps) {
   const [settledBounds, setSettledBounds] = useState<BboxBounds | null>(null);
-  const [provincesState, setProvincesState] = useState<ViewportProvincesState>(
-    INITIAL_PROVINCES_STATE,
-  );
   const [basemapNotice, setBasemapNotice] = useState<string | null>(null);
   const [resetViewSignal, setResetViewSignal] = useState(0);
 
-  const provincesControllerRef = useRef<ViewportProvincesController | null>(null);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
   const onProvincesChangeRef = useRef(onProvincesChange);
@@ -103,7 +90,37 @@ export function MapWorkspace({
     isValidBboxBounds(normalizedBounds)
       ? formatBbox(normalizedBounds)
       : null;
-  // Re-query current viewport when provinceFilter prop changes (Ticket 02 hook)
+  const provincesQuery = useQuery({
+    ...provinceViewportQueryOptions(bboxString ?? ""),
+    enabled: bboxString !== null,
+  });
+  const provincesState: ViewportProvincesState = {
+    status: bboxString === null
+      ? "idle"
+      : provincesQuery.isPending || provincesQuery.isFetching
+        ? "loading"
+        : provincesQuery.isError
+          ? "error"
+          : provincesQuery.data?.features.length
+            ? "ready"
+            : provincesQuery.data
+              ? "empty"
+              : "idle",
+    data: provincesQuery.data ?? null,
+    error: provincesQuery.error
+      ? {
+          code: provincesQuery.error instanceof ApiClientError
+            ? provincesQuery.error.code
+            : "NETWORK_ERROR",
+          message: provincesQuery.error.message,
+          status: provincesQuery.error instanceof ApiClientError
+            ? provincesQuery.error.status
+            : undefined,
+        }
+      : null,
+    bbox: normalizedBounds,
+    bboxString,
+  };
   const sitesQuery = useQuery({
     ...siteViewportQueryOptions(bboxString ?? "", provinceFilter),
     enabled: bboxString !== null,
@@ -146,23 +163,10 @@ export function MapWorkspace({
   }, [viewportState.status, viewportState.data, sitesQuery.error, viewportState.bboxString, provinceFilter]);
 
   useEffect(() => {
-    const provincesController = createViewportProvincesController({
-      debounceMs: 250,
-      fetchProvinces: ({ bbox, signal }) => fetchProvincesGeoJson({ bbox, signal }),
-      onStateChange: (next) => {
-        setProvincesState(next);
-        if (next.status === "ready" || next.status === "empty") {
-          onProvincesChangeRef.current?.(next.data?.features ?? []);
-        }
-      },
-    });
-    provincesControllerRef.current = provincesController;
-    return () => {
-      viewportDebouncerRef.current?.cancel();
-      provincesController.dispose();
-      provincesControllerRef.current = null;
-    };
-  }, []);
+    if (provincesQuery.data) {
+      onProvincesChangeRef.current?.(provincesQuery.data.features);
+    }
+  }, [provincesQuery.data]);
 
   useEffect(() => {
     if (retrySignal > 0) void sitesQuery.refetch();
@@ -172,12 +176,10 @@ export function MapWorkspace({
     onViewportBoundsChangeRef.current?.(bounds);
     viewportDebouncerRef.current?.cancel();
     setSettledBounds(isValidBboxBounds(bounds) ? bounds : null);
-    provincesControllerRef.current?.loadInitial(bounds);
   }, []);
 
   const handleSettledBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
-    provincesControllerRef.current?.onViewportSettled(bounds);
     viewportDebouncerRef.current?.schedule(bounds);
   }, []);
 
@@ -186,8 +188,8 @@ export function MapWorkspace({
   }, [sitesQuery.refetch]);
 
   const handleRetryProvinces = useCallback(() => {
-    provincesControllerRef.current?.retry();
-  }, []);
+    void provincesQuery.refetch();
+  }, [provincesQuery.refetch]);
 
   const handleResetView = useCallback(() => {
     setResetViewSignal((count) => count + 1);

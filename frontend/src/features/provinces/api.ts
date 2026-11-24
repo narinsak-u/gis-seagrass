@@ -1,24 +1,27 @@
-import { apiFetch } from "@/src/lib/api";
+import { apiRequest, ApiClientError } from "@/src/lib/api";
+import { provinceFeatureCollectionSchema } from "./schema";
 import type { ProvinceFeatureCollection } from "./types";
 
 export interface FetchProvincesParams {
   bbox: string;
   signal?: AbortSignal;
-  fetchImpl?: typeof fetch;
 }
 
 export async function fetchProvincesGeoJson({
   bbox,
   signal,
-  fetchImpl,
 }: FetchProvincesParams): Promise<ProvinceFeatureCollection> {
-  const params = new URLSearchParams();
-  params.set("bbox", bbox);
-  return apiFetch<ProvinceFeatureCollection>(
-    `/provinces.geojson?${params.toString()}`,
-    {
-      signal,
-      fetchImpl,
-    },
-  );
+  const payload = await apiRequest<unknown>("/provinces.geojson", {
+    params: { bbox },
+    signal,
+  });
+  const result = provinceFeatureCollectionSchema.safeParse(payload);
+  if (!result.success) {
+    throw new ApiClientError(
+      0,
+      "INVALID_API_RESPONSE",
+      "The API returned an invalid Province GeoJSON response",
+    );
+  }
+  return result.data;
 }
