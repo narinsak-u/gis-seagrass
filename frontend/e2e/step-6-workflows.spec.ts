@@ -241,6 +241,53 @@ test("E2E-10 moving the map hides stale Sites while the next viewport loads", as
   await expect(table).toBeVisible();
 });
 
+test("E2E-11 Site request failure recovers without refetching every later map view", async ({ page }) => {
+  const { bbox: initialBbox } = await openWorkspace(page);
+  let failRequests = true;
+  const movedRequests: string[] = [];
+  await page.route("**/api/sites.geojson?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("province") === "82") {
+      if (failRequests) {
+        await route.fulfill({ status: 503, body: "Temporary failure" });
+        return;
+      }
+      if (url.searchParams.get("bbox") !== initialBbox) movedRequests.push(route.request().url());
+    }
+    await route.continue();
+  });
+
+  await page.getByRole("combobox", { name: "Province" }).selectOption("82");
+  const error = page.getByRole("alert").filter({ hasText: "Unable to load sites for this map view" });
+  await expect(error).toBeVisible();
+  failRequests = false;
+  const recovered = page.waitForResponse((response) =>
+    new URL(response.url()).searchParams.get("province") === "82" && response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await recovered;
+  await expect(error).toHaveCount(0);
+
+  const changed = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith("/api/sites.geojson") &&
+      url.searchParams.get("province") === "82" &&
+      url.searchParams.get("bbox") !== initialBbox;
+  });
+  const canvas = page.getByRole("region", { name: "Seagrass sites interactive map" }).locator("canvas");
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const x = bounds!.x + bounds!.width / 2;
+  const y = bounds!.y + bounds!.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 205, y + 240, { steps: 5 });
+  await page.mouse.up();
+  await changed;
+  await page.waitForLoadState("networkidle");
+  expect(movedRequests).toHaveLength(1);
+});
+
 test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
   test.setTimeout(60_000);
   const { collection } = await openWorkspace(page);
