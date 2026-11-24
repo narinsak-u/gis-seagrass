@@ -2,10 +2,8 @@ name: Backend unit tests
 
 on:
   push:
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-tests.yml'
-  pull_request:
+    branches:
+      - main
     paths:
       - 'backend/**'
       - '.github/workflows/backend-tests.yml'
