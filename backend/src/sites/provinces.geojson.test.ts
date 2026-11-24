@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, test } from 'vitest';
+import { after, before, test } from 'node:test';
 import { BadRequestException, type INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
@@ -93,7 +93,7 @@ let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
 
-beforeAll(async () => {
+before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -131,7 +131,7 @@ beforeAll(async () => {
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+after(async () => {
   if (pool && provinceCodes.length) {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, test } from 'vitest';
+import { after, before, test } from 'node:test';
 import { request as httpRequest } from 'node:http';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -28,7 +28,7 @@ let createdSiteCodes: string[] = [];
 let createdSpeciesCodes: string[] = [];
 let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
-beforeAll(async () => {
+before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -83,7 +83,7 @@ beforeAll(async () => {
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+after(async () => {
   if (pool) {
     if (siteId) {
       await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE site_id = $1)', [siteId]);

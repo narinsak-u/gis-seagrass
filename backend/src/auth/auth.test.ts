@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { afterAll, beforeAll, test } from 'vitest';
+import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
@@ -27,7 +27,7 @@ let userId = '';
 let email = '';
 let generatedEmailPrefix = '';
 
-beforeAll(async () => {
+before(async () => {
   process.env.JWT_SECRET = testSecret;
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -56,7 +56,7 @@ beforeAll(async () => {
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+after(async () => {
   if (pool) {
     await pool.query('DELETE FROM users WHERE id = $1 OR email LIKE $2', [userId, `${generatedEmailPrefix}-%@example.test`]);
   }
@@ -315,8 +315,8 @@ test('AuthService.resolveAccessToken includes email and AuthController.me return
 });
 
 test('API process refuses startup without JWT_SECRET before accessing the database', () => {
-  const { status, stderr, stdout } = spawnSync(process.execPath, [join(process.cwd(), 'dist/main.js')], {
-    cwd: process.cwd(),
+  const { status, stderr, stdout } = spawnSync(process.execPath, [join(__dirname, '../main.js')], {
+    cwd: join(__dirname, '../..'),
     encoding: 'utf8',
     env: { ...process.env, JWT_SECRET: '' },
   });

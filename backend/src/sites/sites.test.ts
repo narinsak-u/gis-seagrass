@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, test } from 'vitest';
+import { after, before, test } from 'node:test';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool, type PoolClient } from 'pg';
@@ -33,7 +33,7 @@ function importSurveyRecords(client: PoolClient, records: ParsedSurvey[]) {
   return importSurveys(writer, records);
 }
 
-beforeAll(async () => {
+before(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -89,7 +89,7 @@ beforeAll(async () => {
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-afterAll(async () => {
+after(async () => {
   if (pool) {
     if (surveyRefs.length) {
       await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [surveyRefs]);
