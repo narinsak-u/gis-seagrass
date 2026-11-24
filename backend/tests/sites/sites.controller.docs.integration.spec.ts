@@ -47,6 +47,7 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
   expect(documentResponse.status).toBe(200);
   const document = await documentResponse.json() as OpenApiDocument;
   expect(document.openapi.startsWith('3.')).toBe(true);
+  expect(document.servers).toStrictEqual([{ url: '/api' }]);
 
   const paths = document.paths;
   const list = paths['/sites']?.get!;
@@ -132,6 +133,7 @@ integration('Swagger UI and OpenAPI document expose the Site API contract over H
 
 interface OpenApiDocument {
   openapi: string;
+  servers?: Array<{ url: string }>;
   paths: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', OpenApiOperation>>>;
   components?: { schemas?: Record<string, OpenApiSchema> };
 }

@@ -137,7 +137,7 @@ npm run test:e2e
 
 Set `E2E_GATEWAY_PORT` if port `18080` is occupied. The command is repeatable and does not use or stop the development Compose project. Playwright HTML reports, traces, screenshots, and the isolated import report stay in ignored `frontend/playwright-report/` and `frontend/test-results/`; inspect them after failures. The browser supplies an empty local MapLibre style, so application layers and map interactions do not depend on OpenFreeMap uptime.
 
-The seeded development accounts are used only inside this disposable database. E2E covers public map and viewport reads, synchronized filters/details/history, viewer login/logout, admin Survey creation through the API plus UI history readback, and editor-role `403` authorization. Step 6 has no mutation UI; no Site or Survey mutation controls are added.
+E2E inserts viewer, editor, and admin accounts with unique per-run credentials after the disposable database starts; development accounts are disabled. E2E covers public map and viewport reads, synchronized filters/details/history, viewer login/logout, admin Survey creation through the API plus UI history readback, and editor-role `403` authorization. Step 6 has no mutation UI; no Site or Survey mutation controls are added.
 
 ## CI workflows
 
