@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, test } from 'vitest';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
 import { parseSurveysCsv } from './parser/surveys';
@@ -35,7 +35,7 @@ let speciesCode = '';
 let duplicateSpeciesCode = '';
 let refs: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -114,7 +114,7 @@ before(async () => {
     row(refs[17]),
   ].join('\n'));
 });
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [refs]);
     if (refs.length) await pool.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [refs]);

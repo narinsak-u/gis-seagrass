@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, test } from 'vitest';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
 import { parseProvinceCollection, parseProvinceFeature } from './parser/province';
@@ -28,7 +28,7 @@ let directory: string;
 let reportPath: string;
 let codes: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -66,7 +66,7 @@ before(async () => {
     [codes[1], 'Existing', 'MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))'],
   );
 });
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
     await pool.end();

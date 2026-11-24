@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, test } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../platform/database';
@@ -43,7 +43,7 @@ const site = (code: string, geometry: unknown, name = `Site ${code}`) => ({
   type: 'Feature', properties: { code, name }, geometry,
 });
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -77,7 +77,7 @@ before(async () => {
   client = await pool.connect();
 });
 
-after(async () => {
+afterAll(async () => {
   client?.release();
   if (pool) {
     if (cliSurveyRef) {

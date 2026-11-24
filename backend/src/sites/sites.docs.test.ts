@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, test } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
@@ -14,7 +14,7 @@ let database: DatabaseProvider | undefined;
 
 let origin = '';
 
-before(async () => {
+beforeAll(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -33,7 +33,7 @@ before(async () => {
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-after(async () => {
+afterAll(async () => {
   if (app) await app.close();
   else await database?.close();
 });

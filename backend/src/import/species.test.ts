@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, test } from 'vitest';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
 import { parseSpeciesArray, parseSpeciesRecord } from './parser/species';
@@ -27,7 +27,7 @@ let directory: string;
 let reportPath: string;
 let codes: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -58,7 +58,7 @@ before(async () => {
   await pool.query('INSERT INTO species (code, name_th, name_sci) VALUES ($1, $2, $3)', [codes[1], 'ชื่อเดิม', 'Existing species']);
 });
 
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [codes]);
     await pool.end();

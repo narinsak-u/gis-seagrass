@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import * as ts from 'typescript';
-import { test } from 'node:test';
+import { test } from 'vitest';
 
 const sourceRoot = resolve(process.cwd(), 'src');
 const featureModules = ['auth', 'sites', 'surveys', 'site-survey-workflows', 'import'] as const;
