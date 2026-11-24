@@ -66,6 +66,7 @@ const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
   province: undefined,
 };
 
+
 export function SitesWorkspace({
   headerActions,
   provinceNames,
