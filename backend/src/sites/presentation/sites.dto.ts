@@ -82,3 +82,8 @@ export class SiteGeoJsonQueryDto {
   @IsIn(['active'])
   status?: string;
 }
+
+export class ProvinceGeoJsonQueryDto {
+  @Allow()
+  bbox?: string;
+}

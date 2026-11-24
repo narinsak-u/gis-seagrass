@@ -1,7 +1,11 @@
+import { AuthControls } from "@/src/features/auth/components/AuthControls";
+import { AuthProvider } from "@/src/features/auth/components/AuthProvider";
+import { SitesWorkspace } from "@/src/features/sites/components/SitesWorkspace";
+
 export default function Home() {
   return (
-    <main>
-      <h1>Seagrass Monitoring System</h1>
-    </main>
+    <AuthProvider>
+      <SitesWorkspace headerActions={<AuthControls />} />
+    </AuthProvider>
   );
 }
