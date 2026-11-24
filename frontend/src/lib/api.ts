@@ -1,4 +1,7 @@
-import type { SiteFeatureCollection } from "@/src/features/sites/types";
+import type {
+  SiteDetailFeature,
+  SiteFeatureCollection,
+} from "@/src/features/sites/types";
 
 export interface ApiErrorPayload {
   code: string;
@@ -134,6 +137,23 @@ export async function fetchActiveSitesGeoJson({
     params.set("province", province.trim());
   }
   return apiFetch<SiteFeatureCollection>(`/sites.geojson?${params.toString()}`, {
+    signal,
+    fetchImpl,
+  });
+}
+
+export interface FetchSiteDetailParams {
+  code: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+export async function fetchSiteDetail({
+  code,
+  signal,
+  fetchImpl,
+}: FetchSiteDetailParams): Promise<SiteDetailFeature> {
+  return apiFetch<SiteDetailFeature>(`/sites/${encodeURIComponent(code)}`, {
     signal,
     fetchImpl,
   });

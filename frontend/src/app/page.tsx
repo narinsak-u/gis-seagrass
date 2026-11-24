@@ -1,5 +1,5 @@
-import { MapWorkspace } from "@/src/features/map/MapWorkspace";
+import { SitesWorkspace } from "@/src/features/sites/SitesWorkspace";
 
 export default function Home() {
-  return <MapWorkspace />;
+  return <SitesWorkspace />;
 }

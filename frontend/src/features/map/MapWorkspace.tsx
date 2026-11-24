@@ -35,6 +35,8 @@ export interface MapWorkspaceProps {
   onViewportStateChange?: (state: ViewportSitesState) => void;
   /** Callback whenever map viewport bounds settle (Ticket 03 Province boundaries). */
   onViewportBoundsChange?: (bounds: BboxBounds) => void;
+  /** Incrementing signal from sidePanel to retry the active viewport request. */
+  retrySignal?: number;
 }
 
 const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
@@ -56,6 +58,7 @@ export function MapWorkspace({
   onMapReady,
   onViewportStateChange,
   onViewportBoundsChange,
+  retrySignal = 0,
 }: MapWorkspaceProps) {
   const [viewportState, setViewportState] = useState<ViewportSitesState>(
     INITIAL_VIEWPORT_STATE,
@@ -99,6 +102,11 @@ export function MapWorkspace({
       controller.loadInitial(current.bbox, provinceFilter);
     }
   }, [provinceFilter]);
+
+  useEffect(() => {
+    if (retrySignal === 0) return;
+    controllerRef.current?.retry();
+  }, [retrySignal]);
 
   const handleInitialBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);

@@ -9,6 +9,16 @@ export interface SiteProperties {
   siteStatus: SiteStatus;
 }
 
+export interface LatestSurveySummary {
+  survey_ref: string | null;
+  surveyed_on: string;
+  cover_percent: number;
+}
+
+export interface SiteDetailProperties extends SiteProperties {
+  latest_survey: LatestSurveySummary | null;
+}
+
 export interface SiteGeometry {
   type: "Polygon" | "MultiPolygon";
   coordinates: number[][][] | number[][][][];
@@ -18,6 +28,12 @@ export interface SiteFeature {
   type: "Feature";
   geometry: SiteGeometry;
   properties: SiteProperties;
+}
+
+export interface SiteDetailFeature {
+  type: "Feature";
+  geometry: SiteGeometry;
+  properties: SiteDetailProperties;
 }
 
 export interface SiteFeatureCollection {
