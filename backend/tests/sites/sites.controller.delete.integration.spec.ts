@@ -192,10 +192,10 @@ integration('DELETE /sites and Survey import serialize both lock orders', async 
         importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         deletePromise = deleteSite(code);
-        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        await waitForBlockedQuery('ST_AsGeoJSON(');
       } else {
         deletePromise = deleteSite(code);
-        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        await waitForBlockedQuery('ST_AsGeoJSON(');
         importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
       }
