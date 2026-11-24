@@ -52,7 +52,7 @@ Backend specs sit beside their source owners and use Vitest `expect` assertions.
 
 ## Frontend architecture
 
-Frontend stays feature-first: UI in `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts remain feature-owned. TanStack Query owns server-data fetching, cancellation, and cache; Zustand owns only shared Site-workspace filters, pagination, and selection. Query keys never include tokens, and logout or `401` clears protected Survey cache. Authentication tokens remain in tab memory and are never persisted.
+Frontend stays feature-first: UI lives in `components/`, feature hooks in `hooks/`, and feature contracts remain feature-owned. One Axios client owns same-origin `/api` transport, its 10-second timeout, cancellation, and normalized errors; Site, Province, Survey, login, and identity response boundaries parse with Zod. TanStack Query owns remote data, request lifecycle, and caching; Zustand owns shared Site-workspace filters, pagination, and selection plus memory-only auth session state. Protected requests receive their token explicitly. Survey query keys include a session epoch so account changes cannot reuse prior-session history; logout and `401` clear the protected Survey cache. Site and Province geometry requests remain bounded to the current viewport; table filtering and pagination do not provide nationwide search, and Survey map points cover only loaded history pages.
 
 Tests live under each feature's `tests/` directory and use Vitest assertions; shared library tests live in `src/lib/tests/`.
 

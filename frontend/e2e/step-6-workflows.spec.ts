@@ -189,6 +189,25 @@ test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the sa
   expect(initialBbox).not.toBe(new URL(response.url()).searchParams.get("bbox"));
 });
 
+test("E2E-09 375px workspace supports keyboard Site selection and detail", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openWorkspace(page);
+
+  const table = page.getByRole("table", { name: "Active sites in map view" });
+  await expect(table).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
+  const siteButton = table.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) });
+  await expect(siteButton).toBeVisible();
+  await siteButton.focus();
+  await expect(siteButton).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(siteButton).toHaveAttribute("aria-pressed", "true");
+  const detail = page.getByRole("region", { name: "Site detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByText(siteCode, { exact: true })).toBeVisible();
+});
+
 test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
   test.setTimeout(60_000);
   const { collection } = await openWorkspace(page);

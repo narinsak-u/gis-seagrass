@@ -30,21 +30,6 @@ export class ApiClientError extends Error {
   }
 }
 
-export interface ApiFetchOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
-  body?: unknown;
-  token?: string | null;
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-  fetchImpl?: typeof fetch;
-}
-
-function normalizeApiPath(path: string): string {
-  const withLeadingSlash = path.startsWith("/") ? path : `/${path}`;
-  return withLeadingSlash.startsWith("/api/") || withLeadingSlash === "/api"
-    ? withLeadingSlash
-    : `/api${withLeadingSlash}`;
-}
 
 function extractApiError(payload: unknown, fallbackStatus: number): ApiErrorPayload {
   if (payload && typeof payload === "object" && "error" in payload) {
@@ -130,50 +115,6 @@ function parseSiteDetail(payload: unknown): SiteDetailFeature {
   return result.data;
 }
 
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const {
-    method = "GET",
-    body,
-    token,
-    signal,
-    headers: customHeaders,
-    fetchImpl = fetch,
-  } = options;
-
-  const headers = new Headers(customHeaders);
-  headers.set("accept", "application/json");
-  if (token) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-  if (body !== undefined && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-
-  const response = await fetchImpl(normalizeApiPath(path), {
-    method,
-    headers,
-    signal,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    let parsed: unknown = null;
-    try {
-      parsed = await response.json();
-    } catch {
-      parsed = null;
-    }
-    const err = extractApiError(parsed, response.status);
-    throw new ApiClientError(response.status, err.code, err.message, err.details);
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
-}
 
 export interface FetchActiveSitesParams {
   bbox: string;
@@ -208,17 +149,12 @@ export async function fetchActiveSitesGeoJson({
 export interface FetchSiteDetailParams {
   code: string;
   signal?: AbortSignal;
-  fetchImpl?: typeof fetch;
 }
 
 export async function fetchSiteDetail({
   code,
   signal,
-  fetchImpl,
 }: FetchSiteDetailParams): Promise<SiteDetailFeature> {
   const path = `/sites/${encodeURIComponent(code)}`;
-  if (fetchImpl) {
-    return parseSiteDetail(await apiFetch<unknown>(path, { signal, fetchImpl }));
-  }
   return parseSiteDetail(await apiRequest<unknown>(path, { signal }));
 }
