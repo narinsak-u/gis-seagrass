@@ -136,17 +136,19 @@ integration('protected requests resolve current role and active status for each 
 });
 
 integration('POST /auth/login and /auth/login/ count malformed attempts toward the shared limit', async () => {
-  const attempt = (body: string, path: string) => fetch(`${fixture.origin}${path}`, {
+  const attempt = (body: string, path: string, contentType = 'application/json') => fetch(`${fixture.origin}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.8' },
+    headers: { 'content-type': contentType, 'x-forwarded-for': '203.0.113.8' },
     body,
   });
   for (let count = 0; count < 20; count++) {
-    const path = count % 2 === 0 ? '/auth/login' : '/auth/login/';
-    expect((await attempt(count % 2 === 0 ? '{' : JSON.stringify({}), path)).status).toBe(400);
+    const malformedJson = count % 2 === 0;
+    const path = malformedJson ? '/auth/login' : '/auth/login/';
+    const contentType = malformedJson ? 'application/json' : 'application/json; charset=unsupported';
+    expect((await attempt(malformedJson ? '{' : JSON.stringify({}), path, contentType)).status).toBe(400);
   }
 
-  const limited = await attempt('{', '/auth/login/');
+  const limited = await attempt('{', '/auth/login/', 'application/json; charset=unsupported');
   expect(limited.status).toBe(429);
   expect(Object.keys(await limited.json() as Record<string, unknown>)).toStrictEqual(['error']);
 
