@@ -24,7 +24,7 @@ Site status is derived from current Survey rows, not stored as a cache. POST and
 
 ## Step 5 access and audit policy
 
-Site map, list, detail, and derived status reads remain public. Survey listing requires an active viewer, editor, or admin; all Site and Survey writes require an active admin. Access tokens carry a user ID and expire after 900 seconds. Protected requests resolve the user's current active flag and role from the database, so disabling or changing a user takes effect on the next request. Role checks run before resource lookup; malformed JSON is rejected by the HTTP parser first.
+Site map, list, detail, and derived status reads remain public. Survey listing requires an active viewer, editor, or admin; all Site and Survey writes require an active admin. Access tokens carry a user ID and expire after 900 seconds. Protected requests resolve the user's current active flag and role from the database, so disabling or changing a user takes effect on the next request. Role checks run before resource lookup; malformed login JSON is handled as described under Backend architecture, while other malformed JSON is rejected by the HTTP parser first.
 
 The server records the authenticated actor on Site and Survey creation and updates, including species-only Survey changes and Site soft deletion. Clients cannot supply actor or timestamp fields. Survey hard deletion removes the row and species links, so no actor history survives it.
 
@@ -46,7 +46,7 @@ Import owns `parser`, flat `application` (`import-sites.ts`, `import-surveys.ts`
 
 Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, advisory locks, and query-builder gaps as explicit SQL in infrastructure. Health retains its pool-level PostGIS check. This keeps spatial behavior visible without adding generic repositories or hiding transaction boundaries.
 
-HTTP request DTOs use one global transforming, whitelisting `ValidationPipe`; query conversion is explicit and request bodies are not coerced. `ApiErrorFilter` maps framework-independent application errors to HTTP statuses and preserves the shared error envelope.
+HTTP request DTOs use one global transforming, whitelisting `ValidationPipe`; query conversion is explicit. Request bodies are not coerced, except malformed login JSON is replaced with an empty body after parse failure so throttling runs before normal validation rejects it.
 
 Backend specs sit beside their source owners and use Vitest `expect` assertions. TypeScript emits Nest decorator metadata for those specs; `npm test` builds compiled subprocess targets first. Database-backed specs run serially only with `IMPORT_TEST_DATABASE_URL` pointing at disposable PostGIS.
 
