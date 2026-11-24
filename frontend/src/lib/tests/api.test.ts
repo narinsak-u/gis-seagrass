@@ -82,27 +82,54 @@ describe("apiFetch", () => {
     });
   });
 
-  it("fetchActiveSitesGeoJson builds /api/sites.geojson with minLon,minLat,maxLon,maxLat and status=active", async () => {
-    let capturedUrl = "";
-    const fakeFetch: typeof fetch = async (input) => {
-      capturedUrl = String(input);
-      return new Response(
-        JSON.stringify({ type: "FeatureCollection", features: [] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+  it("requests active Site GeoJSON with bounded params and forwards cancellation", async () => {
+    const controller = new AbortController();
+    let capturedConfig: InternalAxiosRequestConfig | undefined;
+    const previousAdapter = apiClient.defaults.adapter;
+    apiClient.defaults.adapter = async (config) => {
+      capturedConfig = config;
+      return {
+        data: { type: "FeatureCollection", features: [] },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
     };
+    try {
+      await fetchActiveSitesGeoJson({
+        bbox: "98.1,7.2,99.4,8.9",
+        province: "92",
+        signal: controller.signal,
+      });
+      expect(capturedConfig?.url).toBe("/sites.geojson");
+      expect(capturedConfig?.params).toEqual({
+        bbox: "98.1,7.2,99.4,8.9",
+        province: "92",
+        status: "active",
+      });
+      controller.abort();
+      expect(capturedConfig?.signal?.aborted).toBe(true);
+    } finally {
+      apiClient.defaults.adapter = previousAdapter;
+    }
+  });
 
-    await fetchActiveSitesGeoJson({
-      bbox: "98.1,7.2,99.4,8.9",
-      province: "92",
-      fetchImpl: fakeFetch,
+  it("rejects malformed Site FeatureCollections", async () => {
+    const previousAdapter = apiClient.defaults.adapter;
+    apiClient.defaults.adapter = async (config) => ({
+      data: { type: "FeatureCollection", features: [{ type: "Feature" }] },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config,
     });
-
-    const parsed = new URL(capturedUrl, "http://localhost:8080");
-    expect(parsed.pathname).toBe("/api/sites.geojson");
-    expect(parsed.searchParams.get("bbox")).toBe("98.1,7.2,99.4,8.9");
-    expect(parsed.searchParams.get("status")).toBe("active");
-    expect(parsed.searchParams.get("province")).toBe("92");
+    try {
+      await expect(fetchActiveSitesGeoJson({ bbox: "98,7,99,8" }))
+        .rejects.toMatchObject({ code: "INVALID_API_RESPONSE" });
+    } finally {
+      apiClient.defaults.adapter = previousAdapter;
+    }
   });
 
   it("fetchSiteDetail requests /api/sites/:code with URL encoding and AbortSignal", async () => {

@@ -1,5 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
-import { siteDetailSchema } from "@/src/features/sites/schema";
+import { siteDetailSchema, siteFeatureCollectionSchema } from "@/src/features/sites/schema";
 import type {
   SiteDetailFeature,
   SiteFeatureCollection,
@@ -179,25 +179,30 @@ export interface FetchActiveSitesParams {
   bbox: string;
   province?: string;
   signal?: AbortSignal;
-  fetchImpl?: typeof fetch;
 }
 
 export async function fetchActiveSitesGeoJson({
   bbox,
   province,
   signal,
-  fetchImpl,
 }: FetchActiveSitesParams): Promise<SiteFeatureCollection> {
-  const params = new URLSearchParams();
-  params.set("bbox", bbox);
-  params.set("status", "active");
-  if (province && province.trim().length > 0) {
-    params.set("province", province.trim());
-  }
-  return apiFetch<SiteFeatureCollection>(`/sites.geojson?${params.toString()}`, {
+  const payload = await apiRequest<unknown>("/sites.geojson", {
+    params: {
+      bbox,
+      ...(province?.trim() ? { province: province.trim() } : {}),
+      status: "active",
+    },
     signal,
-    fetchImpl,
   });
+  const result = siteFeatureCollectionSchema.safeParse(payload);
+  if (!result.success) {
+    throw new ApiClientError(
+      0,
+      "INVALID_API_RESPONSE",
+      "The API returned an invalid Site GeoJSON response",
+    );
+  }
+  return result.data;
 }
 
 export interface FetchSiteDetailParams {

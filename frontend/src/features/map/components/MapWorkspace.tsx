@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type * as maplibregl from "maplibre-gl";
-import { fetchActiveSitesGeoJson } from "@/src/lib/api";
+import { ApiClientError } from "@/src/lib/api";
 import { fetchProvincesGeoJson } from "@/src/features/provinces/api";
 import {
   createViewportProvincesController,
@@ -15,12 +16,15 @@ import type {
   SiteFeature,
   SiteFeatureCollection,
 } from "@/src/features/sites/types";
-import type { SurveyPointFeatureCollection } from "@/src/features/surveys/types";
 import {
-  createViewportSitesController,
-  type ViewportSitesController,
+  createViewportDebouncer,
+  formatBbox,
+  isValidBboxBounds,
+  normalizeBboxBounds,
+  siteViewportQueryOptions,
   type ViewportSitesState,
 } from "@/src/features/sites/viewport";
+import type { SurveyPointFeatureCollection } from "@/src/features/surveys/types";
 import { SeagrassMap } from "./SeagrassMap";
 import { MapWorkspaceStatus } from "./MapWorkspaceStatus";
 
@@ -51,14 +55,6 @@ export interface MapWorkspaceProps {
   onProvincesChange?: (provinces: ProvinceFeature[]) => void;
 }
 
-const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
-  status: "idle",
-  data: null,
-  error: null,
-  bbox: null,
-  bboxString: null,
-  province: undefined,
-};
 
 const INITIAL_PROVINCES_STATE: ViewportProvincesState = {
   status: "idle",
@@ -82,43 +78,77 @@ export function MapWorkspace({
   retrySignal = 0,
   onProvincesChange,
 }: MapWorkspaceProps) {
-  const [viewportState, setViewportState] = useState<ViewportSitesState>(
-    INITIAL_VIEWPORT_STATE,
-  );
+  const [settledBounds, setSettledBounds] = useState<BboxBounds | null>(null);
   const [provincesState, setProvincesState] = useState<ViewportProvincesState>(
     INITIAL_PROVINCES_STATE,
   );
   const [basemapNotice, setBasemapNotice] = useState<string | null>(null);
   const [resetViewSignal, setResetViewSignal] = useState(0);
 
-  const controllerRef = useRef<ViewportSitesController | null>(null);
   const provincesControllerRef = useRef<ViewportProvincesController | null>(null);
-  const provinceFilterRef = useRef(provinceFilter);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
   const onProvincesChangeRef = useRef(onProvincesChange);
+  const viewportDebouncerRef = useRef<ReturnType<typeof createViewportDebouncer> | null>(null);
+  if (!viewportDebouncerRef.current) {
+    viewportDebouncerRef.current = createViewportDebouncer((bounds) => {
+      setSettledBounds(isValidBboxBounds(bounds) ? bounds : null);
+    });
+  }
+  const normalizedBounds = settledBounds ? normalizeBboxBounds(settledBounds) : null;
+  const bboxString =
+    settledBounds &&
+    isValidBboxBounds(settledBounds) &&
+    normalizedBounds &&
+    isValidBboxBounds(normalizedBounds)
+      ? formatBbox(normalizedBounds)
+      : null;
+  // Re-query current viewport when provinceFilter prop changes (Ticket 02 hook)
+  const sitesQuery = useQuery({
+    ...siteViewportQueryOptions(bboxString ?? "", provinceFilter),
+    enabled: bboxString !== null,
+  });
+  const viewportState: ViewportSitesState = {
+    status: bboxString === null
+      ? "idle"
+      : sitesQuery.isPending || sitesQuery.isFetching
+        ? "loading"
+        : sitesQuery.isError
+          ? "error"
+          : sitesQuery.data?.features.length
+            ? "ready"
+            : sitesQuery.data
+              ? "empty"
+              : "idle",
+    data: sitesQuery.data ?? null,
+    error: sitesQuery.error
+      ? {
+          code: sitesQuery.error instanceof ApiClientError
+            ? sitesQuery.error.code
+            : "NETWORK_ERROR",
+          message: sitesQuery.error.message,
+          status: sitesQuery.error instanceof ApiClientError
+            ? sitesQuery.error.status
+            : undefined,
+        }
+      : null,
+    bbox: normalizedBounds,
+    bboxString,
+    province: provinceFilter,
+  };
 
-  provinceFilterRef.current = provinceFilter;
   onViewportStateChangeRef.current = onViewportStateChange;
   onViewportBoundsChangeRef.current = onViewportBoundsChange;
   onProvincesChangeRef.current = onProvincesChange;
 
   useEffect(() => {
-    const controller = createViewportSitesController({
-      debounceMs: 250,
-      fetchSites: ({ bbox, province, signal }) =>
-        fetchActiveSitesGeoJson({ bbox, province, signal }),
-      onStateChange: (next) => {
-        setViewportState(next);
-        onViewportStateChangeRef.current?.(next);
-      },
-    });
-    controllerRef.current = controller;
+    onViewportStateChangeRef.current?.(viewportState);
+  }, [viewportState.status, viewportState.data, sitesQuery.error, viewportState.bboxString, provinceFilter]);
 
+  useEffect(() => {
     const provincesController = createViewportProvincesController({
       debounceMs: 250,
-      fetchProvinces: ({ bbox, signal }) =>
-        fetchProvincesGeoJson({ bbox, signal }),
+      fetchProvinces: ({ bbox, signal }) => fetchProvincesGeoJson({ bbox, signal }),
       onStateChange: (next) => {
         setProvincesState(next);
         if (next.status === "ready" || next.status === "empty") {
@@ -127,45 +157,33 @@ export function MapWorkspace({
       },
     });
     provincesControllerRef.current = provincesController;
-
     return () => {
-      controller.dispose();
-      controllerRef.current = null;
+      viewportDebouncerRef.current?.cancel();
       provincesController.dispose();
       provincesControllerRef.current = null;
     };
   }, []);
 
-  // Re-query current viewport when provinceFilter prop changes (Ticket 02 hook)
   useEffect(() => {
-    const controller = controllerRef.current;
-    if (!controller) return;
-    const current = controller.getState();
-    if (current.bbox && current.province !== provinceFilter) {
-      controller.loadInitial(current.bbox, provinceFilter);
-    }
-  }, [provinceFilter]);
-
-  useEffect(() => {
-    if (retrySignal === 0) return;
-    controllerRef.current?.retry();
-  }, [retrySignal]);
+    if (retrySignal > 0) void sitesQuery.refetch();
+  }, [retrySignal, sitesQuery.refetch]);
 
   const handleInitialBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
-    controllerRef.current?.loadInitial(bounds, provinceFilterRef.current);
+    viewportDebouncerRef.current?.cancel();
+    setSettledBounds(isValidBboxBounds(bounds) ? bounds : null);
     provincesControllerRef.current?.loadInitial(bounds);
   }, []);
 
   const handleSettledBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
-    controllerRef.current?.onViewportSettled(bounds, provinceFilterRef.current);
     provincesControllerRef.current?.onViewportSettled(bounds);
+    viewportDebouncerRef.current?.schedule(bounds);
   }, []);
 
   const handleRetry = useCallback(() => {
-    controllerRef.current?.retry();
-  }, []);
+    void sitesQuery.refetch();
+  }, [sitesQuery.refetch]);
 
   const handleRetryProvinces = useCallback(() => {
     provincesControllerRef.current?.retry();
