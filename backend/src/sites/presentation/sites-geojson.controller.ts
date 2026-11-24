@@ -4,6 +4,7 @@ import { SITE_ERROR_SCHEMA, SITE_FEATURE_COLLECTION_SCHEMA } from './sites.opena
 import { ApiErrorEnvelope } from '../../platform/http';
 import type { PublicSiteSummary } from '../domain/site.types';
 import { SiteQueries } from '../application/site-queries';
+import { requireValidBbox } from './bbox.validation';
 import { SiteGeoJsonQueryDto } from './sites.dto';
 
 
@@ -36,22 +37,7 @@ export class SitesGeoJsonController {
   @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SITE_ERROR_SCHEMA })
   async list(@Query() query: SiteGeoJsonQueryDto): Promise<SiteFeatureCollection> {
     if (query.province !== undefined && query.province.length !== 2) throw new BadRequestException();
-    const bbox = parseBbox(query.bbox);
-    if (!bbox) {
-      throw new BadRequestException({ code: 'INVALID_BBOX', message: 'Invalid bbox', details: {} });
-    }
+    const bbox = requireValidBbox(query.bbox);
     return this.siteQueries.withinBbox(bbox, query.province);
   }
-}
-
-function parseBbox(value: unknown): [number, number, number, number] | undefined {
-  if (typeof value !== 'string') return undefined;
-  const parts = value.split(',');
-  if (parts.length !== 4 || parts.some((part) => part.trim() === '')) return undefined;
-  const bounds = parts.map(Number);
-  const [minLon, minLat, maxLon, maxLat] = bounds;
-  if (!bounds.every(Number.isFinite)
-    || minLon < -180 || maxLon > 180 || minLat < -90 || maxLat > 90
-    || minLon >= maxLon || minLat >= maxLat) return undefined;
-  return [minLon, minLat, maxLon, maxLat];
 }
