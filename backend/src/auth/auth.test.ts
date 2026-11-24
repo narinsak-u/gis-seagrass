@@ -10,7 +10,7 @@ import { AppModule } from '../app.module';
 import { runMigrations } from '../platform/database';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { setupSwagger } from '../swagger';
-import { hashPassword, signAccessToken, verifyAccessToken } from './application/security/auth-token';
+import { hashPassword, signAccessToken, verifyAccessToken } from './application/auth-token';
 import { seedDevelopmentAccounts } from './auth.module';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;

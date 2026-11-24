@@ -1,5 +1,5 @@
-import type { SiteStatus } from './site-status';
-export type { SiteStatus } from './site-status';
+import type { SiteStatus } from './site-status.rules';
+export type { SiteStatus } from './site-status.rules';
 
 export interface SiteSummary {
   code: string;

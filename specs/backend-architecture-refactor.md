@@ -1,5 +1,7 @@
 # Backend Architecture Refactor
 
+> **Layout note:** Physical subfolder and file-naming conventions in this completed historical spec were superseded by [`backend-clean-architecture-naming-refactor.md`](backend-clean-architecture-naming-refactor.md) and [ADR-0002](../docs/adr/0002-flat-clean-architecture-naming.md); historical status and acceptance records below are preserved unchanged.
+
 ## Status
 
 Implemented and verified. Backend build and 73/73 tests pass against disposable PostGIS.

@@ -6,11 +6,11 @@ import { createDatabaseProvider, type DatabaseProvider } from '../platform/datab
 import { withImportAdvisoryLock } from './infrastructure/advisory-lock';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
 import { parseProvinceCollection } from './parser/province';
-import { importSiteFeatures } from './application/use-cases/sites';
+import { importSiteFeatures } from './application/import-sites';
 import { parseSiteCollection } from './parser/sites';
 import { parseSpeciesArray } from './parser/species';
 import { importProvinces, importSpecies } from './infrastructure/reference-data';
-import { importSurveys } from './application/use-cases/surveys';
+import { importSurveys } from './application/import-surveys';
 import { parseSurveysCsv } from './parser/surveys';
 
 export interface ImportSummary {

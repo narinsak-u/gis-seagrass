@@ -1,7 +1,7 @@
 import { type DynamicModule, Module } from '@nestjs/common';
-import { SURVEY_LIST_REPOSITORY } from './application/contracts/survey-list-repository';
-import { DrizzleSurveyListRepository } from './infrastructure/repositories/drizzle-survey-list-repository';
-import { SurveysController } from './http/surveys.controller';
+import { SURVEY_LIST_REPOSITORY } from './application/survey-list.repository';
+import { DrizzleSurveyListRepository } from './infrastructure/drizzle-survey-list.repository';
+import { SurveysController } from './presentation/surveys.controller';
 
 @Module({})
 export class SurveysModule {
