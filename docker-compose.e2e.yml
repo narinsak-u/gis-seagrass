@@ -11,6 +11,7 @@ services:
       PGUSER: seagrass_e2e
       PGPASSWORD: seagrass_e2e_only
       PGDATABASE: seagrass_e2e
+      SEED_DEVELOPMENT_ACCOUNTS: "false"
       IMPORT_REPORT_PATH: /app/reports/import_report.csv
     volumes: !override
       - ./backend/seed-data:/app/seed-data:ro
