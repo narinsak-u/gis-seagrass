@@ -1,3 +1,5 @@
+import axios, { type AxiosRequestConfig } from "axios";
+import { siteDetailSchema } from "@/src/features/sites/schema";
 import type {
   SiteDetailFeature,
   SiteFeatureCollection,
@@ -70,6 +72,61 @@ function extractApiError(payload: unknown, fallbackStatus: number): ApiErrorPayl
     message: `Request failed with status ${fallbackStatus}`,
     details: {},
   };
+}
+
+export interface ApiRequestOptions {
+  method?: AxiosRequestConfig["method"];
+  params?: AxiosRequestConfig["params"];
+  signal?: AbortSignal;
+  token?: string | null;
+}
+
+export const apiClient = axios.create({
+  baseURL: "/api",
+  timeout: 10_000,
+  headers: { Accept: "application/json" },
+});
+
+export async function apiRequest<T>(
+  path: string,
+  { token, ...options }: ApiRequestOptions = {},
+): Promise<T> {
+  try {
+    const response = await apiClient.request<T>({
+      url: path,
+      ...options,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return (response.status === 204 ? undefined : response.data) as T;
+  } catch (error) {
+    if (axios.isCancel(error) || options.signal?.aborted) {
+      throw new DOMException("The operation was aborted", "AbortError");
+    }
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 0;
+      const apiError = error.response
+        ? extractApiError(error.response.data, status)
+        : {
+            code: "NETWORK_ERROR",
+            message: error.message || "Network request failed",
+            details: {},
+          };
+      throw new ApiClientError(status, apiError.code, apiError.message, apiError.details);
+    }
+    throw new ApiClientError(0, "NETWORK_ERROR", "Network request failed");
+  }
+}
+
+function parseSiteDetail(payload: unknown): SiteDetailFeature {
+  const result = siteDetailSchema.safeParse(payload);
+  if (!result.success) {
+    throw new ApiClientError(
+      0,
+      "INVALID_API_RESPONSE",
+      "The API returned an invalid Site detail response",
+    );
+  }
+  return result.data;
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
@@ -153,8 +210,9 @@ export async function fetchSiteDetail({
   signal,
   fetchImpl,
 }: FetchSiteDetailParams): Promise<SiteDetailFeature> {
-  return apiFetch<SiteDetailFeature>(`/sites/${encodeURIComponent(code)}`, {
-    signal,
-    fetchImpl,
-  });
+  const path = `/sites/${encodeURIComponent(code)}`;
+  if (fetchImpl) {
+    return parseSiteDetail(await apiFetch<unknown>(path, { signal, fetchImpl }));
+  }
+  return parseSiteDetail(await apiRequest<unknown>(path, { signal }));
 }
