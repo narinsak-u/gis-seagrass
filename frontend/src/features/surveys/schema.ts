@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const surveyItemSchema = z.object({
+export const surveyItemSchema = z.object({
   id: z.string().min(1),
   lon: z.number().finite().min(-180).max(180),
   lat: z.number().finite().min(-90).max(90),

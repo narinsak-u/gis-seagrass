@@ -104,7 +104,7 @@ describe("fetchSiteSurveys", () => {
     expect(result).toEqual(validPage);
   });
 
-  it("rejects malformed successful responses", async () => {
+  it("rejects a successful response missing its page", async () => {
     vi.spyOn(apiClient, "request").mockResolvedValue({
       status: 200,
       data: { items: [], total: 1 },
@@ -112,6 +112,17 @@ describe("fetchSiteSurveys", () => {
 
     await expect(fetchSiteSurveys({
       code: "TRG-01", token: "some-token",
+    })).rejects.toMatchObject({ code: "INVALID_API_RESPONSE" });
+  });
+
+  it("rejects a successful response for a different requested page", async () => {
+    vi.spyOn(apiClient, "request").mockResolvedValue({
+      status: 200,
+      data: validPage,
+    } as never);
+
+    await expect(fetchSiteSurveys({
+      code: "TRG-01", page: 3, token: "some-token",
     })).rejects.toMatchObject({ code: "INVALID_API_RESPONSE" });
   });
 

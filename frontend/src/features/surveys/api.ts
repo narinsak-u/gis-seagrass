@@ -22,7 +22,7 @@ export async function fetchSiteSurveys({
     { params: { page, pageSize }, token, signal },
   );
   const result = surveyPageSchema.safeParse(payload);
-  if (!result.success) {
+  if (!result.success || result.data.page !== page) {
     throw new ApiClientError(
       0,
       "INVALID_API_RESPONSE",

@@ -1,11 +1,10 @@
 import { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { describe, expect, it } from "vitest";
+import { apiClient, apiRequest } from "../api";
 import {
-  apiClient,
-  apiRequest,
   fetchActiveSitesGeoJson,
   fetchSiteDetail,
-} from "../api";
+} from "@/src/features/sites/api";
 
 const detailPayload = {
   type: "Feature" as const,

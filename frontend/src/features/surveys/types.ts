@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type { surveyItemSchema, surveyPageSchema } from "./schema";
 import type { ActorRole } from "@/src/features/auth/auth-session";
 
 export const AUTHORIZED_SURVEY_ROLES = [
@@ -8,23 +10,8 @@ export const AUTHORIZED_SURVEY_ROLES = [
 
 export const DEFAULT_SURVEY_PAGE_SIZE = 10;
 
-export interface SurveyListItem {
-  id: string;
-  lon: number;
-  lat: number;
-  surveyed_on: string;
-  cover_percent: number;
-  species: string[];
-  note: string | null;
-  created_by: string | null;
-  survey_ref?: string | null;
-}
-
-export interface SurveyPageResponse {
-  items: SurveyListItem[];
-  total: number;
-  page: number;
-}
+export type SurveyListItem = z.infer<typeof surveyItemSchema>;
+export type SurveyPageResponse = z.infer<typeof surveyPageSchema>;
 export type SurveyHistoryStatus =
   | "idle"
   | "unauthenticated"

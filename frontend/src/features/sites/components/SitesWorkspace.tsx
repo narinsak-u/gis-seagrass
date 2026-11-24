@@ -292,7 +292,7 @@ export function SitesWorkspace({
   const matchedCount = filteredFeatures.length;
   const filtersActive = hasActiveSiteFilters(filters);
 
-  const sidePanel = (
+  const sidePanel = (onResetView: () => void) => (
     <SitesWorkspacePanel
       isMobilePanelOpen={isMobilePanelOpen}
       hasSelectedSite={Boolean(selectedSiteCode)}
@@ -322,6 +322,7 @@ export function SitesWorkspace({
         onPageChange={setCurrentPage}
         onClearFilters={handleClearFilters}
         onRetry={handleRetryViewport}
+        onResetView={onResetView}
       />
 
       <SiteDetailPanel

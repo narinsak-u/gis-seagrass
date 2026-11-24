@@ -1,9 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
-import { siteDetailSchema, siteFeatureCollectionSchema } from "@/src/features/sites/schema";
-import type {
-  SiteDetailFeature,
-  SiteFeatureCollection,
-} from "@/src/features/sites/types";
+
 
 export interface ApiErrorPayload {
   code: string;
@@ -103,58 +99,3 @@ export async function apiRequest<T>(
   }
 }
 
-function parseSiteDetail(payload: unknown): SiteDetailFeature {
-  const result = siteDetailSchema.safeParse(payload);
-  if (!result.success) {
-    throw new ApiClientError(
-      0,
-      "INVALID_API_RESPONSE",
-      "The API returned an invalid Site detail response",
-    );
-  }
-  return result.data;
-}
-
-
-export interface FetchActiveSitesParams {
-  bbox: string;
-  province?: string;
-  signal?: AbortSignal;
-}
-
-export async function fetchActiveSitesGeoJson({
-  bbox,
-  province,
-  signal,
-}: FetchActiveSitesParams): Promise<SiteFeatureCollection> {
-  const payload = await apiRequest<unknown>("/sites.geojson", {
-    params: {
-      bbox,
-      ...(province?.trim() ? { province: province.trim() } : {}),
-      status: "active",
-    },
-    signal,
-  });
-  const result = siteFeatureCollectionSchema.safeParse(payload);
-  if (!result.success) {
-    throw new ApiClientError(
-      0,
-      "INVALID_API_RESPONSE",
-      "The API returned an invalid Site GeoJSON response",
-    );
-  }
-  return result.data;
-}
-
-export interface FetchSiteDetailParams {
-  code: string;
-  signal?: AbortSignal;
-}
-
-export async function fetchSiteDetail({
-  code,
-  signal,
-}: FetchSiteDetailParams): Promise<SiteDetailFeature> {
-  const path = `/sites/${encodeURIComponent(code)}`;
-  return parseSiteDetail(await apiRequest<unknown>(path, { signal }));
-}

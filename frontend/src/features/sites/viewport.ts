@@ -1,8 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
-import { fetchActiveSitesGeoJson } from "@/src/lib/api";
+import { fetchActiveSitesGeoJson } from "./api";
 import type { BboxBounds, SiteFeatureCollection } from "./types";
 
-export type ViewportLoadStatus = "idle" | "loading" | "ready" | "empty" | "error";
+export type ViewportLoadStatus = "idle" | "invalid" | "loading" | "ready" | "empty" | "error";
 
 export interface ViewportErrorInfo {
   code: string;

@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { fetchSiteDetail } from "@/src/lib/api";
+import { fetchSiteDetail } from "../api";
 
 export const siteQueryKeys = {
   detail: (code: string) => ["sites", "detail", code] as const,
