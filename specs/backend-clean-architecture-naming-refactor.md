@@ -2,7 +2,7 @@
 
 **Project:** GIS Seagrass  
 **Type:** Architecture-only refactor (no feature Step number)  
-**Status:** Implemented — 78/78 backend tests pass against disposable PostGIS and two-axis code review passed (run `/verify` if independent skill audit is desired)  
+**Status:** Implemented and verified — 78/78 backend tests pass against disposable PostGIS, two-axis code review passed, and independent `/verify` passed  
 **Scope:** `backend/` only  
 **Git prefix:** `refactor:`
 
@@ -277,7 +277,7 @@ Structurally unchanged. Update `backend/src/platform/architecture.test.ts` to en
 - [x] `backend/src/platform/architecture.test.ts` enforces the flat four-layer layout, bans retired legacy subfolders in feature layers, and preserves dependency-direction and composition-root guards without hardcoding optional filenames.
 - [x] Backend build and full existing test suite pass against isolated PostGIS; no tracked seed files or unrelated resources changed.
 - [x] `docs/adr/0002-flat-clean-architecture-naming.md` is accepted, `DESIGN.md` and `specs/README.md` reflect the active layout, and ADR-0001 plus the two historical architecture specs carry short supersession notes without rewriting historical evidence.
-- [ ] Independent `verify` results and any limitations are reported before final commit.
+- [x] Independent `verify` results and any limitations are reported before final commit.
 
 ## 10. Git and deliverables
 
