@@ -1,6 +1,6 @@
 # Backend Clean Architecture Flat Layers & Naming Refactor
 
-Status: ready-for-agent
+Status: implemented and verified (78/78 backend tests passing against disposable PostGIS; two-axis code review complete)
 
 ## Problem Statement
 

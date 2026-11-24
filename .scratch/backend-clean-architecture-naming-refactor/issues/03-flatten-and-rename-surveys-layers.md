@@ -4,10 +4,14 @@
 
 **Blocked by:** 01: Prepare architecture check for flat-layer transition
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Surveys exposes four flat physical layers (`domain`, `application`, `infrastructure`, `presentation`) with no remaining nested `http`, `dto`, `contracts`, `use-cases`, or `repositories` folders.
-- [ ] Surveys preserves role-honest `SurveyCommands` and its four distinct repository ports and Drizzle adapters (list, write, status, and Site–Survey constraints) using the repository dot-suffix convention, and uses consistent feature-plural presentation naming for its controller, DTOs, validation helpers, and OpenAPI definitions.
-- [ ] The redundant single-line Survey domain barrel is removed so the feature barrel imports calendar-date domain rules directly.
-- [ ] Surveys' module wiring, public barrel exports, `SiteSurveyModule` composition wiring, and Import CLI composition wiring compile cleanly without altering Survey behavior or public exports.
-- [ ] Existing Survey HTTP, PostGIS, validation, RBAC, and concurrency tests pass against disposable PostGIS alongside the backend build and architecture check.
+- [x] Surveys exposes four flat physical layers (`domain`, `application`, `infrastructure`, `presentation`) with no remaining nested `http`, `dto`, `contracts`, `use-cases`, or `repositories` folders.
+- [x] Surveys preserves role-honest `SurveyCommands` and its four distinct repository ports and Drizzle adapters (list, write, status, and Site–Survey constraints) using the repository dot-suffix convention, and uses consistent feature-plural presentation naming for its controller, DTOs, validation helpers, and OpenAPI definitions.
+- [x] The redundant single-line Survey domain barrel is removed so the feature barrel imports calendar-date domain rules directly.
+- [x] Surveys' module wiring, public barrel exports, `SiteSurveyModule` composition wiring, and Import CLI composition wiring compile cleanly without altering Survey behavior or public exports.
+- [x] Existing Survey HTTP, PostGIS, validation, RBAC, and concurrency tests pass against disposable PostGIS alongside the backend build and architecture check.
+
+## Comments
+
+- Resolved on `refactor/backend-clean-architecture-naming` via commits `05b7f4d` and `2acf8cb`. Verified with full backend build and 78/78 disposable PostGIS tests.

@@ -2,7 +2,7 @@
 
 **Project:** GIS Seagrass  
 **Type:** Architecture-only refactor (no feature Step number)  
-**Status:** Confirmed — ready for ticketing and implementation (superseding layout/naming recorded in `docs/adr/0002-flat-clean-architecture-naming.md`)  
+**Status:** Implemented — 78/78 backend tests pass against disposable PostGIS and two-axis code review passed (run `/verify` if independent skill audit is desired)  
 **Scope:** `backend/` only  
 **Git prefix:** `refactor:`
 
@@ -268,15 +268,15 @@ Structurally unchanged. Update `backend/src/platform/architecture.test.ts` to en
 
 ## 9. Acceptance criteria
 
-- [ ] `sites`, `surveys`, and `auth` retain four physical layers (`presentation/`, `application/`, `domain/`, `infrastructure/`), and all retired nested folders (`http/`, `dto/`, `contracts/`, `use-cases/`, `repositories/`, `transactions/`, `security/`) are flattened.
-- [ ] `site-survey-workflows` (`application/`, `infrastructure/`) and `import` (`parser/`, `application/`, `infrastructure/`) match the exact file-by-file mapping in Section 5; `surveys/domain/index.ts` is removed; `platform/` and `shared/` structure is unchanged.
-- [ ] Role-honest application filenames/classes (`AuthService`, `SiteQueries`, `SurveyCommands`, `SiteSurveyCoordinator`) and role-based dot suffixes (`*.repository.ts`, `*.port.ts`, `*.controller.ts`, `*.dto.ts`, `*.openapi.ts`, `*.validation.ts`, `*.rules.ts`) are applied consistently.
-- [ ] All imports, Nest module registrations, DI tokens, public module exports, and standalone importer bindings work without behavioral edits.
-- [ ] Cross-module Site–Survey transaction/locking rules are unchanged; `SiteSurveyTransactionRunner` and `SiteWriteTransaction` remain opaque behind `transaction-runner.port.ts`.
-- [ ] No functional changes to endpoints, role permissions, validation, PostGIS, status computation, migration history, or seed data.
-- [ ] `backend/src/platform/architecture.test.ts` enforces the flat four-layer layout, bans retired legacy subfolders in feature layers, and preserves dependency-direction and composition-root guards without hardcoding optional filenames.
-- [ ] Backend build and full existing test suite pass against isolated PostGIS; no tracked seed files or unrelated resources changed.
-- [ ] `docs/adr/0002-flat-clean-architecture-naming.md` is accepted, `DESIGN.md` and `specs/README.md` reflect the active layout, and ADR-0001 plus the two historical architecture specs carry short supersession notes without rewriting historical evidence.
+- [x] `sites`, `surveys`, and `auth` retain four physical layers (`presentation/`, `application/`, `domain/`, `infrastructure/`), and all retired nested folders (`http/`, `dto/`, `contracts/`, `use-cases/`, `repositories/`, `transactions/`, `security/`) are flattened.
+- [x] `site-survey-workflows` (`application/`, `infrastructure/`) and `import` (`parser/`, `application/`, `infrastructure/`) match the exact file-by-file mapping in Section 5; `surveys/domain/index.ts` is removed; `platform/` and `shared/` structure is unchanged.
+- [x] Role-honest application filenames/classes (`AuthService`, `SiteQueries`, `SurveyCommands`, `SiteSurveyCoordinator`) and role-based dot suffixes (`*.repository.ts`, `*.port.ts`, `*.controller.ts`, `*.dto.ts`, `*.openapi.ts`, `*.validation.ts`, `*.rules.ts`) are applied consistently.
+- [x] All imports, Nest module registrations, DI tokens, public module exports, and standalone importer bindings work without behavioral edits.
+- [x] Cross-module Site–Survey transaction/locking rules are unchanged; `SiteSurveyTransactionRunner` and `SiteWriteTransaction` remain opaque behind `transaction-runner.port.ts`.
+- [x] No functional changes to endpoints, role permissions, validation, PostGIS, status computation, migration history, or seed data.
+- [x] `backend/src/platform/architecture.test.ts` enforces the flat four-layer layout, bans retired legacy subfolders in feature layers, and preserves dependency-direction and composition-root guards without hardcoding optional filenames.
+- [x] Backend build and full existing test suite pass against isolated PostGIS; no tracked seed files or unrelated resources changed.
+- [x] `docs/adr/0002-flat-clean-architecture-naming.md` is accepted, `DESIGN.md` and `specs/README.md` reflect the active layout, and ADR-0001 plus the two historical architecture specs carry short supersession notes without rewriting historical evidence.
 - [ ] Independent `verify` results and any limitations are reported before final commit.
 
 ## 10. Git and deliverables
