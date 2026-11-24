@@ -138,7 +138,8 @@ integration('GET /sites/:code/surveys authenticates active current users before 
   });
   expect(malformed.status).toBe(400);
   expect(JSON.parse(malformed.body).error).toStrictEqual({ code: 'VALIDATION_ERROR', message: 'Validation failed', details: {} });
-  const invalidSignature = `${accessToken('viewer').slice(0, -1)}x`;
+  const [header, payload, signature] = accessToken('viewer').split('.');
+  const invalidSignature = `${header}.${payload}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
   expect((await request(path, 'GET', undefined, invalidSignature)).response.status).toBe(401);
   const now = Math.floor(Date.now() / 1000);
   expect((await request(path, 'GET', undefined, signedToken('not-a-uuid', now, now + 60))).response.status).toBe(401);
