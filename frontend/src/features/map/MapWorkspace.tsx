@@ -15,6 +15,7 @@ import type {
   SiteFeature,
   SiteFeatureCollection,
 } from "@/src/features/sites/types";
+import type { SurveyPointFeatureCollection } from "@/src/features/surveys/types";
 import {
   createViewportSitesController,
   type ViewportSitesController,
@@ -34,6 +35,8 @@ export interface MapWorkspaceProps {
   visibleSitesOverride?: SiteFeatureCollection | null;
   /** Optional selected Site code for polygon highlighting (Ticket 02). */
   selectedSiteCode?: string | null;
+  /** Optional selected-Site Survey points plotted above Site polygons (Ticket 05). */
+  surveyPoints?: SurveyPointFeatureCollection | null;
   /** Callback when a Site polygon is clicked on the map (Ticket 02). */
   onSelectSite?: (feature: SiteFeature) => void;
   /** Callback when the MapLibre instance finishes initial load (Tickets 02, 03, 05). */
@@ -71,6 +74,7 @@ export function MapWorkspace({
   provinceFilter,
   visibleSitesOverride,
   selectedSiteCode = null,
+  surveyPoints = null,
   onSelectSite,
   onMapReady,
   onViewportStateChange,
@@ -219,6 +223,7 @@ export function MapWorkspace({
           <SeagrassMap
             sites={displayedSites}
             provinces={provincesState.data}
+            surveyPoints={surveyPoints}
             selectedSiteCode={selectedSiteCode}
             resetViewSignal={resetViewSignal}
             onInitialBounds={handleInitialBounds}
@@ -372,7 +377,7 @@ export function MapWorkspace({
 
           {/* Bottom-left status legend — elevated slightly on narrow mobile screens so MapLibre attribution at bottom-right stays unobstructed */}
           <div className="pointer-events-none absolute bottom-10 left-3 z-10 sm:bottom-3 sm:left-3">
-            <StatusLegend />
+            <StatusLegend surveyPointCount={surveyPoints?.features.length ?? 0} />
           </div>
         </section>
 

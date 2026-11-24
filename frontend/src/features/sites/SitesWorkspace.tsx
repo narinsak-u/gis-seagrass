@@ -10,8 +10,17 @@ import {
 } from "react";
 import type * as maplibregl from "maplibre-gl";
 import { fetchSiteDetail } from "@/src/lib/api";
+import { useAuthSession } from "@/src/features/auth/AuthContext";
 import { MapWorkspace } from "@/src/features/map/MapWorkspace";
 import type { ProvinceFeature } from "@/src/features/provinces/types";
+import { fetchSiteSurveys } from "@/src/features/surveys/api";
+import {
+  createSurveyHistoryController,
+  INITIAL_SURVEY_HISTORY_STATE,
+  type SurveyHistoryController,
+  type SurveyHistoryState,
+} from "@/src/features/surveys/history-controller";
+import { SurveyHistorySection } from "@/src/features/surveys/SurveyHistorySection";
 import {
   createSiteDetailController,
   INITIAL_SITE_DETAIL_STATE,
@@ -75,6 +84,8 @@ export function SitesWorkspace({
   renderSurveyHistory,
   pageSize = DEFAULT_PAGE_SIZE,
 }: SitesWorkspaceProps) {
+  const { token, user, setSignInOpen, handleUnauthorized } = useAuthSession();
+
   const [viewportState, setViewportState] = useState<ViewportSitesState>(
     INITIAL_VIEWPORT_STATE,
   );
@@ -88,16 +99,22 @@ export function SitesWorkspace({
   const [detailState, setDetailState] = useState<SiteDetailState>(
     INITIAL_SITE_DETAIL_STATE,
   );
+  const [surveyHistoryState, setSurveyHistoryState] = useState<SurveyHistoryState>(
+    INITIAL_SURVEY_HISTORY_STATE,
+  );
   const [retrySignal, setRetrySignal] = useState(0);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(true);
 
   const mapRef = useRef<maplibregl.Map | null>(null);
   const detailControllerRef = useRef<SiteDetailController | null>(null);
+  const surveyHistoryControllerRef = useRef<SurveyHistoryController | null>(null);
   const onSelectedSiteChangeRef = useRef(onSelectedSiteChange);
   const onMapReadyRef = useRef(onMapReady);
+  const handleUnauthorizedRef = useRef(handleUnauthorized);
 
   onSelectedSiteChangeRef.current = onSelectedSiteChange;
   onMapReadyRef.current = onMapReady;
+  handleUnauthorizedRef.current = handleUnauthorized;
 
   useEffect(() => {
     const controller = createSiteDetailController({
@@ -109,11 +126,39 @@ export function SitesWorkspace({
     });
     detailControllerRef.current = controller;
 
+    const surveyController = createSurveyHistoryController({
+      fetchSurveys: ({ code, page, pageSize: reqPageSize, token: reqToken, signal }) =>
+        fetchSiteSurveys({
+          code,
+          page,
+          pageSize: reqPageSize,
+          token: reqToken,
+          signal,
+        }),
+      onStateChange: setSurveyHistoryState,
+      onUnauthorized: (message) => {
+        handleUnauthorizedRef.current(message);
+      },
+    });
+    surveyHistoryControllerRef.current = surveyController;
+
     return () => {
       controller.dispose();
       detailControllerRef.current = null;
+      surveyController.dispose();
+      surveyHistoryControllerRef.current = null;
     };
   }, []);
+
+  const selectedSiteCode = detailState.selectedCode;
+
+  useEffect(() => {
+    surveyHistoryControllerRef.current?.syncContext({
+      siteCode: selectedSiteCode,
+      token,
+      role: user?.role ?? null,
+    });
+  }, [selectedSiteCode, token, user?.role]);
 
   const handleViewportStateChange = useCallback((next: ViewportSitesState) => {
     setViewportState(next);
@@ -251,10 +296,39 @@ export function SitesWorkspace({
     setRetrySignal((count) => count + 1);
   }, []);
 
+  const handleLoadMoreSurveys = useCallback(() => {
+    surveyHistoryControllerRef.current?.loadNextPage();
+  }, []);
+
+  const handleRetrySurveys = useCallback(() => {
+    surveyHistoryControllerRef.current?.retry();
+  }, []);
+
+  const handleRequestSignIn = useCallback(() => {
+    setSignInOpen(true);
+  }, [setSignInOpen]);
+
+  const defaultRenderSurveyHistory = useCallback(
+    (site: SiteDetailFeature) => (
+      <SurveyHistorySection
+        site={site}
+        historyState={surveyHistoryState}
+        onRequestSignIn={handleRequestSignIn}
+        onLoadMore={handleLoadMoreSurveys}
+        onRetry={handleRetrySurveys}
+      />
+    ),
+    [
+      surveyHistoryState,
+      handleRequestSignIn,
+      handleLoadMoreSurveys,
+      handleRetrySurveys,
+    ],
+  );
+
   const totalInView = viewportState.data?.features.length ?? 0;
   const matchedCount = filteredFeatures.length;
   const filtersActive = hasActiveSiteFilters(filters);
-  const selectedSiteCode = detailState.selectedCode;
 
   const sidePanel = (
     <aside
@@ -318,7 +392,7 @@ export function SitesWorkspace({
           provinceNames={mergedProvinceNames}
           onClose={handleCloseDetail}
           onRetry={handleRetryDetail}
-          renderSurveyHistory={renderSurveyHistory}
+          renderSurveyHistory={renderSurveyHistory ?? defaultRenderSurveyHistory}
         />
       </div>
     </aside>
@@ -331,6 +405,7 @@ export function SitesWorkspace({
       provinceFilter={filters.province || undefined}
       visibleSitesOverride={filteredCollection}
       selectedSiteCode={selectedSiteCode}
+      surveyPoints={surveyHistoryState.points}
       onSelectSite={handleSelectPolygon}
       onMapReady={handleMapReady}
       onViewportStateChange={handleViewportStateChange}

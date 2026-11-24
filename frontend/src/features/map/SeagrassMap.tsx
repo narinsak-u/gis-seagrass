@@ -13,6 +13,10 @@ import type {
   SiteFeature,
   SiteFeatureCollection,
 } from "@/src/features/sites/types";
+import {
+  EMPTY_SURVEY_POINT_COLLECTION,
+  type SurveyPointFeatureCollection,
+} from "@/src/features/surveys/types";
 
 export const OPENFREEMAP_LIBERTY_STYLE_URL =
   "https://tiles.openfreemap.org/styles/liberty";
@@ -29,6 +33,14 @@ export const SITE_SOURCE_ID = "seagrass-sites";
 export const SITE_FILL_LAYER_ID = "seagrass-sites-fill";
 export const SITE_OUTLINE_LAYER_ID = "seagrass-sites-outline";
 
+export const SURVEY_POINT_SOURCE_ID = "seagrass-survey-points";
+export const SURVEY_POINT_HALO_LAYER_ID = "seagrass-survey-points-halo";
+export const SURVEY_POINT_LAYER_ID = "seagrass-survey-points-circle";
+
+export const SURVEY_POINT_FILL_COLOR = "#7E22CE";
+export const SURVEY_POINT_STROKE_COLOR = "#FFFFFF";
+export const SURVEY_POINT_HALO_COLOR = "#3B0764";
+
 const EMPTY_FEATURE_COLLECTION: SiteFeatureCollection = {
   type: "FeatureCollection",
   features: [],
@@ -42,6 +54,7 @@ const EMPTY_PROVINCE_COLLECTION: ProvinceFeatureCollection = {
 export interface SeagrassMapProps {
   sites: SiteFeatureCollection | null;
   provinces?: ProvinceFeatureCollection | null;
+  surveyPoints?: SurveyPointFeatureCollection | null;
   selectedSiteCode?: string | null;
   resetViewSignal?: number;
   onInitialBounds: (bounds: BboxBounds) => void;
@@ -61,9 +74,45 @@ function readMapBounds(map: maplibregl.Map): BboxBounds {
   };
 }
 
+function createSurveyPopupNode(props: Record<string, unknown>, coords: [number, number]): HTMLDivElement {
+  const root = document.createElement("div");
+  root.style.fontSize = "12px";
+  root.style.lineHeight = "1.4";
+  root.style.color = "#0F292E";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "600";
+  const surveyedOn = typeof props.surveyed_on === "string" ? props.surveyed_on : "Survey";
+  const cover =
+    typeof props.cover_percent === "number"
+      ? `${props.cover_percent}% cover`
+      : typeof props.cover_percent === "string"
+        ? `${props.cover_percent}% cover`
+        : "";
+  title.textContent = cover ? `${surveyedOn} · ${cover}` : surveyedOn;
+  root.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.style.color = "#436066";
+  meta.style.fontSize = "11px";
+  meta.textContent = `${coords[0].toFixed(4)}, ${coords[1].toFixed(4)}`;
+  root.appendChild(meta);
+
+  if (typeof props.species === "string" && props.species.trim().length > 0) {
+    const speciesEl = document.createElement("div");
+    speciesEl.style.marginTop = "2px";
+    speciesEl.style.fontSize = "11px";
+    speciesEl.textContent = `Species: ${props.species}`;
+    root.appendChild(speciesEl);
+  }
+
+  return root;
+}
+
 export function SeagrassMap({
   sites,
   provinces = null,
+  surveyPoints = null,
   selectedSiteCode = null,
   resetViewSignal = 0,
   onInitialBounds,
@@ -74,9 +123,11 @@ export function SeagrassMap({
 }: SeagrassMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const surveyPopupRef = useRef<maplibregl.Popup | null>(null);
   const layersReadyRef = useRef(false);
   const latestSitesRef = useRef<SiteFeatureCollection>(EMPTY_FEATURE_COLLECTION);
   const latestProvincesRef = useRef<ProvinceFeatureCollection>(EMPTY_PROVINCE_COLLECTION);
+  const latestSurveyPointsRef = useRef<SurveyPointFeatureCollection>(EMPTY_SURVEY_POINT_COLLECTION);
   const latestSelectedCodeRef = useRef<string | null>(selectedSiteCode);
 
   const onInitialBoundsRef = useRef(onInitialBounds);
@@ -92,6 +143,7 @@ export function SeagrassMap({
   onBasemapErrorRef.current = onBasemapError;
   latestSitesRef.current = sites ?? EMPTY_FEATURE_COLLECTION;
   latestProvincesRef.current = provinces ?? EMPTY_PROVINCE_COLLECTION;
+  latestSurveyPointsRef.current = surveyPoints ?? EMPTY_SURVEY_POINT_COLLECTION;
   latestSelectedCodeRef.current = selectedSiteCode;
 
   useEffect(() => {
@@ -237,6 +289,62 @@ export function SeagrassMap({
         });
       }
 
+      // Render authorized selected-Site Survey points ABOVE Site polygons
+      if (!map.getSource(SURVEY_POINT_SOURCE_ID)) {
+        map.addSource(SURVEY_POINT_SOURCE_ID, {
+          type: "geojson",
+          data: latestSurveyPointsRef.current as unknown as GeoJSON.FeatureCollection,
+        });
+      }
+
+      if (!map.getLayer(SURVEY_POINT_HALO_LAYER_ID)) {
+        map.addLayer({
+          id: SURVEY_POINT_HALO_LAYER_ID,
+          type: "circle",
+          source: SURVEY_POINT_SOURCE_ID,
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              6,
+              7,
+              11,
+              9.5,
+              15,
+              11.5,
+            ],
+            "circle-color": SURVEY_POINT_HALO_COLOR,
+            "circle-opacity": 0.26,
+          },
+        });
+      }
+
+      if (!map.getLayer(SURVEY_POINT_LAYER_ID)) {
+        map.addLayer({
+          id: SURVEY_POINT_LAYER_ID,
+          type: "circle",
+          source: SURVEY_POINT_SOURCE_ID,
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              6,
+              4.5,
+              11,
+              6,
+              15,
+              7.5,
+            ],
+            "circle-color": SURVEY_POINT_FILL_COLOR,
+            "circle-stroke-color": SURVEY_POINT_STROKE_COLOR,
+            "circle-stroke-width": 2,
+            "circle-opacity": 0.96,
+          },
+        });
+      }
+
       layersReadyRef.current = true;
     };
 
@@ -250,7 +358,36 @@ export function SeagrassMap({
       onSettledBoundsRef.current(readMapBounds(map));
     };
 
+    const handleSurveyPointClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature || feature.geometry.type !== "Point") return;
+      const coords = feature.geometry.coordinates as [number, number];
+      if (!Array.isArray(coords) || coords.length < 2) return;
+
+      surveyPopupRef.current?.remove();
+      const popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        offset: 10,
+      })
+        .setLngLat([coords[0], coords[1]])
+        .setDOMContent(
+          createSurveyPopupNode(
+            (feature.properties ?? {}) as Record<string, unknown>,
+            [coords[0], coords[1]],
+          ),
+        )
+        .addTo(map);
+      surveyPopupRef.current = popup;
+    };
+
     const handleSiteClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (map.getLayer(SURVEY_POINT_LAYER_ID)) {
+        const pointHits = map.queryRenderedFeatures(event.point, {
+          layers: [SURVEY_POINT_LAYER_ID],
+        });
+        if (pointHits.length > 0) return;
+      }
       const feature = event.features?.[0];
       if (!feature || !onSelectSiteRef.current) return;
       const code = feature.properties?.code;
@@ -269,6 +406,10 @@ export function SeagrassMap({
       }
     };
 
+    const handleSurveyMouseEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+
     const handleMouseLeave = () => {
       map.getCanvas().style.cursor = "";
     };
@@ -284,6 +425,9 @@ export function SeagrassMap({
 
     map.on("load", handleLoad);
     map.on("moveend", handleMoveEnd);
+    map.on("click", SURVEY_POINT_LAYER_ID, handleSurveyPointClick);
+    map.on("mouseenter", SURVEY_POINT_LAYER_ID, handleSurveyMouseEnter);
+    map.on("mouseleave", SURVEY_POINT_LAYER_ID, handleMouseLeave);
     map.on("click", SITE_FILL_LAYER_ID, handleSiteClick);
     map.on("mouseenter", SITE_FILL_LAYER_ID, handleMouseEnter);
     map.on("mouseleave", SITE_FILL_LAYER_ID, handleMouseLeave);
@@ -291,8 +435,13 @@ export function SeagrassMap({
 
     return () => {
       layersReadyRef.current = false;
+      surveyPopupRef.current?.remove();
+      surveyPopupRef.current = null;
       map.off("load", handleLoad);
       map.off("moveend", handleMoveEnd);
+      map.off("click", SURVEY_POINT_LAYER_ID, handleSurveyPointClick);
+      map.off("mouseenter", SURVEY_POINT_LAYER_ID, handleSurveyMouseEnter);
+      map.off("mouseleave", SURVEY_POINT_LAYER_ID, handleMouseLeave);
       map.off("click", SITE_FILL_LAYER_ID, handleSiteClick);
       map.off("mouseenter", SITE_FILL_LAYER_ID, handleMouseEnter);
       map.off("mouseleave", SITE_FILL_LAYER_ID, handleMouseLeave);
@@ -321,6 +470,22 @@ export function SeagrassMap({
       );
     }
   }, [provinces]);
+
+  useEffect(() => {
+    const nextPoints = surveyPoints ?? EMPTY_SURVEY_POINT_COLLECTION;
+    if (nextPoints.features.length === 0) {
+      surveyPopupRef.current?.remove();
+      surveyPopupRef.current = null;
+    }
+    const map = mapRef.current;
+    if (!map || !layersReadyRef.current) return;
+    const source = map.getSource(SURVEY_POINT_SOURCE_ID) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (source) {
+      source.setData(nextPoints as unknown as GeoJSON.FeatureCollection);
+    }
+  }, [surveyPoints]);
 
   useEffect(() => {
     const map = mapRef.current;
