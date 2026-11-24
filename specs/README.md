@@ -31,6 +31,7 @@ gis-seagrass/
 ├── frontend/              # Next.js, own package.json and lockfile
 ├── backend/               # NestJS, own package.json and lockfile
 │   └── seed-data/         # Original source files; do not modify
+├── gateway/               # Stock Caddy reverse-proxy config
 ├── specs/                 # Step-by-step implementation specifications
 ├── docker-compose.yml
 ├── .env.example
@@ -40,7 +41,7 @@ gis-seagrass/
 
 - `frontend/` and `backend/` each own their dependencies, scripts, TypeScript config, Dockerfile, and package lockfile.
 - No `apps/`, root `package.json`, `pnpm-workspace.yaml`, Turborepo or shared workspace packages.
-- Use `npm` independently within each app (e.g. `cd backend && npm install`); root Docker Compose coordinates all three services (`db`, `api`, `web`).
+- Use `npm` independently within each app (e.g. `cd backend && npm install`); root Docker Compose coordinates all four services (`db`, `api`, `web`, `gateway`).
 - Shared behavior between import and HTTP APIs lives in the **backend's** service/domain code, not a cross-application package.
 
 ## Global agent workflow and Git policy
