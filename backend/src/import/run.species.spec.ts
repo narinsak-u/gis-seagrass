@@ -1,24 +1,11 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
-import { parseSpeciesArray, parseSpeciesRecord } from './parser/species';
-
-test('species parser requires array and nonempty required fields', () => {
-  assert.throws(() => parseSpeciesArray('{'), /JSON/);
-  assert.throws(() => parseSpeciesArray('{"code":"AA"}'), /array/i);
-  assert.throws(() => parseSpeciesRecord({ code: ' ', name_th: 'ชื่อ', name_sci: 'Species' }), /INVALID_PROPERTIES/);
-  assert.throws(() => parseSpeciesRecord({ code: 'AA', name_th: '', name_sci: 'Species' }), /INVALID_PROPERTIES/);
-  assert.throws(() => parseSpeciesRecord({ code: 'AA', name_th: 'ชื่อ', name_sci: '  ' }), /INVALID_PROPERTIES/);
-  assert.deepEqual(parseSpeciesRecord({ code: 'AA', name_th: 'ชื่อ', name_sci: 'Species alba' }), {
-    code: 'AA', nameTh: 'ชื่อ', nameSci: 'Species alba',
-  });
-});
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -27,7 +14,7 @@ let directory: string;
 let reportPath: string;
 let codes: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -58,7 +45,7 @@ before(async () => {
   await pool.query('INSERT INTO species (code, name_th, name_sci) VALUES ($1, $2, $3)', [codes[1], 'ชื่อเดิม', 'Existing species']);
 });
 
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM species WHERE code = ANY($1::text[])', [codes]);
     await pool.end();
@@ -69,31 +56,31 @@ after(async () => {
 integration('public import command keeps first species, skips existing values, and reports source rows on rerun', async () => {
   const run = () => {
     const result = spawnSync('npm', ['run', 'import'], {
-      cwd: join(__dirname, '../..'),
+      cwd: process.cwd(),
       encoding: 'utf8',
       env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
     });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    expect(result.status, result.stderr || result.stdout).toBe(0);
     return result.stdout;
   };
-  assert.match(run(), /"species":\{"inserted":1,"skipped_existing":1,"rejected":2\}/);
+  expect(run()).toMatch(/"species":\{"inserted":1,"skipped_existing":1,"rejected":2\}/);
   const rows = await pool!.query<{ code: string; name_th: string; name_sci: string }>(
     'SELECT code, name_th, name_sci FROM species WHERE code = ANY($1::text[]) ORDER BY code', [codes],
   );
-  assert.equal(rows.rows.length, 2);
-  assert.ok(rows.rows.some((row) => row.code === codes[0] && row.name_th === 'ชื่อแรก' && row.name_sci === 'First species'));
-  assert.ok(rows.rows.some((row) => row.code === codes[1] && row.name_th === 'ชื่อเดิม' && row.name_sci === 'Existing species'));
+  expect(rows.rows.length).toBe(2);
+  expect(rows.rows.some((row) => row.code === codes[0] && row.name_th === 'ชื่อแรก' && row.name_sci === 'First species')).toBeTruthy();
+  expect(rows.rows.some((row) => row.code === codes[1] && row.name_th === 'ชื่อเดิม' && row.name_sci === 'Existing species')).toBeTruthy();
   const report = await readFile(reportPath, 'utf8');
-  assert.match(report, /species\.json,2,DUPLICATE_CODE/);
-  assert.match(report, /species\.json,3,INVALID_PROPERTIES/);
-  assert.match(run(), /"species":\{"inserted":0,"skipped_existing":2,"rejected":2\}/);
-  assert.equal(await readFile(reportPath, 'utf8'), report);
+  expect(report).toMatch(/species\.json,2,DUPLICATE_CODE/);
+  expect(report).toMatch(/species\.json,3,INVALID_PROPERTIES/);
+  expect(run()).toMatch(/"species":\{"inserted":0,"skipped_existing":2,"rejected":2\}/);
+  expect(await readFile(reportPath, 'utf8')).toBe(report);
   await writeFile(join(directory, 'species.json'), '{');
   const malformed = spawnSync('npm', ['run', 'import'], {
-    cwd: join(__dirname, '../..'),
+    cwd: process.cwd(),
     encoding: 'utf8',
     env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
   });
-  assert.notEqual(malformed.status, 0);
-  assert.match(malformed.stderr, /Invalid JSON in species\.json/);
+  expect(malformed.status).not.toBe(0);
+  expect(malformed.stderr).toMatch(/Invalid JSON in species\.json/);
 });

@@ -145,7 +145,7 @@ npm run build
 
 ## Backend tests
 
-`cd backend && npm test` runs unit tests; database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` is set. Use a separate disposable PostGIS container, never the development database:
+`cd backend && npm test` builds the backend, then runs colocated Vitest `.spec.ts` suites serially. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` is set. Use a separate disposable PostGIS container, never the development database:
 
 ```sh
 docker run --rm --name seagrass-step2-test \

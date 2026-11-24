@@ -1,25 +1,13 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
-import { parseProvinceCollection, parseProvinceFeature } from './parser/province';
 
 
-test('province parser rejects malformed collections and invalid WGS84 coordinates', () => {
-  assert.throws(() => parseProvinceCollection('{'), /JSON/);
-  assert.throws(() => parseProvinceCollection('{"type":"FeatureCollection"}'), /features/i);
-  assert.throws(() => parseProvinceFeature({ type: 'Feature', properties: { code: 'AA' }, geometry: {
-    type: 'Polygon', coordinates: [[[100, 10], [101, 10], [101, 11], [100, 10]]],
-  } }), /INVALID_PROPERTIES/);
-  assert.throws(() => parseProvinceFeature({ type: 'Feature', properties: { code: 'AA', name_th: 'จังหวัด' }, geometry: {
-    type: 'Polygon', coordinates: [[[181, 10], [182, 10], [182, 11], [181, 10]]],
-  } }), /INVALID_COORDINATES/);
-});
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -28,7 +16,7 @@ let directory: string;
 let reportPath: string;
 let codes: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -66,7 +54,7 @@ before(async () => {
     [codes[1], 'Existing', 'MULTIPOLYGON(((100 10,101 10,101 11,100 11,100 10)))'],
   );
 });
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
     await pool.end();
@@ -76,31 +64,31 @@ after(async () => {
 integration('public import command persists valid MultiPolygon, skips existing codes, and reports source errors again', async () => {
   const run = () => {
     const result = spawnSync('npm', ['run', 'import'], {
-      cwd: join(__dirname, '../..'),
+      cwd: process.cwd(),
       encoding: 'utf8',
       env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
     });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    expect(result.status, result.stderr || result.stdout).toBe(0);
     return result.stdout;
   };
-  assert.match(run(), /"inserted":2,"skipped_existing":1,"rejected":2/);
+  expect(run()).toMatch(/"inserted":2,"skipped_existing":1,"rejected":2/);
 
   const first = await pool!.query<{ code: string; name_th: string; geometrytype: string }>(
     "SELECT code, name_th, ST_GeometryType(geom) AS geometrytype FROM provinces WHERE code = ANY($1::varchar[]) ORDER BY code",
     [codes],
   );
-  assert.equal(first.rows.length, 3);
-  assert.ok(first.rows.some((row) => row.code === codes[0] && row.name_th === `ชื่อ ${codes[0]}` && row.geometrytype === 'ST_MultiPolygon'));
-  assert.ok(first.rows.some((row) => row.code === codes[1] && row.name_th === 'Existing' && row.geometrytype === 'ST_MultiPolygon'));
-  assert.ok(first.rows.some((row) => row.code === codes[2] && row.name_th === `ชื่อ ${codes[2]}` && row.geometrytype === 'ST_MultiPolygon'));
+  expect(first.rows.length).toBe(3);
+  expect(first.rows.some((row) => row.code === codes[0] && row.name_th === `ชื่อ ${codes[0]}` && row.geometrytype === 'ST_MultiPolygon')).toBeTruthy();
+  expect(first.rows.some((row) => row.code === codes[1] && row.name_th === 'Existing' && row.geometrytype === 'ST_MultiPolygon')).toBeTruthy();
+  expect(first.rows.some((row) => row.code === codes[2] && row.name_th === `ชื่อ ${codes[2]}` && row.geometrytype === 'ST_MultiPolygon')).toBeTruthy();
   const report = await readFile(reportPath, 'utf8');
-  assert.match(report, /^file,row,reason\r?\n/);
-  assert.match(report, /provinces\.geojson,2,DUPLICATE_CODE/);
-  assert.match(report, /provinces\.geojson,4,INVALID_GEOMETRY/);
-  assert.match(run(), /"inserted":0,"skipped_existing":3,"rejected":2/);
+  expect(report).toMatch(/^file,row,reason\r?\n/);
+  expect(report).toMatch(/provinces\.geojson,2,DUPLICATE_CODE/);
+  expect(report).toMatch(/provinces\.geojson,4,INVALID_GEOMETRY/);
+  expect(run()).toMatch(/"inserted":0,"skipped_existing":3,"rejected":2/);
   const secondReport = await readFile(reportPath, 'utf8');
-  assert.match(secondReport, /provinces\.geojson,2,DUPLICATE_CODE/);
-  assert.match(secondReport, /provinces\.geojson,4,INVALID_GEOMETRY/);
+  expect(secondReport).toMatch(/provinces\.geojson,2,DUPLICATE_CODE/);
+  expect(secondReport).toMatch(/provinces\.geojson,4,INVALID_GEOMETRY/);
 });
 integration('concurrent public imports serialize, preserve identities, and produce the same rejection report', async () => {
   const codes = ['', ''];
@@ -133,7 +121,7 @@ integration('concurrent public imports serialize, preserve identities, and produ
     await writeFile(join(directory, 'surveys.csv'), 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species\n');
     const run = () => new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn('npm', ['run', 'import'], {
-        cwd: join(__dirname, '../..'),
+        cwd: process.cwd(),
         env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
       });
       let stdout = '';
@@ -145,30 +133,30 @@ integration('concurrent public imports serialize, preserve identities, and produ
     });
     const [first, second] = await Promise.all([run(), run()]);
     const summaries = [first.stdout, second.stdout].map((stdout) => {
-      const match = stdout.match(/"provinces":\{"inserted":(\d+),"skipped_existing":(\d+),"rejected":(\d+)\}/);
-      assert.ok(match, stdout);
+      const match = stdout.match(/"provinces":\{"inserted":(\d+),"skipped_existing":(\d+),"rejected":(\d+)\}/)!;
+      expect(match, stdout).toBeTruthy();
       return match.slice(1).map(Number);
     });
-    assert.deepEqual(summaries.sort((a, b) => a[0] - b[0]), [[0, 1, 2], [1, 0, 2]]);
+    expect(summaries.sort((a, b) => a[0] - b[0])).toStrictEqual([[0, 1, 2], [1, 0, 2]]);
     const rows = await pool!.query<{ code: string; name_th: string; geometrytype: string }>(
       `SELECT code, name_th, ST_GeometryType(geom) AS geometrytype
          FROM provinces WHERE code = ANY($1::varchar[]) ORDER BY code`,
       [codes],
     );
-    assert.deepEqual(rows.rows, [{
+    expect(rows.rows).toStrictEqual([{
       code: codes[0],
       name_th: `ชื่อ ${codes[0]}`,
       geometrytype: 'ST_MultiPolygon',
     }]);
     const report = await readFile(reportPath, 'utf8');
-    assert.match(report, /^file,row,reason\r?\n/);
-    assert.match(report, /provinces\.geojson,2,DUPLICATE_CODE/);
-    assert.match(report, /provinces\.geojson,3,INVALID_GEOMETRY/);
+    expect(report).toMatch(/^file,row,reason\r?\n/);
+    expect(report).toMatch(/provinces\.geojson,2,DUPLICATE_CODE/);
+    expect(report).toMatch(/provinces\.geojson,3,INVALID_GEOMETRY/);
     const afterRerun = await run();
-    assert.match(afterRerun.stdout, /"provinces":\{"inserted":0,"skipped_existing":1,"rejected":2\}/);
-    assert.equal(await readFile(reportPath, 'utf8'), report);
+    expect(afterRerun.stdout).toMatch(/"provinces":\{"inserted":0,"skipped_existing":1,"rejected":2\}/);
+    expect(await readFile(reportPath, 'utf8')).toBe(report);
     const persisted = await pool!.query('SELECT 1 FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
-    assert.equal(persisted.rowCount, 1);
+    expect(persisted.rowCount).toBe(1);
   } finally {
     await pool!.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [codes]);
     await rm(directory, { recursive: true, force: true });
@@ -176,10 +164,10 @@ integration('concurrent public imports serialize, preserve identities, and produ
 });
 integration('public import fails visibly when PostgreSQL is unavailable', () => {
   const result = spawnSync('npm', ['run', 'import'], {
-    cwd: join(__dirname, '../..'),
+    cwd: process.cwd(),
     encoding: 'utf8',
     env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath, PGHOST: '127.0.0.1', PGPORT: '1' },
   });
-  assert.notEqual(result.status, 0, result.stdout);
-  assert.match(result.stderr, /ECONNREFUSED/);
+  expect(result.status, result.stdout).not.toBe(0);
+  expect(result.stderr).toMatch(/ECONNREFUSED/);
 });

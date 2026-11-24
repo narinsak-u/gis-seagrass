@@ -1,27 +1,13 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { runMigrations } from '../platform/database';
-import { parseSurveysCsv } from './parser/surveys';
 
 const header = 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species';
-
-test('survey CSV parser handles quoted UTF-8 fields, validates headers, and preserves record positions', () => {
-  const parsed = parseSurveysCsv(`${header}\r\nref-1,site,100,10,2026-01-01,0,"สาหร่าย, \"\"แดง\"\""\r\nref-2,site,100,10,2026-01-01,100,"A|B"`);
-  assert.equal(parsed[0].row, 2);
-  assert.equal(parsed[0].values.species, 'สาหร่าย, "แดง"');
-  assert.equal(parsed[1].row, 3);
-  const multiline = parseSurveysCsv(`${header}\nref-3,site,100,10,2026-01-01,0,"A\nB"`);
-  assert.equal(multiline[0].row, 3);
-  assert.throws(() => parseSurveysCsv(`${header}\nx,y`), /Invalid CSV|malformed records/);
-  assert.throws(() => parseSurveysCsv('survey_ref,site_code\nx,y'), /required headers/);
-  assert.throws(() => parseSurveysCsv(`${header}\n"unfinished`), /Invalid CSV/);
-});
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -35,7 +21,7 @@ let speciesCode = '';
 let duplicateSpeciesCode = '';
 let refs: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -57,7 +43,7 @@ before(async () => {
     const occupied = await pool.query('SELECT 1 FROM provinces WHERE code = $1', [candidate]);
     if (!occupied.rowCount) { provinceCode = candidate; break; }
   }
-  assert.ok(provinceCode, 'test needs an unused province code');
+  expect(provinceCode, 'test needs an unused province code').toBeTruthy();
   await pool.query(`INSERT INTO provinces (code, name_th, geom) VALUES ($1, 'Survey test', ST_Multi(ST_GeomFromText('POLYGON((99.9 9.9,100.1 9.9,100.1 10.1,99.9 10.1,99.9 9.9))',4326)))`, [provinceCode]);
   await pool.query('INSERT INTO species (code,name_th,name_sci) VALUES ($1,$1,$1),($2,$2,$2)', [speciesCode, duplicateSpeciesCode]);
   const active = await pool.query<{ id: string }>(
@@ -114,7 +100,7 @@ before(async () => {
     row(refs[17]),
   ].join('\n'));
 });
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [refs]);
     if (refs.length) await pool.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [refs]);
@@ -129,32 +115,32 @@ after(async () => {
 integration('public import preserves existing surveys when source revisions are invalid', async () => {
   const run = () => {
     const result = spawnSync('npm', ['run', 'import'], {
-      cwd: join(__dirname, '../..'), encoding: 'utf8',
+      cwd: process.cwd(), encoding: 'utf8',
       env: { ...process.env, SEED_DATA_DIR: directory, IMPORT_REPORT_PATH: reportPath },
     });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    expect(result.status, result.stderr || result.stdout).toBe(0);
     return result.stdout;
   };
-  assert.match(run(), /"surveys":\{"inserted":5,"skipped_existing":2,"rejected":12\}/);
+  expect(run()).toMatch(/"surveys":\{"inserted":5,"skipped_existing":2,"rejected":12\}/);
   const saved = await pool!.query<{ survey_ref: string }>('SELECT survey_ref FROM surveys WHERE survey_ref = ANY($1::text[]) ORDER BY survey_ref', [refs]);
-  assert.deepEqual(saved.rows.map(({ survey_ref }) => survey_ref).sort(), [refs[0], refs[1], refs[2], refs[3], refs[8], refs[13], refs[17]].sort());
+  expect(saved.rows.map(({ survey_ref }) => survey_ref).sort()).toStrictEqual([refs[0], refs[1], refs[2], refs[3], refs[8], refs[13], refs[17]].sort());
   const links = await pool!.query<{ count: string }>(
     'SELECT count(*) FROM survey_species ss JOIN surveys s ON s.id = ss.survey_id WHERE s.survey_ref = ANY($1::text[])', [refs],
   );
-  assert.equal(links.rows[0].count, '6');
+  expect(links.rows[0].count).toBe('6');
   const report = await readFile(reportPath, 'utf8');
-  for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) assert.ok(report.includes(reason));
-  assert.ok(!report.includes('surveys.csv,4,UNKNOWN_SPECIES'));
-  assert.ok(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF'));
-  assert.ok(report.includes('surveys.csv,7,OUTSIDE_SITE'));
-  assert.match(run(), /"surveys":\{"inserted":0,"skipped_existing":7,"rejected":12\}/);
+  for (const reason of ['DUPLICATE_SURVEY_REF', 'OUTSIDE_SITE', 'SITE_NOT_FOUND', 'INVALID_COVER', 'INVALID_COORDINATES', 'INVALID_DATE', 'FUTURE_DATE', 'UNKNOWN_SPECIES']) expect(report.includes(reason)).toBeTruthy();
+  expect(!report.includes('surveys.csv,4,UNKNOWN_SPECIES')).toBeTruthy();
+  expect(report.includes('surveys.csv,6,DUPLICATE_SURVEY_REF')).toBeTruthy();
+  expect(report.includes('surveys.csv,7,OUTSIDE_SITE')).toBeTruthy();
+  expect(run()).toMatch(/"surveys":\{"inserted":0,"skipped_existing":7,"rejected":12\}/);
   const existing = await pool!.query<{ cover_percent: string }>(
     'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[2]],
   );
-  assert.equal(existing.rows[0].cover_percent, '44.00');
+  expect(existing.rows[0].cover_percent).toBe('44.00');
   const validExisting = await pool!.query<{ cover_percent: string }>(
     'SELECT cover_percent::text AS cover_percent FROM surveys WHERE survey_ref = $1', [refs[17]],
   );
-  assert.equal(validExisting.rows[0].cover_percent, '33.00');
-  assert.equal(await readFile(reportPath, 'utf8'), report);
+  expect(validExisting.rows[0].cover_percent).toBe('33.00');
+  expect(await readFile(reportPath, 'utf8')).toBe(report);
 });

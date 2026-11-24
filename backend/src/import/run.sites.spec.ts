@@ -1,28 +1,15 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { after, before, test } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../platform/database';
 import { runMigrations } from '../platform/database';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
 import { importSiteFeatures } from './application/import-sites';
-import { parseSiteFeature } from '../sites';
-
-test('Site parser requires nonempty identity and finite in-range lon/lat polygon coordinates', () => {
-  const feature = (coordinates: unknown) => ({
-    type: 'Feature',
-    properties: { code: 'SITE-1', name: 'Site 1' },
-    geometry: { type: 'Polygon', coordinates },
-  });
-  assert.throws(() => parseSiteFeature({ type: 'Feature', properties: { code: 'SITE-1', name: 'Site 1' }, geometry: { type: 'LineString', coordinates: [[100, 10], [101, 11]] } }), /INVALID_GEOMETRY/);
-  assert.throws(() => parseSiteFeature(feature([[[181, 10], [182, 10], [182, 11], [181, 10]]])), /INVALID_COORDINATES/);
-  assert.throws(() => parseSiteFeature({ ...feature([[[100, 10], [101, 10], [101, 11], [100, 10]]]), properties: { code: '', name: 'Site' } }), /INVALID_PROPERTIES/);
-});
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -43,7 +30,7 @@ const site = (code: string, geometry: unknown, name = `Site ${code}`) => ({
   type: 'Feature', properties: { code, name }, geometry,
 });
 
-before(async () => {
+beforeAll(async () => {
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
   process.env.PGHOST = url.hostname;
@@ -77,7 +64,7 @@ before(async () => {
   client = await pool.connect();
 });
 
-after(async () => {
+afterAll(async () => {
   client?.release();
   if (pool) {
     if (cliSurveyRef) {
@@ -108,8 +95,8 @@ integration('Site import validates shapes, reserves existing codes, and preserve
   }, 'Invalid bowtie');
   const coordinator = createSiteSurveyImportOperations(drizzle(pool!, { schema })).coordinator;
   const first = await importSiteFeatures(coordinator, features);
-  assert.deepEqual(first.summary, { inserted: 3, skipped_existing: 1, rejected: 3 });
-  assert.deepEqual(first.rejections.map(({ row, reason }) => [row, reason]), [
+  expect(first.summary).toStrictEqual({ inserted: 3, skipped_existing: 1, rejected: 3 });
+  expect(first.rejections.map(({ row, reason }) => [row, reason])).toStrictEqual([
     [3, 'OUTSIDE_COVERAGE'], [4, 'INVALID_GEOMETRY'], [6, 'DUPLICATE_CODE'],
   ]);
   const inserted = await pool!.query<{
@@ -123,32 +110,32 @@ integration('Site import validates shapes, reserves existing codes, and preserve
        FROM sites WHERE code = ANY($1::text[]) ORDER BY code`,
     [siteCodes],
   );
-  assert.equal(inserted.rows.length, 4);
+  expect(inserted.rows.length).toBe(4);
   const large = inserted.rows.find((row) => row.code === siteCodes[0])!;
-  assert.equal(large.name, `Site ${siteCodes[0]}`);
-  assert.equal(large.province_code, provinceCodes[0]);
-  assert.equal(large.geometrytype, 'ST_MultiPolygon');
-  assert.equal(large.srid, 4326);
-  assert.equal(large.version, 1);
-  assert.equal(large.created_by, null);
-  assert.equal(large.updated_by, null);
-  assert.equal(large.area_rai, large.expected_area);
+  expect(large.name).toBe(`Site ${siteCodes[0]}`);
+  expect(large.province_code).toBe(provinceCodes[0]);
+  expect(large.geometrytype).toBe('ST_MultiPolygon');
+  expect(large.srid).toBe(4326);
+  expect(large.version).toBe(1);
+  expect(large.created_by).toBe(null);
+  expect(large.updated_by).toBe(null);
+  expect(large.area_rai).toBe(large.expected_area);
   const tie = inserted.rows.find((row) => row.code === siteCodes[1])!;
-  assert.equal(tie.province_code, provinceCodes[0]);
-  assert.equal(inserted.rows.find((row) => row.code === siteCodes[4])?.name, `Site ${siteCodes[4]}`);
-  assert.equal(inserted.rows.find((row) => row.code === siteCodes[5])?.name, 'Historical');
-  assert.ok(inserted.rows.find((row) => row.code === siteCodes[5])?.deleted_at);
+  expect(tie.province_code).toBe(provinceCodes[0]);
+  expect(inserted.rows.find((row) => row.code === siteCodes[4])?.name).toBe(`Site ${siteCodes[4]}`);
+  expect(inserted.rows.find((row) => row.code === siteCodes[5])?.name).toBe('Historical');
+  expect(inserted.rows.find((row) => row.code === siteCodes[5])?.deleted_at).toBeTruthy();
 
   const beforeRerun = await pool!.query(
     'SELECT code,name,province_code,area_rai,version,created_at,updated_at,deleted_at FROM sites WHERE code = ANY($1::text[]) ORDER BY code',
     [siteCodes],
   );
   const second = await importSiteFeatures(coordinator, features);
-  assert.deepEqual(second.summary, { inserted: 0, skipped_existing: 4, rejected: 3 });
+  expect(second.summary).toStrictEqual({ inserted: 0, skipped_existing: 4, rejected: 3 });
   const afterRerun = await pool!.query(
     'SELECT code,name,province_code,area_rai,version,created_at,updated_at,deleted_at FROM sites WHERE code = ANY($1::text[]) ORDER BY code', [siteCodes],
   );
-  assert.deepEqual(afterRerun.rows, beforeRerun.rows);
+  expect(afterRerun.rows).toStrictEqual(beforeRerun.rows);
 });
 integration('standalone CLI imports Sites and Surveys through module operations idempotently', async () => {
   const token = randomUUID().replaceAll('-', '').toUpperCase();
@@ -172,14 +159,14 @@ integration('standalone CLI imports Sites and Surveys through module operations 
     `${cliSurveyRef},${cliSiteCode},100.35,10.35,${today.rows[0].today},40,${cliSpeciesCode}`,
   ].join('\n'));
   const run = () => spawnSync('npm', ['run', 'import'], {
-    cwd: join(__dirname, '../..'),
+    cwd: process.cwd(),
     encoding: 'utf8',
     env: { ...process.env, SEED_DATA_DIR: cliDirectory, IMPORT_REPORT_PATH: join(cliDirectory, 'report.csv') },
   });
   const first = run();
-  assert.equal(first.status, 0, first.stderr || first.stdout);
-  assert.match(first.stdout, /"sites":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
-  assert.match(first.stdout, /"surveys":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
+  expect(first.status, first.stderr || first.stdout).toBe(0);
+  expect(first.stdout).toMatch(/"sites":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
+  expect(first.stdout).toMatch(/"surveys":\{"inserted":1,"skipped_existing":0,"rejected":0\}/);
   const rows = await pool!.query<{ created_by: string | null; updated_by: string | null; species_count: string }>(
     `SELECT s.created_by, s.updated_by, count(ss.species_code)::text AS species_count
        FROM sites s JOIN surveys v ON v.site_id = s.id
@@ -188,11 +175,11 @@ integration('standalone CLI imports Sites and Surveys through module operations 
       GROUP BY s.created_by, s.updated_by`,
     [cliSiteCode, cliSurveyRef],
   );
-  assert.deepEqual(rows.rows, [{ created_by: null, updated_by: null, species_count: '1' }]);
+  expect(rows.rows).toStrictEqual([{ created_by: null, updated_by: null, species_count: '1' }]);
   const report = await readFile(join(cliDirectory, 'report.csv'), 'utf8');
-  assert.equal(report, 'file,row,reason\r\n');
+  expect(report).toBe('file,row,reason\r\n');
   const second = run();
-  assert.equal(second.status, 0, second.stderr || second.stdout);
-  assert.match(second.stdout, /"sites":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
-  assert.match(second.stdout, /"surveys":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
+  expect(second.status, second.stderr || second.stdout).toBe(0);
+  expect(second.stdout).toMatch(/"sites":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
+  expect(second.stdout).toMatch(/"surveys":\{"inserted":0,"skipped_existing":1,"rejected":0\}/);
 });

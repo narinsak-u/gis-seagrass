@@ -1,89 +1,12 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { after, before, test } from 'node:test';
-import { BadRequestException, type INestApplication } from '@nestjs/common';
+
+import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
-import { AppModule } from '../app.module';
-import { createDatabaseProvider, runMigrations, type DatabaseProvider } from '../platform/database';
-import { setupSwagger } from '../swagger';
-import { ProvinceQueries } from './application/province-queries';
-import type { ProvinceGeoJsonRow, ProvinceReadRepository } from './application/province-read.repository';
-import { parseBbox, requireValidBbox } from './presentation/bbox.validation';
-
-test('shared bbox validation accepts valid WGS84 envelopes and rejects invalid values', () => {
-  assert.deepEqual(parseBbox('98.5,7.2,100.4,9.8'), [98.5, 7.2, 100.4, 9.8]);
-  assert.deepEqual(requireValidBbox('-180,-90,180,90'), [-180, -90, 180, 90]);
-
-  const invalidCases: unknown[] = [
-    undefined,
-    '',
-    '100,10,102',
-    '100,10,,11',
-    '100,10,NaN,11',
-    '100,10,Infinity,11',
-    '-181,10,102,11',
-    '100,10,181,11',
-    '100,-91,102,11',
-    '100,10,102,91',
-    '100,10,100,11',
-    '100,10,101,10',
-    '101,10,100,11',
-    '100,11,101,10',
-    ['100,10,101,11'],
-  ];
-
-  for (const invalid of invalidCases) {
-    assert.equal(parseBbox(invalid), undefined, `expected parseBbox(${JSON.stringify(invalid)}) to fail`);
-    assert.throws(
-      () => requireValidBbox(invalid),
-      (error: unknown) => {
-        assert.ok(error instanceof BadRequestException);
-        const payload = error.getResponse() as Record<string, unknown>;
-        assert.equal(payload.code, 'INVALID_BBOX');
-        return true;
-      },
-      `expected requireValidBbox(${JSON.stringify(invalid)}) to throw INVALID_BBOX`,
-    );
-  }
-});
-
-test('ProvinceQueries maps repository rows into a GeoJSON FeatureCollection with code and name_th', async () => {
-  const sampleGeometry = {
-    type: 'MultiPolygon' as const,
-    coordinates: [[[[99, 7], [100, 7], [100, 8], [99, 8], [99, 7]]]],
-  };
-  let capturedBbox: [number, number, number, number] | undefined;
-  const repository: ProvinceReadRepository = {
-    async withinBbox(bbox): Promise<ProvinceGeoJsonRow[]> {
-      capturedBbox = bbox;
-      return [
-        { code: '81', name_th: 'กระบี่', geometry: sampleGeometry },
-        { code: '92', name_th: 'ตรัง', geometry: sampleGeometry },
-      ];
-    },
-  };
-
-  const queries = new ProvinceQueries(repository);
-  const collection = await queries.withinBbox([98.5, 7, 100.5, 8.5]);
-
-  assert.deepEqual(capturedBbox, [98.5, 7, 100.5, 8.5]);
-  assert.deepEqual(collection, {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: sampleGeometry,
-        properties: { code: '81', name_th: 'กระบี่' },
-      },
-      {
-        type: 'Feature',
-        geometry: sampleGeometry,
-        properties: { code: '92', name_th: 'ตรัง' },
-      },
-    ],
-  });
-});
+import { AppModule } from '../../app.module';
+import { createDatabaseProvider, runMigrations, type DatabaseProvider } from '../../platform/database';
+import { setupSwagger } from '../../swagger';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -93,7 +16,7 @@ let pool: Pool | undefined;
 let origin = '';
 let provinceCodes: string[] = [];
 
-before(async () => {
+beforeAll(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -127,11 +50,11 @@ before(async () => {
   setupSwagger(app);
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
-  assert.ok(address && typeof address === 'object');
+  expect(address && typeof address === 'object').toBeTruthy();
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-after(async () => {
+afterAll(async () => {
   if (pool && provinceCodes.length) {
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
   }
@@ -147,16 +70,13 @@ async function json(query: string): Promise<{ response: Response; body: Record<s
 integration('GET /provinces.geojson returns sorted Province MultiPolygons including boundary contact', async () => {
   // Bbox touches the shared boundary at longitude 101 and extends into the east province
   const { response, body } = await json('?bbox=101,10.2,101.5,10.8');
-  assert.equal(response.status, 200);
-  assert.equal(body.type, 'FeatureCollection');
+  expect(response.status).toBe(200);
+  expect(body.type).toBe('FeatureCollection');
   const features = (body.features as Array<Record<string, unknown>>).filter((feature) =>
     provinceCodes.includes(String((feature.properties as Record<string, unknown>).code)),
   );
-  assert.deepEqual(
-    features.map((feature) => (feature.properties as Record<string, unknown>).code),
-    [provinceCodes[0], provinceCodes[1]],
-  );
-  assert.deepEqual(features[0], {
+  expect(features.map((feature) => (feature.properties as Record<string, unknown>).code)).toStrictEqual([provinceCodes[0], provinceCodes[1]]);
+  expect(features[0]).toStrictEqual({
     type: 'Feature',
     geometry: {
       type: 'MultiPolygon',
@@ -164,7 +84,7 @@ integration('GET /provinces.geojson returns sorted Province MultiPolygons includ
     },
     properties: { code: provinceCodes[0], name_th: 'จังหวัดตะวันตก' },
   });
-  assert.deepEqual(features[1]?.properties, {
+  expect(features[1]?.properties).toStrictEqual({
     code: provinceCodes[1],
     name_th: 'จังหวัดตะวันออก',
   });
@@ -172,17 +92,17 @@ integration('GET /provinces.geojson returns sorted Province MultiPolygons includ
 
 integration('GET /provinces.geojson includes interior contact and excludes Provinces outside bbox', async () => {
   const interior = await json('?bbox=100.2,10.2,100.8,10.8');
-  assert.equal(interior.response.status, 200);
+  expect(interior.response.status).toBe(200);
   const matchingInterior = (interior.body.features as Array<{ properties: { code: string } }>)
     .map(({ properties }) => properties.code)
     .filter((code) => provinceCodes.includes(code));
-  assert.deepEqual(matchingInterior, [provinceCodes[0]]);
+  expect(matchingInterior).toStrictEqual([provinceCodes[0]]);
 
   const emptyGap = await json('?bbox=102.5,10.2,103.5,10.8');
-  assert.equal(emptyGap.response.status, 200);
+  expect(emptyGap.response.status).toBe(200);
   const matchingGap = (emptyGap.body.features as Array<{ properties: { code: string } }>)
     .filter(({ properties }) => provinceCodes.includes(properties.code));
-  assert.deepEqual(matchingGap, []);
+  expect(matchingGap).toStrictEqual([]);
 });
 
 integration('GET /provinces.geojson rejects missing, malformed, out-of-range, zero-size, and inverted bboxes', async () => {
@@ -200,33 +120,30 @@ integration('GET /provinces.geojson rejects missing, malformed, out-of-range, ze
     '?bbox=100,11,101,10',
   ]) {
     const { response, body } = await json(query);
-    assert.equal(response.status, 400, query);
+    expect(response.status, query).toBe(400);
     const error = body.error as Record<string, unknown>;
-    assert.equal(error.code, 'INVALID_BBOX', query);
-    assert.equal(typeof error.message, 'string', query);
-    assert.equal(typeof error.details, 'object', query);
+    expect(error.code, query).toBe('INVALID_BBOX');
+    expect(typeof error.message, query).toBe('string');
+    expect(typeof error.details, query).toBe('object');
   }
 });
 
 integration('GET /provinces.geojson rejects unsupported query parameters with VALIDATION_ERROR', async () => {
   const { response, body } = await json('?bbox=100,10,102,11&province=81');
-  assert.equal(response.status, 400);
-  assert.equal((body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  expect(response.status).toBe(400);
+  expect((body.error as Record<string, unknown>).code).toBe('VALIDATION_ERROR');
 });
 
 integration('OpenAPI exposes GET /provinces.geojson with bbox parameter and Province FeatureCollection schema', async () => {
   const response = await fetch(`${origin}/docs-json`);
-  assert.equal(response.status, 200);
+  expect(response.status).toBe(200);
   const doc = await response.json() as {
     paths: Record<string, { get?: { parameters?: Array<{ name: string; required?: boolean }>; responses?: Record<string, { content?: Record<string, { schema?: Record<string, unknown> }> }> } }>;
   };
-  const op = doc.paths['/provinces.geojson']?.get;
-  assert.ok(op);
-  assert.deepEqual(op.parameters?.map(({ name }) => name), ['bbox']);
-  assert.equal(op.parameters?.[0]?.required, true);
-  assert.ok(op.responses?.['200']);
-  assert.equal(
-    op.responses?.['400']?.content?.['application/json']?.schema?.$ref,
-    '#/components/schemas/ApiErrorEnvelope',
-  );
+  const op = doc.paths['/provinces.geojson']?.get!;
+  expect(op).toBeTruthy();
+  expect(op.parameters?.map(({ name }) => name)).toStrictEqual(['bbox']);
+  expect(op.parameters?.[0]?.required).toBe(true);
+  expect(op.responses?.['200']).toBeTruthy();
+  expect(op.responses?.['400']?.content?.['application/json']?.schema?.$ref).toBe('#/components/schemas/ApiErrorEnvelope');
 });

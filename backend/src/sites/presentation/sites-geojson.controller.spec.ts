@@ -1,12 +1,12 @@
-import assert from 'node:assert/strict';
+import { expect, afterAll, beforeAll, test } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { after, before, test } from 'node:test';
+
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
-import { AppModule } from '../app.module';
-import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
-import { runMigrations } from '../platform/database';
+import { AppModule } from '../../app.module';
+import { createDatabaseProvider, type DatabaseProvider } from '../../platform/database';
+import { runMigrations } from '../../platform/database';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
@@ -18,7 +18,7 @@ let provinceCodes: string[] = [];
 let siteCodes: string[] = [];
 let token = '';
 
-before(async () => {
+beforeAll(async () => {
   process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
   if (!testDatabaseUrl) return;
   const url = new URL(testDatabaseUrl);
@@ -59,11 +59,11 @@ before(async () => {
   app = await NestFactory.create(AppModule.register(database), { logger: false });
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
-  assert.ok(address && typeof address === 'object');
+  expect(address && typeof address === 'object').toBeTruthy();
   origin = `http://127.0.0.1:${address.port}`;
 });
 
-after(async () => {
+afterAll(async () => {
   if (pool) {
     await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [siteCodes]);
     await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
@@ -79,11 +79,11 @@ async function json(query: string): Promise<{ response: Response; body: Record<s
 
 integration('GET /sites.geojson returns sorted active Features including boundary contact', async () => {
   const { response, body } = await json('?bbox=100.2,10.1,100.3,10.2');
-  assert.equal(response.status, 200);
-  assert.equal(body.type, 'FeatureCollection');
+  expect(response.status).toBe(200);
+  expect(body.type).toBe('FeatureCollection');
   const features = body.features as Array<Record<string, unknown>>;
-  assert.deepEqual(features.map((feature) => (feature.properties as Record<string, unknown>).code), [siteCodes[0], siteCodes[1]]);
-  assert.deepEqual(features[0], {
+  expect(features.map((feature) => (feature.properties as Record<string, unknown>).code)).toStrictEqual([siteCodes[0], siteCodes[1]]);
+  expect(features[0]).toStrictEqual({
     type: 'Feature',
     geometry: {
       type: 'MultiPolygon',
@@ -95,36 +95,30 @@ integration('GET /sites.geojson returns sorted active Features including boundar
 
 integration('GET /sites.geojson filters by province and active status', async () => {
   const { response, body } = await json(`?bbox=100,10,102,11&province=${provinceCodes[1]}&status=active`);
-  assert.equal(response.status, 200);
-  assert.deepEqual(
-    (body.features as Array<{ properties: { code: string; province_code: string } }>).map(({ properties }) => [properties.code, properties.province_code]),
-    [[siteCodes[2], provinceCodes[1]]],
-  );
+  expect(response.status).toBe(200);
+  expect((body.features as Array<{ properties: { code: string; province_code: string } }>).map(({ properties }) => [properties.code, properties.province_code])).toStrictEqual([[siteCodes[2], provinceCodes[1]]]);
 });
 
 integration('GET /sites.geojson includes interior contact and excludes nonintersecting or deleted Sites', async () => {
   const interior = await json('?bbox=100.11,10.11,100.19,10.19');
-  assert.equal(interior.response.status, 200);
-  assert.deepEqual(
-    (interior.body.features as Array<{ properties: { code: string } }>).map(({ properties }) => properties.code),
-    [siteCodes[0]],
-  );
+  expect(interior.response.status).toBe(200);
+  expect((interior.body.features as Array<{ properties: { code: string } }>).map(({ properties }) => properties.code)).toStrictEqual([siteCodes[0]]);
   const nonintersecting = await json('?bbox=100.5,10.1,100.6,10.2');
-  assert.deepEqual(nonintersecting.body.features, []);
+  expect(nonintersecting.body.features).toStrictEqual([]);
   const retired = await json('?bbox=100.7,10.1,100.8,10.2');
-  assert.deepEqual(retired.body.features, []);
+  expect(retired.body.features).toStrictEqual([]);
 });
 
 integration('GET /sites.geojson rejects missing, malformed, out-of-range, zero-size, and inverted bboxes', async () => {
   for (const query of ['', '?bbox=100,10,102', '?bbox=100,10,NaN,11', '?bbox=-181,10,102,11', '?bbox=100,10,100,11', '?bbox=101,10,100,11', '?bbox=100,11,101,10']) {
     const { response, body } = await json(query);
-    assert.equal(response.status, 400, query);
-    assert.equal((body.error as Record<string, unknown>).code, 'INVALID_BBOX', query);
+    expect(response.status, query).toBe(400);
+    expect((body.error as Record<string, unknown>).code, query).toBe('INVALID_BBOX');
   }
 });
 
 integration('GET /sites.geojson rejects unsupported status', async () => {
   const { response, body } = await json('?bbox=100,10,102,11&status=deleted');
-  assert.equal(response.status, 400);
-  assert.equal((body.error as Record<string, unknown>).code, 'VALIDATION_ERROR');
+  expect(response.status).toBe(400);
+  expect((body.error as Record<string, unknown>).code).toBe('VALIDATION_ERROR');
 });

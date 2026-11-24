@@ -15,7 +15,7 @@ Seagrass Monitoring System: a PostGIS-backed API and web map for sites, surveys,
 - `backend/src/{auth,sites,surveys,import}/`: API features and seed-data import; `site-survey-workflows/`: cross-feature transactions.
 - `backend/src/platform/`: database schema/provider, HTTP, errors, health; `backend/src/shared/`: shared input, application, and geospatial code.
 - `frontend/src/app/`: Next.js routes/providers; `frontend/src/features/`: auth, map, sites, surveys, provinces; `frontend/src/lib/`: API client/proxy.
-- `backend/test/`: SQL schema check; colocated `backend/src/**/*.test.ts` and `frontend/src/**/*.test.ts`: automated tests. `specs/`, `.scratch/`, `docs/adr/`: implementation specs, local issues, decisions.
+- `backend/test/`: standalone SQL schema check; colocated `backend/src/**/*.spec.ts` and `frontend/src/**/*.test.ts`: automated tests. `specs/`, `.scratch/`, `docs/adr/`: implementation specs, local issues, decisions.
 
 ## Development Commands
 
@@ -53,5 +53,5 @@ Install separately with `npm --prefix backend ci` and `npm --prefix frontend ci`
 
 ## Testing & QA
 
-- Backend `npm test` builds, then runs serial `node:test` suites. Database integration tests need `IMPORT_TEST_DATABASE_URL` pointing at a disposable PostGIS DB: they migrate and mutate fixtures. Parser/architecture tests work without it.
+- Backend `npm test` builds for subprocess checks, then runs serial Vitest `src/**/*.spec.ts` suites with Nest decorator metadata and `expect` assertions. Database integration tests need `IMPORT_TEST_DATABASE_URL` pointing at a disposable PostGIS DB: they migrate and mutate fixtures. Parser/architecture tests work without it.
 - Frontend `npm test` runs Vitest on `src/**/*.test.ts`; tests live beside features. No coverage threshold or coverage command is configured. Run the narrowest relevant check for a change.

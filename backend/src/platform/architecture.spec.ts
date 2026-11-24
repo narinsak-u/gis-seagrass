@@ -1,9 +1,8 @@
-import assert from 'node:assert/strict';
+import { expect, test } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import * as ts from 'typescript';
-import { test } from 'node:test';
 
 const sourceRoot = resolve(process.cwd(), 'src');
 const featureModules = ['auth', 'sites', 'surveys', 'site-survey-workflows', 'import'] as const;
@@ -137,18 +136,17 @@ function assertApprovedPhysicalLayout(root: string): void {
     const moduleRoot = join(root, moduleName);
     const activeLayers: readonly string[] = requiredLayers[moduleName];
     for (const layer of activeLayers) {
-      assert.ok(existsSync(join(moduleRoot, layer)), `${moduleName} is missing ${layer}/`);
+      expect(existsSync(join(moduleRoot, layer)), `${moduleName} is missing ${layer}/`).toBeTruthy();
     }
 
     for (const dir of subdirectories(moduleRoot)) {
       const dirParts = relative(moduleRoot, dir).split(sep);
       const retiredFolder = dirParts.find((part) => retiredLegacySubfolders.has(part));
-      assert.ok(!retiredFolder, `${relative(root, dir)} must not use retired legacy folder ${retiredFolder}/`);
+      expect(!retiredFolder, `${relative(root, dir)} must not use retired legacy folder ${retiredFolder}/`).toBeTruthy();
       if (dirParts.length === 1) {
-        assert.ok(activeLayers.includes(dirParts[0]), `${relative(root, dir)} must be an approved layer`);
+        expect(activeLayers.includes(dirParts[0]), `${relative(root, dir)} must be an approved layer`).toBeTruthy();
       } else {
-        assert.ok(!dirParts.slice(1).some((part) => activeLayers.includes(part)),
-          `${relative(root, dir)} must not nest a module layer`);
+        expect(!dirParts.slice(1).some((part) => activeLayers.includes(part)), `${relative(root, dir)} must not nest a module layer`).toBeTruthy();
       }
     }
 
@@ -158,44 +156,44 @@ function assertApprovedPhysicalLayout(root: string): void {
       ...(moduleName === 'import' ? ['run.ts'] : [moduleFile!]),
     ]);
     if (moduleFile) {
-      assert.ok(existsSync(join(moduleRoot, moduleFile)), `${moduleName} is missing its root module`);
+      expect(existsSync(join(moduleRoot, moduleFile)), `${moduleName} is missing its root module`).toBeTruthy();
     }
     for (const file of sourceFiles(moduleRoot)) {
       const relativePath = relative(moduleRoot, file);
       const pathParts = relativePath.split(sep);
-      if (file.endsWith('.test.ts')) {
-        assert.equal(pathParts.length, 1, `${relative(root, file)} must be at its module root`);
+      if (file.endsWith('.spec.ts')) {
+        const layer = pathParts.length === 1 ? undefined : pathParts[0];
+        expect(pathParts.length === 1 || (pathParts.length === 2 && activeLayers.includes(layer!)), `${relative(root, file)} must be at its module root or owning layer`).toBeTruthy();
         continue;
       }
+      if (file.endsWith('.spec-helper.ts')) continue;
       const layer = pathParts[0];
-      assert.ok(activeLayers.includes(layer)
-        || (pathParts.length === 1 && allowedRootFiles.has(relativePath)),
-      `${relative(root, file)} must live in an approved layer`);
+      expect(activeLayers.includes(layer)
+        || (pathParts.length === 1 && allowedRootFiles.has(relativePath)), `${relative(root, file)} must live in an approved layer`).toBeTruthy();
     }
     const nestedModules = sourceFiles(moduleRoot).filter((file) => file.endsWith('.module.ts')
       && relative(moduleRoot, file).split(sep).length > 1);
-    assert.deepEqual(nestedModules, [], `${moduleName} must define Nest modules only at its root`);
+    expect(nestedModules, `${moduleName} must define Nest modules only at its root`).toStrictEqual([]);
   }
 
   const platformRoot = join(root, 'platform');
   for (const layer of ['database', 'errors', 'health', 'http']) {
-    assert.ok(existsSync(join(platformRoot, layer)), `platform is missing ${layer}/`);
+    expect(existsSync(join(platformRoot, layer)), `platform is missing ${layer}/`).toBeTruthy();
   }
   for (const misplaced of ['database', 'domain', 'errors', 'health']) {
-    assert.ok(!existsSync(join(root, misplaced)), `src/${misplaced}/ must not contain platform/shared code`);
+    expect(!existsSync(join(root, misplaced)), `src/${misplaced}/ must not contain platform/shared code`).toBeTruthy();
   }
-  assert.ok(!existsSync(join(root, 'import', 'domain')), 'Import parsers must live in parser/');
+  expect(!existsSync(join(root, 'import', 'domain')), 'Import parsers must live in parser/').toBeTruthy();
   const geospatialRoot = join(root, 'shared', 'geospatial');
-  assert.ok(existsSync(join(geospatialRoot, 'domain')), 'shared geospatial rules must live in shared/geospatial/domain/');
+  expect(existsSync(join(geospatialRoot, 'domain')), 'shared geospatial rules must live in shared/geospatial/domain/').toBeTruthy();
   for (const file of sourceFiles(geospatialRoot)) {
-    assert.equal(relative(geospatialRoot, file).split(sep)[0], 'domain',
-      `${relative(root, file)} must live in shared/geospatial/domain/`);
+    expect(relative(geospatialRoot, file).split(sep)[0], `${relative(root, file)} must live in shared/geospatial/domain/`).toBe('domain');
   }
   for (const moduleName of featureModules) {
     const barrel = join(root, moduleName, 'index.ts');
     if (!existsSync(barrel)) continue;
     for (const specifier of importsFrom(barrel)) {
-      assert.ok(!/(^|\/)infrastructure(?:\/|$)/.test(specifier), `${moduleName}/index.ts exposes infrastructure`);
+      expect(!/(^|\/)infrastructure(?:\/|$)/.test(specifier), `${moduleName}/index.ts exposes infrastructure`).toBeTruthy();
     }
   }
 }
@@ -203,16 +201,16 @@ function assertApprovedPhysicalLayout(root: string): void {
 function assertInnerLayerIndependence(root: string): void {
   const forbiddenPackage = /^(?:@nestjs\/|express(?:\/|$)|http(?:\/|$)|drizzle-orm(?:\/|$)|pg(?:\/|$)|node:http$)/;
   for (const file of sourceFiles(root)) {
-    if (file.endsWith('.test.ts')) continue;
+    if (file.endsWith('.spec.ts') || file.endsWith('.spec-helper.ts')) continue;
     const parts = relative(root, file).split(sep);
     const layer = parts.find((part) => part === 'application' || part === 'domain');
     if (!layer) continue;
     for (const specifier of importsFrom(file)) {
-      assert.ok(!forbiddenPackage.test(specifier), `${relative(root, file)} imports forbidden ${specifier}`);
-      assert.ok(!/(^|\/)platform\/database(?:\/|$)/.test(specifier), `${relative(root, file)} imports platform database`);
-      assert.ok(!/(^|\/)(presentation|http|infrastructure)(\/|$)/.test(specifier), `${relative(root, file)} imports an outer layer`);
+      expect(!forbiddenPackage.test(specifier), `${relative(root, file)} imports forbidden ${specifier}`).toBeTruthy();
+      expect(!/(^|\/)platform\/database(?:\/|$)/.test(specifier), `${relative(root, file)} imports platform database`).toBeTruthy();
+      expect(!/(^|\/)(presentation|http|infrastructure)(\/|$)/.test(specifier), `${relative(root, file)} imports an outer layer`).toBeTruthy();
       if (layer === 'domain') {
-        assert.ok(!/(^|\/)application(\/|$)/.test(specifier), `${relative(root, file)} imports application code`);
+        expect(!/(^|\/)application(\/|$)/.test(specifier), `${relative(root, file)} imports application code`).toBeTruthy();
       }
     }
   }
@@ -220,7 +218,7 @@ function assertInnerLayerIndependence(root: string): void {
 
 function assertCrossModuleExports(root: string): void {
   for (const file of sourceFiles(root)) {
-    if (file.endsWith('.test.ts')) continue;
+    if (file.endsWith('.spec.ts') || file.endsWith('.spec-helper.ts')) continue;
     const sourceModule = owningModule(root, file);
     if (!sourceModule) continue;
     for (const specifier of importsFrom(file)) {
@@ -244,10 +242,9 @@ function assertCrossModuleExports(root: string): void {
       if (isInfrastructureAdapterImport && !isTransactionAdapterExport) {
         const isCompositionRoot = (sourceModule === 'site-survey-workflows' && sourceParts[1] === 'site-survey.module.ts')
           || (sourceModule === 'import' && sourceParts[1] === 'infrastructure');
-        assert.ok(isCompositionRoot, `${relative(root, file)} may not depend on another feature's infrastructure`);
+        expect(isCompositionRoot, `${relative(root, file)} may not depend on another feature's infrastructure`).toBeTruthy();
       }
-      assert.ok(isRootExport || isModuleExport || isInfrastructureAdapterImport || isTransactionAdapterExport,
-        `${relative(root, file)} imports private ${targetModule} path: ${specifier}`);
+      expect(isRootExport || isModuleExport || isInfrastructureAdapterImport || isTransactionAdapterExport, `${relative(root, file)} imports private ${targetModule} path: ${specifier}`).toBeTruthy();
     }
   }
 }
@@ -261,8 +258,7 @@ function assertDatabaseComposition(): void {
     'platform/platform.module.ts',
   ];
   for (const path of consumers) {
-    assert.equal(hasConfiguredDatabaseImport(join(sourceRoot, path)), true,
-      `${path} must import its configured database module into the Nest module`);
+    expect(hasConfiguredDatabaseImport(join(sourceRoot, path)), `${path} must import its configured database module into the Nest module`).toBe(true);
   }
 
   const databaseModuleTarget = join(sourceRoot, 'platform', 'database', 'database.module');
@@ -270,17 +266,15 @@ function assertDatabaseComposition(): void {
     .filter((file) => importsFrom(file).some((specifier) =>
       specifier.startsWith('.') && resolve(dirname(file), specifier) === databaseModuleTarget))
     .map((file) => relative(sourceRoot, file));
-  assert.deepEqual(databaseModuleImporters, ['app.module.ts'],
-    'only AppModule may configure the database module');
+  expect(databaseModuleImporters, 'only AppModule may configure the database module').toStrictEqual(['app.module.ts']);
 
   const { configured, configuredCount, registrations } = appModuleDatabaseDependencies();
-  assert.equal(configuredCount, 1, 'AppModule must configure the database provider exactly once');
-  assert.ok(configured, 'AppModule must retain the configured database module instance');
+  expect(configuredCount, 'AppModule must configure the database provider exactly once').toBe(1);
+  expect(configured, 'AppModule must retain the configured database module instance').toBeTruthy();
   for (const moduleName of ['PlatformModule', 'AuthModule', 'SiteSurveyModule', 'SitesModule', 'SurveysModule']) {
     const calls = registrations.get(moduleName) ?? [];
-    assert.equal(calls.length, 1, `AppModule must register ${moduleName} exactly once`);
-    assert.ok(usesConfiguredDatabase(calls[0], configured),
-      `AppModule must pass the configured database module to ${moduleName}`);
+    expect(calls.length, `AppModule must register ${moduleName} exactly once`).toBe(1);
+    expect(usesConfiguredDatabase(calls[0], configured!), `AppModule must pass the configured database module to ${moduleName}`).toBeTruthy();
   }
 }
 
@@ -357,26 +351,40 @@ test('flat layout rules require presentation and reject legacy http layer', () =
   delete legacyHttpOnly['sites/presentation/sites.controller.ts'];
   delete legacyHttpOnly['sites/presentation/sites.dto.ts'];
   withFixtureTree(legacyHttpOnly, (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /sites is missing presentation\//);
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/sites is missing presentation\//);
   });
 
   withFixtureTree(minimalFlatBackendFixture({
     'sites/http/sites.controller.ts': 'export class LegacySitesController {}\n',
   }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /retired legacy folder http\//);
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/retired legacy folder http\//);
   });
 
   const withoutSitesPresentation = minimalFlatBackendFixture();
   delete withoutSitesPresentation['sites/presentation/sites.controller.ts'];
   delete withoutSitesPresentation['sites/presentation/sites.dto.ts'];
   withFixtureTree(withoutSitesPresentation, (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /sites is missing presentation\//);
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/sites is missing presentation\//);
   });
 
   withFixtureTree(minimalFlatBackendFixture({
     'sites/index.ts': "export { DrizzleSiteReadRepository } from './infrastructure/drizzle-site-read.repository';\n",
   }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /exposes infrastructure/);
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/exposes infrastructure/);
+  });
+
+  withFixtureTree(minimalFlatBackendFixture({
+    'sites/application/site-queries.spec.ts': 'import { test } from "vitest";\n',
+    'sites/presentation/sites.controller.spec.ts': 'import { test } from "vitest";\n',
+    'sites/surveys.spec-helper.ts': 'export const fixture = true;\n',
+  }), (root) => {
+    assertApprovedPhysicalLayout(root);
+  });
+
+  withFixtureTree(minimalFlatBackendFixture({
+    'sites/presentation/nested/sites.controller.spec.ts': 'import { test } from "vitest";\n',
+  }), (root) => {
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/must be at its module root or owning layer/);
   });
 });
 
@@ -395,18 +403,14 @@ test('flat layout rules forbid retired legacy subfolders while allowing legitima
   ];
   for (const [filePath, folder] of retiredCases) {
     withFixtureTree(minimalFlatBackendFixture({ [filePath]: 'export const value = true;\n' }), (root) => {
-      assert.throws(
-        () => assertApprovedPhysicalLayout(root),
-        new RegExp(`retired legacy folder ${folder}/`),
-        `expected ${filePath} to fail for retired folder ${folder}/`,
-      );
+      expect(() => assertApprovedPhysicalLayout(root), `expected ${filePath} to fail for retired folder ${folder}/`).toThrow(new RegExp(`retired legacy folder ${folder}/`));
     });
   }
 
   // Empty retired directory inside a flattened feature layer must also fail.
   withFixtureTree(minimalFlatBackendFixture(), (root) => {
     mkdirSync(join(root, 'sites/presentation/dto'), { recursive: true });
-    assert.throws(() => assertApprovedPhysicalLayout(root), /retired legacy folder dto\//);
+    expect(() => assertApprovedPhysicalLayout(root)).toThrow(/retired legacy folder dto\//);
   });
 
   // Legitimate non-retired subfolders and optional filenames must be allowed.
@@ -448,7 +452,7 @@ test('inner-layer dependency rules block presentation, http, infrastructure, and
   ];
   for (const [filePath, content, pattern] of forbiddenCases) {
     withFixtureTree(minimalFlatBackendFixture({ [filePath]: content }), (root) => {
-      assert.throws(() => assertInnerLayerIndependence(root), pattern);
+      expect(() => assertInnerLayerIndependence(root)).toThrow(pattern);
     });
   }
 });
@@ -507,7 +511,7 @@ test('cross-module export rules require flattened transaction adapter path while
   ];
   for (const [filePath, content, pattern] of forbiddenCrossModuleCases) {
     withFixtureTree(minimalFlatBackendFixture({ [filePath]: content }), (root) => {
-      assert.throws(() => assertCrossModuleExports(root), pattern);
+      expect(() => assertCrossModuleExports(root)).toThrow(pattern);
     });
   }
 });
