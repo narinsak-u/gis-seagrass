@@ -217,6 +217,46 @@ integration('GET /sites combines active status, province filter, and case-insens
   }
 });
 
+integration('GET /sites treats %, _, and \\ in q as literal substring characters rather than LIKE wildcards', async () => {
+  const nameSiteCode = `WILD-NAME-${siteToken}`;
+  const codeSiteCode = `WILD%_${siteToken}\\1`;
+  const literalName = 'Meadow 50% bay_2 east\\wing';
+  try {
+    await pool!.query(
+      `INSERT INTO sites (code, name, province_code, geom, area_rai, deleted_at) VALUES
+        ($1, $2, $4, ST_Multi(ST_GeomFromText('POLYGON((100.2 10.2,100.3 10.2,100.3 10.3,100.2 10.3,100.2 10.2))',4326)), 1, NULL),
+        ($3, 'Plain reef', $4, ST_Multi(ST_GeomFromText('POLYGON((100.4 10.2,100.5 10.2,100.5 10.3,100.4 10.3,100.4 10.2))',4326)), 1, NULL)`,
+      [nameSiteCode, literalName, codeSiteCode, provinceCodes[0]],
+    );
+
+    const searchCodes = async (province: string, q: string) => {
+      const query = new URLSearchParams({ province, q });
+      const { response, body } = await json(`/sites?${query}`);
+      expect(response.status).toBe(200);
+      const codes = (body.items as Array<Record<string, unknown>>).map((item) => item.code);
+      expect(body.total).toBe(codes.length);
+      return codes;
+    };
+
+    // Positive matches on name and code (including case-insensitive matches) without matching ordinary Sites in the same province
+    expect(await searchCodes(provinceCodes[0], '50%')).toStrictEqual([nameSiteCode]);
+    expect(await searchCodes(provinceCodes[0], 'BAY_2')).toStrictEqual([nameSiteCode]);
+    expect(await searchCodes(provinceCodes[0], 'east\\wing')).toStrictEqual([nameSiteCode]);
+    expect(await searchCodes(provinceCodes[0], `wild%_${siteToken.toLowerCase()}\\1`)).toStrictEqual([codeSiteCode]);
+    const bothWildCodes = [codeSiteCode, nameSiteCode].sort();
+    expect(await searchCodes(provinceCodes[0], '%')).toStrictEqual(bothWildCodes);
+    expect(await searchCodes(provinceCodes[0], '_')).toStrictEqual(bothWildCodes);
+    expect(await searchCodes(provinceCodes[0], '\\')).toStrictEqual(bothWildCodes);
+
+    // Negative non-matches against a province whose active Site ("Another zone") has none of %, _, or \
+    for (const nonMatching of ['%', '_', '\\', 'Another_zone', 'Another%zone']) {
+      expect(await searchCodes(provinceCodes[1], nonMatching)).toStrictEqual([]);
+    }
+  } finally {
+    await pool!.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[nameSiteCode, codeSiteCode]]);
+  }
+});
+
 integration('HTTP errors use shared envelopes and health remains available', async () => {
   const unknown = await json('/missing-route');
   expect(unknown.response.status).toBe(404);
