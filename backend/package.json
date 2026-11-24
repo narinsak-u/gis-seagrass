@@ -6,7 +6,10 @@
     "build": "tsc -p tsconfig.json",
     "migrate": "node dist/platform/database/migrate.js",
     "import": "node dist/import/run.js",
-    "test": "npm run build && tsc -p tsconfig.spec.json --noEmit && vitest run",
+    "test": "npm run build && npm run typecheck:tests && vitest run",
+    "typecheck:tests": "tsc -p tsconfig.spec.json --noEmit",
+    "test:unit": "npm run typecheck:tests && vitest run --project unit",
+    "test:integration": "npm run build && npm run typecheck:tests && vitest run --project integration",
     "start:prod": "node dist/main.js"
   },
   "dependencies": {

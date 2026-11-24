@@ -53,5 +53,5 @@ Install separately with `npm --prefix backend ci` and `npm --prefix frontend ci`
 
 ## Testing & QA
 
-- Backend `npm test` builds for subprocess checks, type-checks `tests/**/*.ts` without emitting, then runs serial Vitest `tests/**/*.spec.ts` suites with Nest decorator metadata and `expect` assertions. Database integration tests need `IMPORT_TEST_DATABASE_URL` pointing at a disposable PostGIS DB: they migrate and mutate fixtures. Parser tests work without it. Backend architecture rules are guidance in `DESIGN.md` and ADR-0002, not a test-enforced boundary.
+- Backend `npm test` builds for process smoke tests, type-checks all specs, then runs serial Vitest unit and integration suites. Specs use `.unit.spec.ts` or `.integration.spec.ts`; `npm run test:unit` runs only unit specs, while `npm run test:integration` builds and runs integration specs. Integration specs need `IMPORT_TEST_DATABASE_URL` pointing at a disposable PostGIS DB: they migrate and mutate fixtures. Backend architecture rules are guidance in `DESIGN.md` and ADR-0002, not a test-enforced boundary.
 - Frontend `npm test` runs Vitest on `src/**/*.test.ts`; tests live beside features. No coverage threshold or coverage command is configured. Run the narrowest relevant check for a change.

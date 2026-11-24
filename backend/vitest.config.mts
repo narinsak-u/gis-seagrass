@@ -23,10 +23,13 @@ export default defineConfig({
   }],
   test: {
     environment: 'node',
-    include: ['tests/**/*.spec.ts'],
     isolate: true,
     fileParallelism: false,
     hookTimeout: 60_000,
     testTimeout: 60_000,
+    projects: [
+      { test: { name: 'unit', include: ['tests/**/*.unit.spec.ts'] } },
+      { test: { name: 'integration', include: ['tests/**/*.integration.spec.ts'] } },
+    ],
   },
 });
