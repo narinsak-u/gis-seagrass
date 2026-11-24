@@ -136,16 +136,16 @@ integration('protected requests resolve current role and active status for each 
 });
 
 integration('POST /auth/login allows 20 malformed attempts, then returns an enveloped 429 without throttling other routes', async () => {
-  const attempt = () => fetch(`${fixture.origin}/auth/login`, {
+  const attempt = (body: string) => fetch(`${fixture.origin}/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.8' },
-    body: JSON.stringify({}),
+    body,
   });
   for (let count = 0; count < 20; count++) {
-    expect((await attempt()).status).toBe(400);
+    expect((await attempt(count % 2 === 0 ? '{' : JSON.stringify({}))).status).toBe(400);
   }
 
-  const limited = await attempt();
+  const limited = await attempt('{');
   expect(limited.status).toBe(429);
   expect(Object.keys(await limited.json() as Record<string, unknown>)).toStrictEqual(['error']);
 

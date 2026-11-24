@@ -229,6 +229,9 @@ test("E2E-06 admin Survey API write is visible in Site history UI", async ({ pag
   await signIn(page, "admin");
   await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
   await page.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) }).click();
+  await expect(
+    page.getByRole("region", { name: "Site detail" }).getByText(statusLabels.good, { exact: true }),
+  ).toBeVisible();
   const history = page.getByTestId("survey-history-section");
   await expect(history.getByText(note, { exact: true })).toBeVisible();
 });

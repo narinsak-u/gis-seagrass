@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
-import { expect } from 'vitest';
 import { AppModule } from '../../src/app.module';
 import { runMigrations, createDatabaseProvider, type DatabaseProvider } from '../../src/platform/database';
+import { configureLoginBodyParsing } from '../../src/auth/presentation/malformed-login-json.middleware';
 import { setupSwagger } from '../../src/swagger';
 import { hashPassword } from '../../src/auth/application/auth-token';
 import type { Pool } from 'pg';
@@ -12,7 +12,7 @@ export const testSecret = 'isolated-integration-signing-secret-32-bytes';
 export function createAuthFixture() {
   const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
   const fixture: {
-    app?: INestApplication;
+    app?: NestExpressApplication;
     database?: DatabaseProvider;
     pool?: Pool;
     origin: string;
@@ -47,12 +47,13 @@ export function createAuthFixture() {
         'INSERT INTO users (id,email,password_hash,role) VALUES ($1,$2,$3,$4)',
         [fixture.userId, fixture.email, await hashPassword('correct horse battery staple'), 'admin'],
       );
-      fixture.app = await NestFactory.create(AppModule.register(provider), { logger: false });
+      fixture.app = await NestFactory.create<NestExpressApplication>(AppModule.register(provider), { logger: false, rawBody: true, bodyParser: false });
+      configureLoginBodyParsing(fixture.app);
       fixture.app.getHttpAdapter().getInstance().set('trust proxy', 1);
       setupSwagger(fixture.app);
       await fixture.app.listen(0, '127.0.0.1');
       const address = fixture.app.getHttpServer().address();
-      expect(address && typeof address === 'object').toBeTruthy();
+      if (!address || typeof address === 'string') throw new Error('Test server is not listening');
       fixture.origin = `http://127.0.0.1:${address.port}`;
     },
     async close() {
