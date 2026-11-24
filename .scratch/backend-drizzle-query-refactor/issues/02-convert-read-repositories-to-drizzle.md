@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] **R1 (`drizzle-survey-list.repository.ts`):** Replace the `listBySiteCode` `db.execute` join query with Drizzle `.select()`, `.leftJoin(surveySpecies, ...)`, `.groupBy(surveys.id)`, `.orderBy(desc(surveys.surveyedOn), desc(surveys.id))`, `.limit()`, and `.offset()`, preserving `id: string`, `lon`/`lat`/`cover_percent` numbers, `surveyed_on` date string, `created_by: string | null`, and sorted `species: string[]` (`[]` when empty).
 - [x] **R2 (`drizzle-site-read.repository.ts`):** Convert `list` (count + paginated rows), `detail`, and `withinBbox` to Drizzle builder while keeping `strpos(lower(${sites.code}), lower(${search})) > 0` / `strpos(lower(${sites.name}), lower(${search})) > 0` with schema column refs, `ST_AsGeoJSON(..., 15)::jsonb`, and `ST_Intersects(..., ST_MakeEnvelope(...))`.

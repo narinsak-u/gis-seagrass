@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] **R6 (`drizzle-site-write.repository.ts`):** Convert `create`, `import` (`.onConflictDoNothing()`), `lock` (`.for('update')`), `lockForSurvey` (`.for('update')`), `withinDistance`, and both `update` branches (spatial + name-only, with atomic `version: sql\`${sites.version} + 1\``) to Drizzle builder.
 - [x] Verify PostgreSQL unique-constraint error translation (`23505` / `uq_sites_code` → `ApplicationError('DUPLICATE_CODE', ...)`) still works through Drizzle's error cause chain.

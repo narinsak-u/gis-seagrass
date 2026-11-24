@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] **R5 (`drizzle-survey-write.repository.ts`):** Convert `import` (using `.onConflictDoNothing({ target: surveys.surveyRef, where: sql\`${surveys.surveyRef} IS NOT NULL\` })`), `today` (tableless `tx.select(...)`), `create`, and `response` survey projection to Drizzle builder.
 - [x] Reuse the shared internal `surveys/infrastructure/` latest-date cover-percentage helper inside `DrizzleSurveyWriteRepository.response(tx, id)` so mutation responses use the exact same `siteStatus` logic on the active transaction.

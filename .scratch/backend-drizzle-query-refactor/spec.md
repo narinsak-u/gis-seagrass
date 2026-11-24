@@ -1,6 +1,6 @@
 # Backend Persistence Refactor — Drizzle-First Query Policy
 
-Status: Confirmed via `/grill-with-docs` — ready for implementation  
+Status: Implemented and verified (25/25 backend test files, 81/81 tests passing on isolated disposable PostGIS; two-axis code review and independent `/verify` complete)  
 Canonical spec: [`specs/backend-drizzle-query-refactor.md`](../../specs/backend-drizzle-query-refactor.md)
 
 ## Summary

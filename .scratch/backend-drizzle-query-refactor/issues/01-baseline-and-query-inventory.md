@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Run `npm --prefix backend run build` and `npm --prefix backend test` against an isolated disposable PostGIS database via `IMPORT_TEST_DATABASE_URL`, recording exact counts and pass/fail status.
 - [x] Verify and record classification (`convert`, `hybrid`, or `retain with reason`) for every `.execute` statement across R1–R7 (noting `import/infrastructure/reference-data.ts`, `advisory-lock.ts`, and `health.controller.ts` stay untouched).

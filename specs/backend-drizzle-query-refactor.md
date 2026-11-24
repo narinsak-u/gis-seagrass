@@ -1,7 +1,7 @@
 # Backend Persistence Refactor — Drizzle-First Query Policy
 
 **Project:** GIS Seagrass Monitoring System  
-**Status:** Confirmed — ready for implementation  
+**Status:** Implemented and verified  
 **Target:** `backend/`
 **Work type:** Behavior-preserving infrastructure refactor, not a numbered product Step  
 **Commit prefix:** `refactor:`
@@ -189,16 +189,16 @@ refactor: simplify site persistence queries and document spatial sql exceptions
 
 ## 8. Definition of done
 
-- [ ] Inventory documents all complete raw SQL statements in targeted repositories and classifies each as convert/hybrid/retain with reason.
-- [ ] Ordinary joins, pagination, sorting, projections and CRUD use Drizzle builder where meaningfully supported.
-- [ ] PostgreSQL/PostGIS functions remain database-side as targeted `sql` expressions; complex spatial CTEs may stay raw with clear rationale.
-- [ ] Query parameters remain bound; no SQL string interpolation or weakened input handling.
-- [ ] All API responses preserve existing field names, types, sorting, null behavior, and errors.
-- [ ] DB transactions, row locks, optimistic locking, Survey spatial invariants, and importer idempotency are preserved.
-- [ ] No DB schema/migration/seed data or external API behavior changes.
-- [ ] Build, unit tests, manual Clean Architecture review (per `DESIGN.md`/ADR-0002), and full API/PostGIS integration and concurrency tests pass on a disposable DB (or every gap is explicitly reported, not marked done).
-- [ ] `DESIGN.md`, `docs/adr/0003-drizzle-first-query-policy.md`, and changed query exceptions are documented.
-- [ ] Independent verification passes before `refactor:` commit(s); Step 6 and other features not started.
+- [x] Inventory documents all complete raw SQL statements in targeted repositories and classifies each as convert/hybrid/retain with reason.
+- [x] Ordinary joins, pagination, sorting, projections and CRUD use Drizzle builder where meaningfully supported.
+- [x] PostgreSQL/PostGIS functions remain database-side as targeted `sql` expressions; complex spatial CTEs may stay raw with clear rationale.
+- [x] Query parameters remain bound; no SQL string interpolation or weakened input handling.
+- [x] All API responses preserve existing field names, types, sorting, null behavior, and errors.
+- [x] DB transactions, row locks, optimistic locking, Survey spatial invariants, and importer idempotency are preserved.
+- [x] No DB schema/migration/seed data or external API behavior changes.
+- [x] Build, unit tests, manual Clean Architecture review (per `DESIGN.md`/ADR-0002), and full API/PostGIS integration and concurrency tests pass on a disposable DB (or every gap is explicitly reported, not marked done).
+- [x] `DESIGN.md`, `docs/adr/0003-drizzle-first-query-policy.md`, and changed query exceptions are documented.
+- [x] Independent verification passes before `refactor:` commit(s); Step 6 and other features not started.
 
 ## 9. Confirmed decisions
 
