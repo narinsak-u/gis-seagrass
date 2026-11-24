@@ -1,8 +1,8 @@
 import { expect, test } from 'vitest';
-import { AppModule } from '../../app.module';
+import { AppModule } from '../../src/app.module';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { createDatabaseProvider, type DatabaseProvider } from '../../platform/database';
+import { createDatabaseProvider, type DatabaseProvider } from '../../src/platform/database';
 import {
   accessToken, create, deletedSiteCode, expiredToken, origin, pool, request, requestText,
   resetSurveys, siteCode, siteId, speciesCodes, todayAndDates, users, validSurvey,

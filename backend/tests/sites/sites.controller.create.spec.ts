@@ -1,21 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { expect, afterAll, beforeAll, test } from 'vitest';
-import type { INestApplication } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { Pool, type PoolClient } from 'pg';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import * as schema from '../../platform/database';
-import { createSiteSurveyImportOperations } from '../../import/infrastructure/site-survey-operations';
-import { importSurveys, type SurveyImportResult } from '../../import/application/import-surveys';
-import type { ParsedSurvey } from '../../import/parser/surveys';
-import { AppModule } from '../../app.module';
-import { signAccessToken } from '../../auth/application/auth-token';
-import { createDatabaseProvider, type DatabaseProvider } from '../../platform/database';
-import { runMigrations } from '../../platform/database';
-const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
-const integration = testDatabaseUrl ? test : test.skip;
-let app: INestApplication | undefined;
-let database: DatabaseProvider | undefined;
+import { Pool } from 'pg';
+import { signAccessToken } from '../../src/auth/application/auth-token';
+import { createSiteFixture, type SiteFixture } from './site-fixture';
+const integration = process.env.IMPORT_TEST_DATABASE_URL ? test : test.skip;
+let fixture: SiteFixture | undefined;
 let pool: Pool | undefined;
 let origin = '';
 let siteCodes: string[] = [];
@@ -27,80 +15,14 @@ let importSpeciesCode = '';
 let postToken = '';
 let users: Record<'viewer' | 'editor' | 'admin', string> = { viewer: '', editor: '', admin: '' };
 
-function importSurveyRecords(client: PoolClient, records: ParsedSurvey[]) {
-  const writer = createSiteSurveyImportOperations(drizzle(client, { schema })).surveyCommands;
-  return importSurveys(writer, records);
-}
-
 beforeAll(async () => {
-  process.env.JWT_SECRET ??= 'isolated-integration-signing-secret-32-bytes';
-  if (!testDatabaseUrl) return;
-  const url = new URL(testDatabaseUrl);
-  process.env.PGHOST = url.hostname;
-  process.env.PGPORT = url.port || '5432';
-  process.env.PGUSER = decodeURIComponent(url.username);
-  process.env.PGPASSWORD = decodeURIComponent(url.password);
-  process.env.PGDATABASE = decodeURIComponent(url.pathname.slice(1));
-  database = createDatabaseProvider();
-  await runMigrations(database);
-  pool = database.pool;
-  do {
-    const token = randomUUID().replaceAll('-', '').toUpperCase();
-    provinceCodes = [token.slice(0, 2), token.slice(2, 4)];
-    siteToken = token.slice(4, 12);
-    importSpeciesCode = `PATCH-SPECIES-${token.slice(12, 20)}`;
-    postToken = `POST-${token.slice(20, 24)}`;
-    siteCodes = ['ALPHA', 'BETA', 'GAMMA', 'HISTORY'].map((name) => `${name}-${siteToken}`);
-    const postCodes = ['POST', 'MULTI', 'TIE', 'BAD', 'TOUCH'].map((name) => `${name}-${postToken}`);
-    if (provinceCodes[0] === provinceCodes[1]) continue;
-    const existing = await pool.query(
-      'SELECT 1 FROM provinces WHERE code = ANY($1::varchar[]) UNION ALL SELECT 1 FROM sites WHERE code = ANY($2::text[])',
-      [provinceCodes, [...siteCodes, ...postCodes]],
-    );
-    if (!existing.rowCount) break;
-  } while (true);
-  await pool.query('INSERT INTO species (code,name_th,name_sci) VALUES ($1,$1,$1)', [importSpeciesCode]);
-  await pool.query(
-    `INSERT INTO provinces (code, name_th, geom) VALUES
-      ($1, 'West', ST_Multi(ST_GeomFromText('POLYGON((100 10,101 10,101 11,100 11,100 10))',4326))),
-      ($2, 'East', ST_Multi(ST_GeomFromText('POLYGON((101 10,102 10,102 11,101 11,101 10))',4326)))`,
-    provinceCodes,
-  );
-  await pool.query(
-    `INSERT INTO sites (code,name,province_code,geom,area_rai,deleted_at) VALUES
-      ($1,'Zebra meadow',$2,ST_Multi(ST_GeomFromText('POLYGON((100.1 10.1,100.2 10.1,100.2 10.2,100.1 10.2,100.1 10.1))',4326)),1,NULL),
-      ($3,'alpha lagoon',$4,ST_Multi(ST_GeomFromText('POLYGON((100.3 10.1,100.4 10.1,100.4 10.2,100.3 10.2,100.3 10.1))',4326)),2,NULL),
-      ($5,'Another zone',$6,ST_Multi(ST_GeomFromText('POLYGON((101.1 10.1,101.2 10.1,101.2 10.2,101.1 10.2,101.1 10.1))',4326)),3,NULL),
-      ($7,'Retired site',$2,ST_Multi(ST_GeomFromText('POLYGON((100.5 10.1,100.6 10.1,100.6 10.2,100.5 10.2,100.5 10.1))',4326)),1,now())`,
-    [siteCodes[0], provinceCodes[0], siteCodes[1], provinceCodes[0], siteCodes[2], provinceCodes[1], siteCodes[3]],
-  );
-  users = { viewer: randomUUID(), editor: randomUUID(), admin: randomUUID() };
-  await pool.query(
-    'INSERT INTO users (id, email, password_hash, role) VALUES ($1,$2,$3,$4),($5,$6,$7,$8),($9,$10,$11,$12)',
-    [users.viewer, `${users.viewer}@example.test`, 'unused', 'viewer',
-      users.editor, `${users.editor}@example.test`, 'unused', 'editor',
-      users.admin, `${users.admin}@example.test`, 'unused', 'admin'],
-  );
-  app = await NestFactory.create(AppModule.register(database), { logger: false });
-  await app.listen(0, '127.0.0.1');
-  const address = app.getHttpServer().address();
-  expect(address && typeof address === 'object').toBeTruthy();
-  origin = `http://127.0.0.1:${address.port}`;
+  fixture = await createSiteFixture();
+  if (!fixture) return;
+  ({ pool, origin, siteCodes, provinceCodes, createdSiteCodes, surveyRefs, siteToken, importSpeciesCode, postToken, users } = fixture);
 });
 
 afterAll(async () => {
-  if (pool) {
-    if (surveyRefs.length) {
-      await pool.query('DELETE FROM survey_species WHERE survey_id IN (SELECT id FROM surveys WHERE survey_ref = ANY($1::text[]))', [surveyRefs]);
-      await pool.query('DELETE FROM surveys WHERE survey_ref = ANY($1::text[])', [surveyRefs]);
-    }
-    await pool.query('DELETE FROM sites WHERE code = ANY($1::text[])', [[...siteCodes, ...createdSiteCodes]]);
-    await pool.query('DELETE FROM provinces WHERE code = ANY($1::varchar[])', [provinceCodes]);
-    await pool.query('DELETE FROM species WHERE code = $1', [importSpeciesCode]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [Object.values(users)]);
-  }
-  if (app) await app.close();
-  else await database?.close();
+  await fixture?.cleanup();
 });
 
 async function json(path: string): Promise<{ response: Response; body: Record<string, unknown> }> {

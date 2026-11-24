@@ -1,10 +1,10 @@
 import { expect, afterAll, beforeAll, test } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../../app.module';
-import { createDatabaseProvider, type DatabaseProvider } from '../../platform/database';
-import { runMigrations } from '../../platform/database';
-import { setupSwagger } from '../../swagger';
+import { AppModule } from '../../src/app.module';
+import { createDatabaseProvider, type DatabaseProvider } from '../../src/platform/database';
+import { runMigrations } from '../../src/platform/database';
+import { setupSwagger } from '../../src/swagger';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;

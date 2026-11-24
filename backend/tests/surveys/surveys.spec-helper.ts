@@ -2,10 +2,10 @@ import { afterAll, beforeAll } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
-import { AppModule } from '../../app.module';
-import { createDatabaseProvider, type DatabaseProvider, runMigrations } from '../../platform/database';
-import { setupSwagger } from '../../swagger';
-import { signAccessToken } from '../../auth/application/auth-token';
+import { AppModule } from '../../src/app.module';
+import { createDatabaseProvider, type DatabaseProvider, runMigrations } from '../../src/platform/database';
+import { setupSwagger } from '../../src/swagger';
+import { signAccessToken } from '../../src/auth/application/auth-token';
 
 export interface SurveyFixture {
   pool: Pool;

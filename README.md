@@ -206,7 +206,7 @@ docker compose exec api npm run migrate
 Run the rollback-only schema check:
 
 ```sh
-docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backend/test/schema.sql
+docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backend/tests/platform/schema.sql
 ```
 
 The check rolls back its temporary data. The database port defaults to `localhost:5432`; published ports bind to loopback by default.

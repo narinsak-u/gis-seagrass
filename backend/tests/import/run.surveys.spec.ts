@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Pool } from 'pg';
-import { runMigrations } from '../platform/database';
+import { runMigrations } from '../../src/platform/database';
 
 const header = 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species';
 

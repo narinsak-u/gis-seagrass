@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseProvinceCollection, parseProvinceFeature } from './province';
+import { parseProvinceCollection, parseProvinceFeature } from '../../../src/import/parser/province';
 
 test('province parser rejects malformed collections and invalid WGS84 coordinates', () => {
   expect(() => parseProvinceCollection('{')).toThrow(/JSON/);

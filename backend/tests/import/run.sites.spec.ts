@@ -6,11 +6,10 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import * as schema from '../platform/database';
-import { runMigrations } from '../platform/database';
-import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
-import { importSiteFeatures } from './application/import-sites';
-
+import * as schema from '../../src/platform/database';
+import { runMigrations } from '../../src/platform/database';
+import { createSiteSurveyImportOperations } from '../../src/import/infrastructure/site-survey-operations';
+import { importSiteFeatures } from '../../src/import/application/import-sites';
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;
 let pool: Pool | undefined;

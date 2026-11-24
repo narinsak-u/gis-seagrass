@@ -23,7 +23,7 @@ export default defineConfig({
   }],
   test: {
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    include: ['tests/**/*.spec.ts'],
     isolate: true,
     fileParallelism: false,
     hookTimeout: 60_000,

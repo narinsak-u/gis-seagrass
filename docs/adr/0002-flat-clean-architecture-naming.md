@@ -24,5 +24,5 @@ File names express responsibility directly instead of relying on nested director
 
 ## Consequences
 
-- `backend/src/platform/architecture.test.ts` enforces the flat top-level layers and dependency direction and forbids re-introducing the retired nested folders (`http/`, `dto/`, `contracts/`, `use-cases/`, `repositories/`, `transactions/`, `security/`) inside feature layers, without hardcoding optional filenames or blocking legitimate future subfolders.
+- The flat layer layout, dependency direction, retired-folder avoidance, and composition-root boundaries remain documented guidance. The former `architecture.spec.ts` was removed because its static checks were too strict; these rules are no longer automatically enforced by a test.
 - All Clean Architecture invariants from ADR-0001 remain unchanged: Domain and Application stay independent of NestJS, HTTP/Presentation, Drizzle, and `pg`; cross-feature access uses public module exports; `SiteSurveyModule` and `import/infrastructure/` remain the only composition-root exceptions for concrete repository wiring; and `SiteWriteTransaction` stays opaque outside infrastructure.

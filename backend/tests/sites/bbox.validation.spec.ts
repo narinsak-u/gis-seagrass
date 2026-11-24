@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
-import { parseBbox, requireValidBbox } from './bbox.validation';
+import { parseBbox, requireValidBbox } from '../../src/sites/presentation/bbox.validation';
 test('shared bbox validation accepts valid WGS84 envelopes and rejects invalid values', () => {
   expect(parseBbox('98.5,7.2,100.4,9.8')).toStrictEqual([98.5, 7.2, 100.4, 9.8]);
   expect(requireValidBbox('-180,-90,180,90')).toStrictEqual([-180, -90, 180, 90]);

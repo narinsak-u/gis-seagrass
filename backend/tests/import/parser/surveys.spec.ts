@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseSurveysCsv } from './surveys';
+import { parseSurveysCsv } from '../../../src/import/parser/surveys';
 
 const header = 'survey_ref,site_code,lon,lat,surveyed_on,cover_percent,species';
 

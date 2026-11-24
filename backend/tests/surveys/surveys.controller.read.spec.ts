@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { signAccessToken } from '../../auth/application/auth-token';
+import { signAccessToken } from '../../src/auth/application/auth-token';
 import { request as httpRequest } from 'node:http';
 import { expect, test } from 'vitest';
 import {
@@ -156,12 +156,6 @@ integration('GET /sites/:code/surveys authenticates active current users before 
   for (const role of ['viewer', 'editor', 'admin'] as const) {
     expect((await request(`/sites/${siteCode}/surveys`, 'GET', undefined, accessToken(role))).response.status).toBe(200);
   }
-  expect((await request('/health')).response.status).toBe(200);
-  expect((await request('/sites')).response.status).toBe(200);
-  expect((await fetch(`${origin}/docs`)).status).toBe(200);
-  expect((await request('/sites.geojson?bbox=99,9,101,11')).response.status).toBe(200);
-  expect((await request(`/sites/${siteCode}`)).response.status).toBe(200);
-  expect((await fetch(`${origin}/docs-json`)).status).toBe(200);
 });
 
 

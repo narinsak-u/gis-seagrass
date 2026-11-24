@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseSpeciesArray, parseSpeciesRecord } from './species';
+import { parseSpeciesArray, parseSpeciesRecord } from '../../../src/import/parser/species';
 
 test('species parser requires array and nonempty required fields', () => {
   expect(() => parseSpeciesArray('{')).toThrow(/JSON/);

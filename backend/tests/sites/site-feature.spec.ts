@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseSiteFeature } from './site-feature';
+import { parseSiteFeature } from '../../src/sites/domain/site-feature';
 
 test('Site parser requires nonempty identity and finite in-range lon/lat polygon coordinates', () => {
   const feature = (coordinates: unknown) => ({

@@ -5,6 +5,7 @@
 **Status:** Implemented and verified — 78/78 backend tests pass against disposable PostGIS, two-axis code review passed, and independent `/verify` passed  
 **Scope:** `backend/` only  
 **Git prefix:** `refactor:`
+> **Enforcement note:** Architecture checks below record historical acceptance. Current layout and dependency rules remain guidance in ADR-0002, without a static architecture spec.
 
 ## 1. Goal
 

@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { expect, test } from 'vitest';
-import { signAccessToken, verifyAccessToken } from './auth-token';
+import { signAccessToken, verifyAccessToken } from '../../src/auth/application/auth-token';
 
 const testSecret = 'isolated-integration-signing-secret-32-bytes';
 
