@@ -6,7 +6,7 @@ These specifications define the implementation plan for the **Seagrass Monitorin
 
 ## Roadmap
 
-Before beginning Step 6, the backend architecture refactor and physical-layer follow-up in [`backend-architecture-refactor.md`](backend-architecture-refactor.md) and [`backend-architecture-structure.md`](backend-architecture-structure.md) are implemented and verified preparatory work. Neither adds Step 6 requirements or changes Step numbering.
+Before beginning Step 6, the preparatory backend architecture refactors in [`backend-architecture-refactor.md`](backend-architecture-refactor.md), [`backend-architecture-structure.md`](backend-architecture-structure.md), and [`backend-clean-architecture-naming-refactor.md`](backend-clean-architecture-naming-refactor.md) (see [ADR-0002](../docs/adr/0002-flat-clean-architecture-naming.md)) establish the active flat four-layer Clean Architecture layout. None of them add Step 6 requirements or change Step numbering.
 
 | File | Scope | Priority | Status |
 | --- | --- | --- | --- |

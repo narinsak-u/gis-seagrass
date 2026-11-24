@@ -14,14 +14,31 @@ const moduleFiles = {
   'site-survey-workflows': 'site-survey.module.ts',
   import: undefined,
 } as const;
-const httpFeatureModules = new Set<string>(['auth', 'sites', 'surveys']);
-const requiredBaseLayers = {
-  auth: ['application', 'domain', 'infrastructure'],
-  sites: ['application', 'domain', 'infrastructure'],
-  surveys: ['application', 'domain', 'infrastructure'],
+const requiredLayers = {
+  auth: ['domain', 'application', 'infrastructure', 'presentation'],
+  sites: ['domain', 'application', 'infrastructure', 'presentation'],
+  surveys: ['domain', 'application', 'infrastructure', 'presentation'],
   'site-survey-workflows': ['application', 'infrastructure'],
   import: ['parser', 'application', 'infrastructure'],
 } as const;
+const retiredLegacySubfolders = new Set<string>([
+  'http',
+  'dto',
+  'contracts',
+  'use-cases',
+  'repositories',
+  'transactions',
+  'security',
+]);
+
+function subdirectories(directory: string): string[] {
+  const entries = readdirSync(directory, { withFileTypes: true }) as Dirent[];
+  return entries.flatMap((entry) => {
+    if (!entry.isDirectory()) return [];
+    const path = join(directory, entry.name);
+    return [path, ...subdirectories(path)];
+  });
+}
 
 function sourceFiles(directory: string): string[] {
   const entries = readdirSync(directory, { withFileTypes: true }) as Dirent[];
@@ -118,21 +135,21 @@ function usesConfiguredDatabase(args: readonly ts.Expression[], configured: ts.I
 function assertApprovedPhysicalLayout(root: string): void {
   for (const moduleName of featureModules) {
     const moduleRoot = join(root, moduleName);
-    const baseLayers = requiredBaseLayers[moduleName];
-    for (const layer of baseLayers) {
+    const activeLayers: readonly string[] = requiredLayers[moduleName];
+    for (const layer of activeLayers) {
       assert.ok(existsSync(join(moduleRoot, layer)), `${moduleName} is missing ${layer}/`);
     }
 
-    const isHttpFeature = httpFeatureModules.has(moduleName);
-    let activeLayers: readonly string[] = baseLayers;
-    let allLayerNames: readonly string[] = baseLayers;
-    if (isHttpFeature) {
-      const hasPresentation = existsSync(join(moduleRoot, 'presentation'));
-      const hasLegacyHttp = existsSync(join(moduleRoot, 'http'));
-      assert.ok(hasPresentation || hasLegacyHttp, `${moduleName} is missing presentation/ (or legacy http/)`);
-      assert.ok(!(hasPresentation && hasLegacyHttp), `${moduleName} must not mix presentation/ and legacy http/`);
-      activeLayers = [hasPresentation ? 'presentation' : 'http', ...baseLayers];
-      allLayerNames = ['presentation', 'http', ...baseLayers];
+    for (const dir of subdirectories(moduleRoot)) {
+      const dirParts = relative(moduleRoot, dir).split(sep);
+      const retiredFolder = dirParts.find((part) => retiredLegacySubfolders.has(part));
+      assert.ok(!retiredFolder, `${relative(root, dir)} must not use retired legacy folder ${retiredFolder}/`);
+      if (dirParts.length === 1) {
+        assert.ok(activeLayers.includes(dirParts[0]), `${relative(root, dir)} must be an approved layer`);
+      } else {
+        assert.ok(!dirParts.slice(1).some((part) => activeLayers.includes(part)),
+          `${relative(root, dir)} must not nest a module layer`);
+      }
     }
 
     const moduleFile = moduleFiles[moduleName];
@@ -154,26 +171,8 @@ function assertApprovedPhysicalLayout(root: string): void {
       assert.ok(activeLayers.includes(layer)
         || (pathParts.length === 1 && allowedRootFiles.has(relativePath)),
       `${relative(root, file)} must live in an approved layer`);
-      assert.ok(!pathParts.slice(1).some((part) => allLayerNames.includes(part)),
+      assert.ok(!pathParts.slice(1).some((part) => activeLayers.includes(part)),
         `${relative(root, file)} must not nest a module layer`);
-      if (layer === 'application') {
-        const allowedLegacyFolders = moduleName === 'auth' ? ['contracts', 'use-cases', 'security'] : ['contracts', 'use-cases'];
-        assert.ok(pathParts.length === 2 || allowedLegacyFolders.includes(pathParts[1]),
-          `${relative(root, file)} must live directly in application/ or an approved legacy application folder`);
-      }
-      if (layer === 'http' && file.endsWith('.dto.ts')) {
-        assert.equal(pathParts[1], 'dto', `${relative(root, file)} DTOs must live in http/dto/`);
-      }
-      if (layer === 'presentation') {
-        assert.notEqual(pathParts[1], 'dto', `${relative(root, file)} must not use retired presentation/dto/`);
-        if (file.endsWith('.dto.ts')) {
-          assert.equal(pathParts.length, 2, `${relative(root, file)} DTOs must live directly in presentation/`);
-        }
-      }
-      if (layer === 'infrastructure' && /repository/i.test(file)) {
-        assert.ok(pathParts.length === 2 || pathParts[1] === 'repositories',
-          `${relative(root, file)} repositories must live directly in infrastructure/ or legacy infrastructure/repositories/`);
-      }
     }
     const nestedModules = sourceFiles(moduleRoot).filter((file) => file.endsWith('.module.ts')
       && relative(moduleRoot, file).split(sep).length > 1);
@@ -238,13 +237,12 @@ function assertCrossModuleExports(root: string): void {
       const moduleFile = moduleFiles[targetModule as keyof typeof moduleFiles];
       const isModuleExport = publicPath.length === 1 && moduleFile?.replace(/\.ts$/, '') === publicPath[0];
       const isInfrastructureAdapterImport = publicPath[0] === 'infrastructure';
-      const isLegacyTransactionAdapterExport = publicPath.length === 3
-        && publicPath[0] === 'infrastructure' && publicPath[1] === 'transactions' && publicPath[2] === 'drizzle-transaction';
-      const isFlatTransactionAdapterExport = publicPath.length === 2
-        && publicPath[0] === 'infrastructure' && publicPath[1] === 'drizzle-transaction';
       const isTransactionAdapterExport = targetModule === 'site-survey-workflows'
-        && (isLegacyTransactionAdapterExport || isFlatTransactionAdapterExport)
-        && ['sites', 'surveys'].includes(sourceModule) && sourceParts[1] === 'infrastructure';
+        && publicPath.length === 2
+        && publicPath[0] === 'infrastructure'
+        && publicPath[1] === 'drizzle-transaction'
+        && ['sites', 'surveys'].includes(sourceModule)
+        && sourceParts[1] === 'infrastructure';
       if (isInfrastructureAdapterImport && !isTransactionAdapterExport) {
         const isCompositionRoot = (sourceModule === 'site-survey-workflows' && sourceParts[1] === 'site-survey.module.ts')
           || (sourceModule === 'import' && sourceParts[1] === 'infrastructure');
@@ -350,87 +348,80 @@ test('backend production files use the approved physical modules and layers', ()
   assertApprovedPhysicalLayout(sourceRoot);
 });
 
-test('transitional layout rules accept flattened feature layouts and reject invalid layer combinations', () => {
+test('flat layout rules require presentation and reject legacy http layer', () => {
   withFixtureTree(minimalFlatBackendFixture(), (root) => {
     assertApprovedPhysicalLayout(root);
   });
 
-  withFixtureTree({
-    'auth/auth.module.ts': 'export class AuthModule {}\n',
-    'auth/domain/actor.ts': 'export type Actor = string;\n',
-    'auth/application/use-cases/auth-service.ts': 'export class AuthService {}\n',
-    'auth/application/contracts/auth-repository.ts': 'export interface AuthRepository {}\n',
-    'auth/application/security/auth-token.ts': 'export const verifyToken = () => true;\n',
-    'auth/infrastructure/repositories/drizzle-auth-repository.ts': 'export class DrizzleAuthRepository {}\n',
-    'auth/http/auth.controller.ts': 'export class AuthController {}\n',
-    'auth/http/dto/auth.dto.ts': 'export class LoginDto {}\n',
-    'sites/index.ts': "export { deriveSiteStatus } from './domain/site-status.rules';\n",
-    'sites/sites.module.ts': 'export class SitesModule {}\n',
-    'sites/domain/site-status.rules.ts': 'export const deriveSiteStatus = () => null;\n',
-    'sites/application/site-queries.ts': 'export class SiteQueries {}\n',
-    'sites/infrastructure/drizzle-site-read.repository.ts': 'export class DrizzleSiteReadRepository {}\n',
-    'sites/presentation/sites.controller.ts': 'export class SitesController {}\n',
-    'sites/presentation/sites.dto.ts': 'export class SiteDto {}\n',
-    'surveys/index.ts': "export { isStrictCalendarDate } from './domain';\n",
-    'surveys/surveys.module.ts': 'export class SurveysModule {}\n',
-    'surveys/domain/index.ts': "export { isStrictCalendarDate } from './calendar-date';\n",
-    'surveys/domain/calendar-date.ts': 'export const isStrictCalendarDate = () => true;\n',
-    'surveys/application/use-cases/survey-commands.ts': 'export class SurveyCommands {}\n',
-    'surveys/infrastructure/repositories/drizzle-survey-write-repository.ts': 'export class DrizzleSurveyWriteRepository {}\n',
-    'surveys/http/surveys.controller.ts': 'export class SurveysController {}\n',
-    'surveys/http/dto/survey.dto.ts': 'export class SurveyDto {}\n',
-    'site-survey-workflows/index.ts': "export { SiteSurveyCoordinator } from './application/use-cases/site-survey-coordinator';\n",
-    'site-survey-workflows/site-survey.module.ts': 'export class SiteSurveyModule {}\n',
-    'site-survey-workflows/application/use-cases/site-survey-coordinator.ts': 'export class SiteSurveyCoordinator {}\n',
-    'site-survey-workflows/infrastructure/transactions/drizzle-transaction.ts': 'export const unwrapTransaction = () => null;\n',
-    'import/run.ts': 'export const run = () => {};\n',
-    'import/parser/sites.ts': 'export const parseSites = () => [];\n',
-    'import/application/use-cases/sites.ts': 'export const importSiteFeatures = () => [];\n',
-    'import/infrastructure/site-survey-operations.ts': 'export const createOps = () => ({});\n',
-    'platform/database/index.ts': 'export const db = null;\n',
-    'platform/errors/error.filter.ts': 'export class ErrorFilter {}\n',
-    'platform/health/health.controller.ts': 'export class HealthController {}\n',
-    'platform/http/index.ts': 'export const envelope = () => ({});\n',
-    'shared/geospatial/domain/geometry.ts': 'export const valid = () => true;\n',
-  }, (root) => {
-    assertApprovedPhysicalLayout(root);
+  const legacyHttpOnly = minimalFlatBackendFixture({
+    'sites/http/sites.controller.ts': 'export class LegacySitesController {}\n',
+  });
+  delete legacyHttpOnly['sites/presentation/sites.controller.ts'];
+  delete legacyHttpOnly['sites/presentation/sites.dto.ts'];
+  withFixtureTree(legacyHttpOnly, (root) => {
+    assert.throws(() => assertApprovedPhysicalLayout(root), /sites is missing presentation\//);
   });
 
   withFixtureTree(minimalFlatBackendFixture({
     'sites/http/sites.controller.ts': 'export class LegacySitesController {}\n',
   }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /must not mix presentation\/ and legacy http\//);
+    assert.throws(() => assertApprovedPhysicalLayout(root), /retired legacy folder http\//);
   });
 
   const withoutSitesPresentation = minimalFlatBackendFixture();
   delete withoutSitesPresentation['sites/presentation/sites.controller.ts'];
   delete withoutSitesPresentation['sites/presentation/sites.dto.ts'];
   withFixtureTree(withoutSitesPresentation, (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /sites is missing presentation\/ \(or legacy http\/\)/);
-  });
-
-  withFixtureTree(minimalFlatBackendFixture({
-    'sites/presentation/dto/sites.dto.ts': 'export class MisplacedDto {}\n',
-  }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /presentation/);
-  });
-
-  withFixtureTree(minimalFlatBackendFixture({
-    'sites/application/misc/helper.ts': 'export const x = 1;\n',
-  }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /approved legacy application folder/);
-  });
-
-  withFixtureTree(minimalFlatBackendFixture({
-    'sites/infrastructure/other/drizzle-site.repository.ts': 'export class Repo {}\n',
-  }), (root) => {
-    assert.throws(() => assertApprovedPhysicalLayout(root), /repositories must live directly in infrastructure\//);
+    assert.throws(() => assertApprovedPhysicalLayout(root), /sites is missing presentation\//);
   });
 
   withFixtureTree(minimalFlatBackendFixture({
     'sites/index.ts': "export { DrizzleSiteReadRepository } from './infrastructure/drizzle-site-read.repository';\n",
   }), (root) => {
     assert.throws(() => assertApprovedPhysicalLayout(root), /exposes infrastructure/);
+  });
+});
+
+test('flat layout rules forbid retired legacy subfolders while allowing legitimate non-retired subfolders', () => {
+  const retiredCases: Array<[string, string]> = [
+    ['auth/http/auth.controller.ts', 'http'],
+    ['sites/presentation/http/adapter.ts', 'http'],
+    ['sites/presentation/dto/sites.dto.ts', 'dto'],
+    ['sites/application/contracts/site-read.repository.ts', 'contracts'],
+    ['surveys/application/use-cases/survey-commands.ts', 'use-cases'],
+    ['import/application/use-cases/import-sites.ts', 'use-cases'],
+    ['sites/infrastructure/repositories/drizzle-site-read.repository.ts', 'repositories'],
+    ['site-survey-workflows/infrastructure/transactions/drizzle-transaction.ts', 'transactions'],
+    ['auth/application/security/auth-token.ts', 'security'],
+    ['sites/application/filtering/contracts/filter.port.ts', 'contracts'],
+  ];
+  for (const [filePath, folder] of retiredCases) {
+    withFixtureTree(minimalFlatBackendFixture({ [filePath]: 'export const value = true;\n' }), (root) => {
+      assert.throws(
+        () => assertApprovedPhysicalLayout(root),
+        new RegExp(`retired legacy folder ${folder}/`),
+        `expected ${filePath} to fail for retired folder ${folder}/`,
+      );
+    });
+  }
+
+  // Empty retired directory inside a flattened feature layer must also fail.
+  withFixtureTree(minimalFlatBackendFixture(), (root) => {
+    mkdirSync(join(root, 'sites/presentation/dto'), { recursive: true });
+    assert.throws(() => assertApprovedPhysicalLayout(root), /retired legacy folder dto\//);
+  });
+
+  // Legitimate non-retired subfolders and optional filenames must be allowed.
+  withFixtureTree(minimalFlatBackendFixture({
+    'sites/domain/geometry/bounds.ts': 'export const inBounds = () => true;\n',
+    'sites/application/filtering/site-filters.ts': 'export const buildFilter = () => ({});\n',
+    'sites/infrastructure/mappers/site-row.mapper.ts': 'export const mapRow = () => ({});\n',
+    'sites/presentation/serializers/site-response.ts': 'export const serialize = () => ({});\n',
+    'auth/application/policies/role-matrix.ts': 'export const canAccess = () => true;\n',
+    'site-survey-workflows/infrastructure/locking/site-lock.ts': 'export const lockKey = 1;\n',
+    'import/parser/geojson/feature.ts': 'export const parseFeature = () => ({});\n',
+  }), (root) => {
+    assertApprovedPhysicalLayout(root);
   });
 });
 
@@ -468,14 +459,12 @@ test('cross-module imports use public module exports', () => {
   assertCrossModuleExports(sourceRoot);
 });
 
-test('cross-module export rules accept legacy and flat transaction adapters while preserving boundaries', () => {
+test('cross-module export rules require flattened transaction adapter path while preserving boundaries', () => {
   withFixtureTree(minimalFlatBackendFixture({
     'sites/infrastructure/drizzle-site-write.repository.ts':
       "import { unwrapTransaction } from '../../site-survey-workflows/infrastructure/drizzle-transaction';\nexport { unwrapTransaction };\n",
     'surveys/infrastructure/drizzle-survey-write.repository.ts':
-      "import { unwrapTransaction } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';\nexport { unwrapTransaction };\n",
-    'site-survey-workflows/infrastructure/transactions/drizzle-transaction.ts':
-      'export const unwrapTransaction = () => null;\n',
+      "import { unwrapTransaction } from '../../site-survey-workflows/infrastructure/drizzle-transaction';\nexport { unwrapTransaction };\n",
     'site-survey-workflows/site-survey.module.ts':
       "import { DrizzleSiteReadRepository } from '../sites/infrastructure/drizzle-site-read.repository';\nexport { DrizzleSiteReadRepository };\n",
     'import/infrastructure/site-survey-operations.ts':
@@ -487,6 +476,16 @@ test('cross-module export rules accept legacy and flat transaction adapters whil
   });
 
   const forbiddenCrossModuleCases: Array<[string, string, RegExp]> = [
+    [
+      'surveys/infrastructure/drizzle-survey-write.repository.ts',
+      "import { unwrapTransaction } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';\n",
+      /may not depend on another feature's infrastructure/,
+    ],
+    [
+      'sites/infrastructure/drizzle-site-write.repository.ts',
+      "import { unwrapTransaction } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';\n",
+      /may not depend on another feature's infrastructure/,
+    ],
     [
       'sites/infrastructure/drizzle-site-write.repository.ts',
       "import { DrizzleTransactionRunner } from '../../site-survey-workflows/infrastructure/drizzle-transaction-runner';\n",
