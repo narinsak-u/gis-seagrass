@@ -223,6 +223,7 @@ integration('PATCH /sites recomputes geometry and rejects invalid coverage or st
   const near = await patchSite(code, { version: 1, geometry: polygon(100.199, 10.199, 100.201, 10.201) });
   expect(near.response.status).toBe(200);
   const nearProps = near.body.properties as Record<string, unknown>;
+  expect(nearProps.name).toBe(originalProps.name);
   expect(nearProps.area_rai).not.toBe(originalProps.area_rai);
   expect(nearProps.province_code).toBe(originalProps.province_code);
   const before = await pool!.query<{ version: number; area_rai: string }>('SELECT version, area_rai::text FROM sites WHERE code = $1', [code]);
@@ -288,10 +289,10 @@ integration('PATCH and Survey import serialize both lock orders without strandin
         importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
         patchPromise = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
-        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        await waitForBlockedQuery('ST_AsGeoJSON(');
       } else {
         patchPromise = patchSite(code, { version: 1, geometry: polygon(100.3, 10.3, 100.4, 10.4) });
-        await waitForBlockedQuery('SELECT id::text, version, name, province_code, area_rai::text,');
+        await waitForBlockedQuery('ST_AsGeoJSON(');
         importPromise = importSurveyRecords(importer, [record]);
         await waitForBlockedQuery('ST_DWithin(ST_SetSRID');
       }
