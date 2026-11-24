@@ -122,6 +122,19 @@ Sign in with one of the development accounts above to see the current email and 
 
 The map depends on OpenFreeMap's third-party tile service, provided without an availability guarantee; it needs network access. Step 6 is read-only: Site/Survey editing, dashboards, and exports are not included.
 
+Frontend uses feature-first modules: UI lives in each feature's `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts stay in their feature modules. TanStack Query owns server-data caching; Zustand owns shared Site workspace filters, pagination, and selection. Authentication tokens stay in tab memory, never in query keys or persistent storage; logout and `401` clear protected Survey cache.
+
+Frontend tests use Vitest `describe`/`it`/`expect` and live in `src/features/<feature>/tests/`; shared library tests live in `src/lib/tests/`.
+
+Run frontend tests, lint, and build:
+
+```sh
+cd frontend
+npm test
+npm run lint
+npm run build
+```
+
 
 ## Build applications independently
 

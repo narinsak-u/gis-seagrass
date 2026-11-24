@@ -1,19 +1,17 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { useAuthSession } from "./AuthContext";
+import { useAuthStore } from "../auth-store";
 
 export function AuthControls() {
-  const {
-    user,
-    status,
-    error,
-    signInOpen,
-    setSignInOpen,
-    clearError,
-    login,
-    logout,
-  } = useAuthSession();
+  const user = useAuthStore((state) => state.user);
+  const status = useAuthStore((state) => state.status);
+  const error = useAuthStore((state) => state.error);
+  const clearError = useAuthStore((state) => state.clearError);
+  const signInOpen = useAuthStore((state) => state.signInOpen);
+  const setSignInOpen = useAuthStore((state) => state.setSignInOpen);
+  const login = useAuthStore((state) => state.login);
+  const logout = useAuthStore((state) => state.logout);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -162,7 +160,8 @@ export function AuthControls() {
                 id={descriptionId}
                 className="mt-0.5 text-xs leading-relaxed text-[#436066]"
               >
-                Access protected survey history for selected sites. Public site browsing stays available without signing in.
+                Access protected survey history for selected sites. Public site
+                browsing stays available without signing in.
               </p>
             </div>
             <button

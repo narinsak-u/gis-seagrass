@@ -1,10 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { getSiteStatusMeta } from "./status";
-import { formatProvinceLabel, type ProvinceNameLookup } from "./filtering";
-import type { SiteDetailState } from "./detail";
-import type { SiteDetailFeature, SiteFeature } from "./types";
+import { getSiteStatusMeta } from "../status";
+import { formatProvinceLabel, type ProvinceNameLookup } from "../filtering";
+import type { SiteDetailState } from "../detail";
+import type { SiteDetailFeature, SiteFeature } from "../types";
 
 export interface SiteDetailPanelProps {
   selectedFeature: SiteFeature | null;

@@ -1,13 +1,12 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { ApiClientError } from "@/src/lib/api";
 import type { BboxBounds } from "@/src/features/sites/types";
-import { fetchProvincesGeoJson } from "./api";
+import { fetchProvincesGeoJson } from "../api";
 import {
   createViewportProvincesController,
   type ViewportProvincesState,
-} from "./provinces-viewport";
-import type { ProvinceFeature, ProvinceFeatureCollection } from "./types";
+} from "../provinces-viewport";
+import type { ProvinceFeature, ProvinceFeatureCollection } from "../types";
 
 function makeProvince(code: string, nameTh: string): ProvinceFeature {
   return {
@@ -89,33 +88,30 @@ describe("fetchProvincesGeoJson", () => {
       }) as typeof fetch,
     });
 
-    assert.deepEqual(result, expected);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "/api/provinces.geojson?bbox=98.5%2C7.2%2C99.4%2C8.6");
-    assert.equal(calls[0].signal, controller.signal);
+    expect(result).toEqual(expected);
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("/api/provinces.geojson?bbox=98.5%2C7.2%2C99.4%2C8.6");
+    expect(calls[0].signal).toBe(controller.signal);
   });
 
   it("throws ApiClientError parsed from the shared error envelope on invalid bbox or server errors", async () => {
-    await assert.rejects(
-      () =>
-        fetchProvincesGeoJson({
-          bbox: "invalid",
-          fetchImpl: (async () =>
-            new Response(
-              JSON.stringify({
-                error: { code: "INVALID_BBOX", message: "Invalid bbox", details: {} },
-              }),
-              { status: 400, headers: { "content-type": "application/json" } },
-            )) as typeof fetch,
-        }),
-      (error: unknown) => {
-        assert.ok(error instanceof ApiClientError);
-        assert.equal(error.status, 400);
-        assert.equal(error.code, "INVALID_BBOX");
-        assert.equal(error.message, "Invalid bbox");
-        return true;
-      },
-    );
+    const request = fetchProvincesGeoJson({
+      bbox: "invalid",
+      fetchImpl: (async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: "INVALID_BBOX", message: "Invalid bbox", details: {} },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        )) as typeof fetch,
+    });
+
+    await expect(request).rejects.toBeInstanceOf(ApiClientError);
+    await expect(request).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_BBOX",
+      message: "Invalid bbox",
+    });
   });
 });
 
@@ -139,21 +135,18 @@ describe("createViewportProvincesController", () => {
     });
 
     controller.loadInitial(initialBounds);
-    assert.deepEqual(requests, ["98,7,99.5,9"]);
-    assert.equal(states.at(-1)?.status, "loading");
+    expect(requests).toEqual(["98,7,99.5,9"]);
+    expect(states.at(-1)?.status).toBe("loading");
 
     req1.resolve(makeCollection(makeProvince("81", "กระบี่"), makeProvince("92", "ตรัง")));
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.deepEqual(
-      states.at(-1)?.data?.features.map((f) => f.properties),
-      [
-        { code: "81", name_th: "กระบี่" },
-        { code: "92", name_th: "ตรัง" },
-      ],
-    );
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.features.map((f) => f.properties)).toEqual([
+      { code: "81", name_th: "กระบี่" },
+      { code: "92", name_th: "ตรัง" },
+    ]);
   });
 
   it("replaces previous boundaries and transitions to empty when viewport has zero provinces", async () => {
@@ -173,15 +166,15 @@ describe("createViewportProvincesController", () => {
 
     controller.loadInitial(initialBounds);
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.features.length, 1);
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.features.length).toBe(1);
 
     controller.onViewportSettled(movedBoundsB);
     scheduler.advance(100);
     await new Promise((r) => setTimeout(r, 0));
 
-    assert.equal(states.at(-1)?.status, "empty");
-    assert.deepEqual(states.at(-1)?.data?.features, []);
+    expect(states.at(-1)?.status).toBe("empty");
+    expect(states.at(-1)?.data?.features).toEqual([]);
   });
 
   it("debounces rapid settled moves and requests only the final settled viewport", async () => {
@@ -204,10 +197,10 @@ describe("createViewportProvincesController", () => {
     scheduler.advance(150);
     controller.onViewportSettled(movedBoundsB);
     scheduler.advance(249);
-    assert.deepEqual(requests, []);
+    expect(requests).toEqual([]);
 
     scheduler.advance(1);
-    assert.deepEqual(requests, ["99,7.4,100.2,8.4"]);
+    expect(requests).toEqual(["99,7.4,100.2,8.4"]);
   });
 
   it("aborts superseded requests and ignores stale success after newer success", async () => {
@@ -232,22 +225,22 @@ describe("createViewportProvincesController", () => {
     controller.onViewportSettled(movedBoundsB);
     scheduler.advance(100);
 
-    assert.equal(signals.length, 2);
-    assert.equal(signals[0].aborted, true);
-    assert.equal(signals[1].aborted, false);
+    expect(signals.length).toBe(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
 
     pending[1].resolve(makeCollection(makeProvince("92", "ตรัง")));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.data?.features[0].properties.code, "92");
+    expect(states.at(-1)?.data?.features[0].properties.code).toBe("92");
 
     // Stale older response resolves late — must not overwrite current layer
     pending[0].resolve(makeCollection(makeProvince("81", "กระบี่")));
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.features[0].properties.code, "92");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.features[0].properties.code).toBe("92");
   });
 
   it("ignores stale responses across errors and supports retry recovery", async () => {
@@ -274,23 +267,23 @@ describe("createViewportProvincesController", () => {
     pending[1].reject(new ApiClientError(502, "UPSTREAM_UNAVAILABLE", "API unavailable"));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "error");
-    assert.equal(states.at(-1)?.error?.code, "UPSTREAM_UNAVAILABLE");
+    expect(states.at(-1)?.status).toBe("error");
+    expect(states.at(-1)?.error?.code).toBe("UPSTREAM_UNAVAILABLE");
 
     // Older succeeds late — must not overwrite newer error
     pending[0].resolve(makeCollection(makeProvince("81", "กระบี่")));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "error");
+    expect(states.at(-1)?.status).toBe("error");
 
     // Retry recovers
     controller.retry();
-    assert.equal(states.at(-1)?.status, "loading");
+    expect(states.at(-1)?.status).toBe("loading");
     pending[2].resolve(makeCollection(makeProvince("82", "พังงา")));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.features[0].properties.code, "82");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.features[0].properties.code).toBe("82");
   });
 
   it("ignores a late response from an older viewport while a newer move is debouncing", async () => {
@@ -315,13 +308,13 @@ describe("createViewportProvincesController", () => {
     pending[0].resolve(makeCollection(makeProvince("81", "กระบี่")));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.data, null);
+    expect(states.at(-1)?.data).toBe(null);
 
     scheduler.advance(200);
     pending[1].resolve(makeCollection(makeProvince("92", "ตรัง")));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.features[0].properties.code, "92");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.features[0].properties.code).toBe("92");
   });
 });

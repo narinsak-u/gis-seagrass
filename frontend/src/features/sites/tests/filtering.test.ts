@@ -1,6 +1,5 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type { SiteFeature, SiteFeatureCollection } from "./types";
+import { describe, expect, it } from "vitest";
+import type { SiteFeature, SiteFeatureCollection } from "../types";
 import {
   computeSiteBounds,
   deriveProvinceOptions,
@@ -9,7 +8,7 @@ import {
   findPageForSiteCode,
   mergeKnownProvinceCodes,
   paginateItems,
-} from "./filtering";
+} from "../filtering";
 
 function makeSite(
   code: string,
@@ -48,12 +47,12 @@ describe("filterSiteCollection", () => {
   };
 
   it("returns null when source collection is null", () => {
-    assert.equal(filterSiteCollection(null, EMPTY_SITE_FILTERS), null);
+    expect(filterSiteCollection(null, EMPTY_SITE_FILTERS)).toBe(null);
   });
 
   it("returns all viewport features when no filters are active", () => {
     const result = filterSiteCollection(sites, EMPTY_SITE_FILTERS);
-    assert.equal(result?.features.length, 5);
+    expect(result?.features.length).toBe(5);
   });
 
   it("filters by province code", () => {
@@ -61,10 +60,7 @@ describe("filterSiteCollection", () => {
       ...EMPTY_SITE_FILTERS,
       province: "92",
     });
-    assert.deepEqual(
-      result?.features.map((f) => f.properties.code),
-      ["TRG-001", "TRG-002"],
-    );
+    expect(result?.features.map((f) => f.properties.code)).toEqual(["TRG-001", "TRG-002"]);
   });
 
   it("filters by exact siteStatus including no_data without confusing status=active", () => {
@@ -72,19 +68,13 @@ describe("filterSiteCollection", () => {
       ...EMPTY_SITE_FILTERS,
       siteStatus: "no_data",
     });
-    assert.deepEqual(
-      noData?.features.map((f) => f.properties.code),
-      ["PHK-004"],
-    );
+    expect(noData?.features.map((f) => f.properties.code)).toEqual(["PHK-004"]);
 
     const poor = filterSiteCollection(sites, {
       ...EMPTY_SITE_FILTERS,
       siteStatus: "poor",
     });
-    assert.deepEqual(
-      poor?.features.map((f) => f.properties.code),
-      ["TRG-002"],
-    );
+    expect(poor?.features.map((f) => f.properties.code)).toEqual(["TRG-002"]);
   });
 
   it("applies case-insensitive substring search across Site code and name", () => {
@@ -92,19 +82,13 @@ describe("filterSiteCollection", () => {
       ...EMPTY_SITE_FILTERS,
       search: "  trg-00  ",
     });
-    assert.deepEqual(
-      byCode?.features.map((f) => f.properties.code),
-      ["TRG-001", "TRG-002"],
-    );
+    expect(byCode?.features.map((f) => f.properties.code)).toEqual(["TRG-001", "TRG-002"]);
 
     const byName = filterSiteCollection(sites, {
       ...EMPTY_SITE_FILTERS,
       search: "LANTA",
     });
-    assert.deepEqual(
-      byName?.features.map((f) => f.properties.code),
-      ["KBI-010"],
-    );
+    expect(byName?.features.map((f) => f.properties.code)).toEqual(["KBI-010"]);
   });
 
   it("combines province, siteStatus, and search consistently", () => {
@@ -113,10 +97,7 @@ describe("filterSiteCollection", () => {
       siteStatus: "very_good",
       search: "libong",
     });
-    assert.deepEqual(
-      combined?.features.map((f) => f.properties.code),
-      ["TRG-001"],
-    );
+    expect(combined?.features.map((f) => f.properties.code)).toEqual(["TRG-001"]);
   });
 });
 
@@ -127,38 +108,32 @@ describe("paginateItems and findPageForSiteCode", () => {
 
   it("paginates filtered viewport features locally and clamps out-of-range pages", () => {
     const page1 = paginateItems(features, 1, 5);
-    assert.equal(page1.page, 1);
-    assert.equal(page1.totalPages, 3);
-    assert.equal(page1.totalItems, 11);
-    assert.equal(page1.startIndex, 1);
-    assert.equal(page1.endIndex, 5);
-    assert.deepEqual(
-      page1.items.map((f) => f.properties.code),
-      ["S-01", "S-02", "S-03", "S-04", "S-05"],
-    );
+    expect(page1.page).toBe(1);
+    expect(page1.totalPages).toBe(3);
+    expect(page1.totalItems).toBe(11);
+    expect(page1.startIndex).toBe(1);
+    expect(page1.endIndex).toBe(5);
+    expect(page1.items.map((f) => f.properties.code)).toEqual(["S-01", "S-02", "S-03", "S-04", "S-05"]);
 
     const clampedHigh = paginateItems(features, 99, 5);
-    assert.equal(clampedHigh.page, 3);
-    assert.equal(clampedHigh.startIndex, 11);
-    assert.equal(clampedHigh.endIndex, 11);
-    assert.deepEqual(
-      clampedHigh.items.map((f) => f.properties.code),
-      ["S-11"],
-    );
+    expect(clampedHigh.page).toBe(3);
+    expect(clampedHigh.startIndex).toBe(11);
+    expect(clampedHigh.endIndex).toBe(11);
+    expect(clampedHigh.items.map((f) => f.properties.code)).toEqual(["S-11"]);
 
     const empty = paginateItems([], 2, 5);
-    assert.equal(empty.page, 1);
-    assert.equal(empty.totalPages, 1);
-    assert.equal(empty.startIndex, 0);
-    assert.equal(empty.endIndex, 0);
-    assert.deepEqual(empty.items, []);
+    expect(empty.page).toBe(1);
+    expect(empty.totalPages).toBe(1);
+    expect(empty.startIndex).toBe(0);
+    expect(empty.endIndex).toBe(0);
+    expect(empty.items).toEqual([]);
   });
 
   it("locates the 1-based page containing a polygon-selected Site code", () => {
-    assert.equal(findPageForSiteCode(features, "S-01", 5), 1);
-    assert.equal(findPageForSiteCode(features, "S-06", 5), 2);
-    assert.equal(findPageForSiteCode(features, "S-11", 5), 3);
-    assert.equal(findPageForSiteCode(features, "MISSING", 5), null);
+    expect(findPageForSiteCode(features, "S-01", 5)).toBe(1);
+    expect(findPageForSiteCode(features, "S-06", 5)).toBe(2);
+    expect(findPageForSiteCode(features, "S-11", 5)).toBe(3);
+    expect(findPageForSiteCode(features, "MISSING", 5)).toBe(null);
   });
 });
 
@@ -171,11 +146,11 @@ describe("province option derivation", () => {
     ];
 
     const knownAfterUnfiltered = mergeKnownProvinceCodes([], unfilteredViewport, false);
-    assert.deepEqual(knownAfterUnfiltered, ["81", "92"]);
+    expect(knownAfterUnfiltered).toEqual(["81", "92"]);
 
     // While filtered to province 92, API only returns province 92 (or even 0 sites after panning)
     const knownWhileFiltered = mergeKnownProvinceCodes(knownAfterUnfiltered, [], true);
-    assert.deepEqual(knownWhileFiltered, ["81", "92"]);
+    expect(knownWhileFiltered).toEqual(["81", "92"]);
 
     // Even if activeProvince was set to a code absent from current results, it is still retained
     const options = deriveProvinceOptions({
@@ -185,7 +160,7 @@ describe("province option derivation", () => {
       provinceNames: { "81": "กระบี่", "92": "ตรัง" },
     });
 
-    assert.deepEqual(options, [
+    expect(options).toEqual([
       { code: "81", label: "กระบี่ (81)" },
       { code: "83", label: "Province 83" },
       { code: "92", label: "ตรัง (92)" },
@@ -200,7 +175,7 @@ describe("province option derivation", () => {
       provinceNames: new Map([["92", "ตรัง"]]),
     });
 
-    assert.deepEqual(options, [{ code: "92", label: "ตรัง (92)" }]);
+    expect(options).toEqual([{ code: "92", label: "ตรัง (92)" }]);
   });
 });
 
@@ -217,7 +192,7 @@ describe("computeSiteBounds", () => {
         ],
       ],
     });
-    assert.deepEqual(bounds, {
+    expect(bounds).toEqual({
       minLon: 99.1,
       minLat: 7.2,
       maxLon: 99.45,
@@ -233,7 +208,7 @@ describe("computeSiteBounds", () => {
         [[[99.0, 7.4], [99.3, 7.4], [99.3, 7.7], [99.0, 7.4]]],
       ],
     });
-    assert.deepEqual(bounds, {
+    expect(bounds).toEqual({
       minLon: 98.2,
       minLat: 7.4,
       maxLon: 99.3,
@@ -246,6 +221,6 @@ describe("computeSiteBounds", () => {
       type: "MultiPolygon",
       coordinates: [],
     });
-    assert.equal(bounds, null);
+    expect(bounds).toBe(null);
   });
 });

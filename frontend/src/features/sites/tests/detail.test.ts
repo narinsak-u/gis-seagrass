@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { ApiClientError } from "@/src/lib/api";
-import type { SiteDetailFeature } from "./types";
-import { createSiteDetailController, type SiteDetailState } from "./detail";
+import type { SiteDetailFeature } from "../types";
+import { createSiteDetailController, type SiteDetailState } from "../detail";
 
 function makeDetail(
   code: string,
@@ -53,17 +52,17 @@ describe("createSiteDetailController", () => {
     });
 
     controller.select("TRG-01");
-    assert.equal(states.at(-1)?.status, "loading");
-    assert.equal(states.at(-1)?.selectedCode, "TRG-01");
+    expect(states.at(-1)?.status).toBe("loading");
+    expect(states.at(-1)?.selectedCode).toBe("TRG-01");
 
     const detail = makeDetail("TRG-01", null);
     req.resolve(detail);
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.deepEqual(states.at(-1)?.data, detail);
-    assert.equal(states.at(-1)?.data?.properties.latest_survey, null);
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data).toEqual(detail);
+    expect(states.at(-1)?.data?.properties.latest_survey).toBe(null);
   });
 
   it("aborts previous request and ignores stale late responses when switching Sites", async () => {
@@ -84,9 +83,9 @@ describe("createSiteDetailController", () => {
     controller.select("SITE-A");
     controller.select("SITE-B");
 
-    assert.equal(signals.length, 2);
-    assert.equal(signals[0].aborted, true);
-    assert.equal(signals[1].aborted, false);
+    expect(signals.length).toBe(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
 
     // SITE-B resolves first
     const detailB = makeDetail("SITE-B", {
@@ -97,16 +96,16 @@ describe("createSiteDetailController", () => {
     pending[1].resolve(detailB);
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.properties.code, "SITE-B");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.properties.code).toBe("SITE-B");
 
     // Stale SITE-A resolves late — must be ignored
     pending[0].resolve(makeDetail("SITE-A", null));
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.properties.code, "SITE-B");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.properties.code).toBe("SITE-B");
   });
 
   it("ignores stale errors after a newer selection succeeds and supports retry", async () => {
@@ -128,30 +127,30 @@ describe("createSiteDetailController", () => {
     pending[1].resolve(makeDetail("SITE-B", null));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
+    expect(states.at(-1)?.status).toBe("ready");
 
     // Stale error from SITE-A must not overwrite SITE-B
     pending[0].reject(new ApiClientError(500, "INTERNAL_ERROR", "Upstream failed"));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.properties.code, "SITE-B");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.properties.code).toBe("SITE-B");
 
     // Now select SITE-C which fails, then retry and succeed
     controller.select("SITE-C");
     pending[2].reject(new ApiClientError(404, "SITE_NOT_FOUND", "Site not found"));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "error");
-    assert.equal(states.at(-1)?.error?.code, "SITE_NOT_FOUND");
+    expect(states.at(-1)?.status).toBe("error");
+    expect(states.at(-1)?.error?.code).toBe("SITE_NOT_FOUND");
 
     controller.retry();
-    assert.equal(states.at(-1)?.status, "loading");
+    expect(states.at(-1)?.status).toBe("loading");
     pending[3].resolve(makeDetail("SITE-C", null));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "ready");
-    assert.equal(states.at(-1)?.data?.properties.code, "SITE-C");
+    expect(states.at(-1)?.status).toBe("ready");
+    expect(states.at(-1)?.data?.properties.code).toBe("SITE-C");
   });
 
   it("aborts in-flight fetch and clears state on clear()", async () => {
@@ -170,16 +169,16 @@ describe("createSiteDetailController", () => {
     controller.select("TRG-01");
     controller.clear();
 
-    assert.equal(signals[0].aborted, true);
-    assert.equal(states.at(-1)?.status, "idle");
-    assert.equal(states.at(-1)?.selectedCode, null);
-    assert.equal(states.at(-1)?.data, null);
+    expect(signals[0].aborted).toBe(true);
+    expect(states.at(-1)?.status).toBe("idle");
+    expect(states.at(-1)?.selectedCode).toBe(null);
+    expect(states.at(-1)?.data).toBe(null);
 
     // Late resolution after clear must be ignored
     req.resolve(makeDetail("TRG-01", null));
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(states.at(-1)?.status, "idle");
-    assert.equal(states.at(-1)?.data, null);
+    expect(states.at(-1)?.status).toBe("idle");
+    expect(states.at(-1)?.data).toBe(null);
   });
 });

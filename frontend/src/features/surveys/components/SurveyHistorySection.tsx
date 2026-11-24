@@ -1,7 +1,7 @@
 "use client";
 
 import type { SiteDetailFeature } from "@/src/features/sites/types";
-import type { SurveyHistoryState } from "./history-controller";
+import type { SurveyHistoryState } from "../history-controller";
 
 export interface SurveyHistorySectionProps {
   site: SiteDetailFeature;

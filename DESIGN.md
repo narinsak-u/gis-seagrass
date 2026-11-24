@@ -48,6 +48,12 @@ Use Drizzle for ordinary reads and writes. Keep PostGIS operations, row locks, a
 
 HTTP request DTOs use one global transforming, whitelisting `ValidationPipe`; query conversion is explicit and request bodies are not coerced. `ApiErrorFilter` maps framework-independent application errors to HTTP statuses and preserves the shared error envelope.
 
+## Frontend architecture
+
+Frontend stays feature-first: UI in `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts remain feature-owned. TanStack Query owns server-data fetching, cancellation, and cache; Zustand owns only shared Site-workspace filters, pagination, and selection. Query keys never include tokens, and logout or `401` clears protected Survey cache. Authentication tokens remain in tab memory and are never persisted.
+
+Tests live under each feature's `tests/` directory and use Vitest assertions; shared library tests live in `src/lib/tests/`.
+
 ## Migration ordering
 
 Drizzle's migration journal applies `0000_enable_postgis.sql` before `0001_create_schema.sql`, so PostGIS types and functions exist before schema creation. Step 3 adds `0002_reserve_site_codes.sql` to enforce permanent Site-code uniqueness without rewriting applied migrations. Step 5 adds `0003_add_active_users.sql`, defaulting existing users to active. The API runs migrations before opening its HTTP listener. The migration runner records applied migrations and can be rerun without blindly replaying DDL.

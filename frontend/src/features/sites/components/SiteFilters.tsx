@@ -1,12 +1,12 @@
 "use client";
 
 import { useId } from "react";
-import { SITE_STATUS_LEGEND, type SiteStatus } from "./status";
+import { SITE_STATUS_LEGEND, type SiteStatus } from "../status";
 import {
   hasActiveSiteFilters,
   type ProvinceOption,
   type SiteFilterCriteria,
-} from "./filtering";
+} from "../filtering";
 
 export interface SiteFiltersProps {
   filters: SiteFilterCriteria;

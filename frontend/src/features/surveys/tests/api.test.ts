@@ -1,22 +1,21 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { ApiClientError } from "@/src/lib/api";
-import { fetchSiteSurveys } from "./api";
+import { fetchSiteSurveys } from "../api";
 import {
   buildSurveyPointCollection,
   isAuthorizedSurveyRole,
   type SurveyListItem,
-} from "./types";
+} from "../types";
 
 describe("surveys types & point builder", () => {
   it("authorizes only viewer, editor, and admin roles", () => {
-    assert.equal(isAuthorizedSurveyRole("viewer"), true);
-    assert.equal(isAuthorizedSurveyRole("editor"), true);
-    assert.equal(isAuthorizedSurveyRole("admin"), true);
-    assert.equal(isAuthorizedSurveyRole("guest"), false);
-    assert.equal(isAuthorizedSurveyRole(""), false);
-    assert.equal(isAuthorizedSurveyRole(null), false);
-    assert.equal(isAuthorizedSurveyRole(undefined), false);
+    expect(isAuthorizedSurveyRole("viewer")).toBe(true);
+    expect(isAuthorizedSurveyRole("editor")).toBe(true);
+    expect(isAuthorizedSurveyRole("admin")).toBe(true);
+    expect(isAuthorizedSurveyRole("guest")).toBe(false);
+    expect(isAuthorizedSurveyRole("")).toBe(false);
+    expect(isAuthorizedSurveyRole(null)).toBe(false);
+    expect(isAuthorizedSurveyRole(undefined)).toBe(false);
   });
 
   it("builds GeoJSON Point features using real lon/lat coordinates for the selected Site only", () => {
@@ -44,9 +43,9 @@ describe("surveys types & point builder", () => {
     ];
 
     const collection = buildSurveyPointCollection("TRG-01", items);
-    assert.equal(collection.type, "FeatureCollection");
-    assert.equal(collection.features.length, 2);
-    assert.deepEqual(collection.features[0], {
+    expect(collection.type).toBe("FeatureCollection");
+    expect(collection.features.length).toBe(2);
+    expect(collection.features[0]).toEqual({
       type: "Feature",
       id: "101",
       geometry: {
@@ -64,13 +63,13 @@ describe("surveys types & point builder", () => {
         survey_ref: null,
       },
     });
-    assert.deepEqual(collection.features[1].geometry.coordinates, [99.1289, 7.4298]);
-    assert.equal(collection.features[1].properties.species, "");
-    assert.equal(collection.features[1].properties.created_by, null);
+    expect(collection.features[1].geometry.coordinates).toEqual([99.1289, 7.4298]);
+    expect(collection.features[1].properties.species).toBe("");
+    expect(collection.features[1].properties.created_by).toBe(null);
   });
 
   it("returns an empty FeatureCollection when no items or siteCode are present and drops invalid coordinates", () => {
-    assert.deepEqual(buildSurveyPointCollection("TRG-01", []), {
+    expect(buildSurveyPointCollection("TRG-01", [])).toEqual({
       type: "FeatureCollection",
       features: [],
     });
@@ -97,7 +96,7 @@ describe("surveys types & point builder", () => {
         created_by: null,
       },
     ];
-    assert.equal(buildSurveyPointCollection("TRG-01", invalidItems).features.length, 0);
+    expect(buildSurveyPointCollection("TRG-01", invalidItems).features.length).toBe(0);
   });
 });
 
@@ -142,14 +141,14 @@ describe("fetchSiteSurveys", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "/api/sites/TRG%2001%2FA/surveys?page=2&pageSize=10");
-    assert.equal(calls[0].headers.get("authorization"), "Bearer jwt-secret-token");
-    assert.equal(calls[0].signal, controller.signal);
-    assert.equal(result.total, 3);
-    assert.equal(result.page, 2);
-    assert.equal(result.items.length, 1);
-    assert.equal(result.items[0].id, "12");
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("/api/sites/TRG%2001%2FA/surveys?page=2&pageSize=10");
+    expect(calls[0].headers.get("authorization")).toBe("Bearer jwt-secret-token");
+    expect(calls[0].signal).toBe(controller.signal);
+    expect(result.total).toBe(3);
+    expect(result.page).toBe(2);
+    expect(result.items.length).toBe(1);
+    expect(result.items[0].id).toBe("12");
   });
 
   it("throws ApiClientError with status and shared envelope on 401 and 403 responses", async () => {
@@ -165,22 +164,19 @@ describe("fetchSiteSurveys", () => {
         { status: 403, headers: { "content-type": "application/json" } },
       );
 
-    await assert.rejects(
-      () =>
-        fetchSiteSurveys({
-          code: "TRG-01",
-          page: 1,
-          pageSize: 10,
-          token: "some-token",
-          fetchImpl: fakeFetch,
-        }),
-      (err: unknown) => {
-        assert.ok(err instanceof ApiClientError);
-        assert.equal(err.status, 403);
-        assert.equal(err.code, "FORBIDDEN");
-        assert.equal(err.message, "Role is not permitted to read survey history");
-        return true;
-      },
-    );
+    const request = fetchSiteSurveys({
+      code: "TRG-01",
+      page: 1,
+      pageSize: 10,
+      token: "some-token",
+      fetchImpl: fakeFetch,
+    });
+
+    await expect(request).rejects.toBeInstanceOf(ApiClientError);
+    await expect(request).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      message: "Role is not permitted to read survey history",
+    });
   });
 });

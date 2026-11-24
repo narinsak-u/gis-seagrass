@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getSiteStatusMeta } from "./status";
+import { getSiteStatusMeta } from "../status";
 import {
   formatProvinceLabel,
   paginateItems,
   type ProvinceNameLookup,
-} from "./filtering";
-import type { SiteFeature } from "./types";
-import type { ViewportErrorInfo, ViewportLoadStatus } from "./viewport";
+} from "../filtering";
+import type { SiteFeature } from "../types";
+import type { ViewportErrorInfo, ViewportLoadStatus } from "../viewport";
 
 export interface SiteTableProps {
   features: readonly SiteFeature[];

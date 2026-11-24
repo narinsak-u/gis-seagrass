@@ -1,11 +1,10 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import {
   ApiClientError,
   apiFetch,
   fetchActiveSitesGeoJson,
   fetchSiteDetail,
-} from "./api";
+} from "../api";
 
 describe("apiFetch", () => {
   it("calls the same-origin /api proxy with Bearer token and AbortSignal", async () => {
@@ -28,11 +27,11 @@ describe("apiFetch", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(capturedUrl, "/api/auth/me");
+    expect(capturedUrl).toBe("/api/auth/me");
     const headers = new Headers(capturedInit?.headers);
-    assert.equal(headers.get("authorization"), "Bearer tok-123");
-    assert.equal(capturedInit?.signal, controller.signal);
-    assert.deepEqual(result, { email: "viewer@example.com", role: "viewer" });
+    expect(headers.get("authorization")).toBe("Bearer tok-123");
+    expect(capturedInit?.signal).toBe(controller.signal);
+    expect(result).toEqual({ email: "viewer@example.com", role: "viewer" });
   });
 
   it("throws ApiClientError parsed from the shared API error envelope", async () => {
@@ -48,17 +47,15 @@ describe("apiFetch", () => {
         { status: 400, headers: { "content-type": "application/json" } },
       );
 
-    await assert.rejects(
-      () => apiFetch("/sites.geojson?bbox=bad", { fetchImpl: fakeFetch }),
-      (error: unknown) => {
-        assert.ok(error instanceof ApiClientError);
-        assert.equal(error.status, 400);
-        assert.equal(error.code, "INVALID_BBOX");
-        assert.equal(error.message, "Invalid bbox");
-        assert.deepEqual(error.details, { bbox: "bad" });
-        return true;
-      },
-    );
+    const request = apiFetch("/sites.geojson?bbox=bad", { fetchImpl: fakeFetch });
+
+    await expect(request).rejects.toBeInstanceOf(ApiClientError);
+    await expect(request).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_BBOX",
+      message: "Invalid bbox",
+      details: { bbox: "bad" },
+    });
   });
 
   it("fetchActiveSitesGeoJson builds /api/sites.geojson with minLon,minLat,maxLon,maxLat and status=active", async () => {
@@ -78,10 +75,10 @@ describe("apiFetch", () => {
     });
 
     const parsed = new URL(capturedUrl, "http://localhost:3001");
-    assert.equal(parsed.pathname, "/api/sites.geojson");
-    assert.equal(parsed.searchParams.get("bbox"), "98.1,7.2,99.4,8.9");
-    assert.equal(parsed.searchParams.get("status"), "active");
-    assert.equal(parsed.searchParams.get("province"), "92");
+    expect(parsed.pathname).toBe("/api/sites.geojson");
+    expect(parsed.searchParams.get("bbox")).toBe("98.1,7.2,99.4,8.9");
+    expect(parsed.searchParams.get("status")).toBe("active");
+    expect(parsed.searchParams.get("province")).toBe("92");
   });
 
   it("fetchSiteDetail requests /api/sites/:code with URL encoding and AbortSignal", async () => {
@@ -125,8 +122,8 @@ describe("apiFetch", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(capturedUrl, "/api/sites/TRG%2F01");
-    assert.equal(capturedSignal, controller.signal);
-    assert.deepEqual(result, detailPayload);
+    expect(capturedUrl).toBe("/api/sites/TRG%2F01");
+    expect(capturedSignal).toBe(controller.signal);
+    expect(result).toEqual(detailPayload);
   });
 });

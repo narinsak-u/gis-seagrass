@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Seagrass Monitoring — Coastal Habitat Map",
@@ -19,7 +20,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

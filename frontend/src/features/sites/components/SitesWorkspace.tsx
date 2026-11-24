@@ -9,24 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import type * as maplibregl from "maplibre-gl";
-import { fetchSiteDetail } from "@/src/lib/api";
-import { useAuthSession } from "@/src/features/auth/AuthContext";
-import { MapWorkspace } from "@/src/features/map/MapWorkspace";
+import { useAuthStore } from "@/src/features/auth/auth-store";
+import { MapWorkspace } from "@/src/features/map/components/MapWorkspace";
 import type { ProvinceFeature } from "@/src/features/provinces/types";
-import { fetchSiteSurveys } from "@/src/features/surveys/api";
-import {
-  createSurveyHistoryController,
-  INITIAL_SURVEY_HISTORY_STATE,
-  type SurveyHistoryController,
-  type SurveyHistoryState,
-} from "@/src/features/surveys/history-controller";
-import { SurveyHistorySection } from "@/src/features/surveys/SurveyHistorySection";
-import {
-  createSiteDetailController,
-  INITIAL_SITE_DETAIL_STATE,
-  type SiteDetailController,
-  type SiteDetailState,
-} from "./detail";
+import { SurveyHistorySection } from "@/src/features/surveys/components/SurveyHistorySection";
+import { useSurveyHistory } from "@/src/features/surveys/hooks/useSurveyHistory";
+import { useSiteDetail } from "../hooks/useSiteDetail";
 import {
   computeSiteBounds,
   deriveProvinceOptions,
@@ -37,12 +25,15 @@ import {
   mergeKnownProvinceCodes,
   type ProvinceNameLookup,
   type SiteFilterCriteria,
-} from "./filtering";
+} from "../filtering";
 import { SiteDetailPanel } from "./SiteDetailPanel";
 import { SiteFilters } from "./SiteFilters";
 import { SiteTable } from "./SiteTable";
-import type { BboxBounds, SiteDetailFeature, SiteFeature } from "./types";
-import type { ViewportSitesState } from "./viewport";
+import { SitesWorkspacePanel } from "./SitesWorkspacePanel";
+import type { BboxBounds, SiteDetailFeature, SiteFeature } from "../types";
+import type { ViewportSitesState } from "../viewport";
+import { useSitesWorkspaceStore } from "../state/workspace-store";
+
 
 export interface SitesWorkspaceProps {
   /** Extension slot for Ticket 04 authentication controls. */
@@ -84,81 +75,50 @@ export function SitesWorkspace({
   renderSurveyHistory,
   pageSize = DEFAULT_PAGE_SIZE,
 }: SitesWorkspaceProps) {
-  const { token, user, setSignInOpen, handleUnauthorized } = useAuthSession();
+  const token = useAuthStore((state) => state.token);
+  const user = useAuthStore((state) => state.user);
+  const setSignInOpen = useAuthStore((state) => state.setSignInOpen);
+  const handleUnauthorized = useAuthStore((state) => state.handleUnauthorized);
 
   const [viewportState, setViewportState] = useState<ViewportSitesState>(
     INITIAL_VIEWPORT_STATE,
   );
-  const [filters, setFilters] = useState<SiteFilterCriteria>(EMPTY_SITE_FILTERS);
+  const filters = useSitesWorkspaceStore((state) => state.filters);
+  const setFilters = useSitesWorkspaceStore((state) => state.setFilters);
   const [knownProvinceCodes, setKnownProvinceCodes] = useState<string[]>([]);
   const [viewportProvinceNames, setViewportProvinceNames] = useState<
     Record<string, string>
   >({});
-  const [currentPage, setCurrentPage] = useState(1);
+  const currentPage = useSitesWorkspaceStore((state) => state.currentPage);
+  const setCurrentPage = useSitesWorkspaceStore((state) => state.setCurrentPage);
+  const selectedSiteCode = useSitesWorkspaceStore((state) => state.selectedSiteCode);
+  const selectSite = useSitesWorkspaceStore((state) => state.selectSite);
   const [selectedFeature, setSelectedFeature] = useState<SiteFeature | null>(null);
-  const [detailState, setDetailState] = useState<SiteDetailState>(
-    INITIAL_SITE_DETAIL_STATE,
-  );
-  const [surveyHistoryState, setSurveyHistoryState] = useState<SurveyHistoryState>(
-    INITIAL_SURVEY_HISTORY_STATE,
-  );
   const [retrySignal, setRetrySignal] = useState(0);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(true);
 
+  const { state: detailState, retry: retryDetail } = useSiteDetail(selectedSiteCode);
+  const {
+    state: surveyHistoryState,
+    loadMore: loadMoreSurveys,
+    retry: retrySurveys,
+  } = useSurveyHistory({
+    siteCode: selectedSiteCode,
+    token,
+    role: user?.role,
+    onUnauthorized: handleUnauthorized,
+  });
+
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const detailControllerRef = useRef<SiteDetailController | null>(null);
-  const surveyHistoryControllerRef = useRef<SurveyHistoryController | null>(null);
   const onSelectedSiteChangeRef = useRef(onSelectedSiteChange);
   const onMapReadyRef = useRef(onMapReady);
-  const handleUnauthorizedRef = useRef(handleUnauthorized);
 
   onSelectedSiteChangeRef.current = onSelectedSiteChange;
   onMapReadyRef.current = onMapReady;
-  handleUnauthorizedRef.current = handleUnauthorized;
 
   useEffect(() => {
-    const controller = createSiteDetailController({
-      fetchSiteDetail: ({ code, signal }) => fetchSiteDetail({ code, signal }),
-      onStateChange: (next) => {
-        setDetailState(next);
-        onSelectedSiteChangeRef.current?.(next.data, next.selectedCode);
-      },
-    });
-    detailControllerRef.current = controller;
-
-    const surveyController = createSurveyHistoryController({
-      fetchSurveys: ({ code, page, pageSize: reqPageSize, token: reqToken, signal }) =>
-        fetchSiteSurveys({
-          code,
-          page,
-          pageSize: reqPageSize,
-          token: reqToken,
-          signal,
-        }),
-      onStateChange: setSurveyHistoryState,
-      onUnauthorized: (message) => {
-        handleUnauthorizedRef.current(message);
-      },
-    });
-    surveyHistoryControllerRef.current = surveyController;
-
-    return () => {
-      controller.dispose();
-      detailControllerRef.current = null;
-      surveyController.dispose();
-      surveyHistoryControllerRef.current = null;
-    };
-  }, []);
-
-  const selectedSiteCode = detailState.selectedCode;
-
-  useEffect(() => {
-    surveyHistoryControllerRef.current?.syncContext({
-      siteCode: selectedSiteCode,
-      token,
-      role: user?.role ?? null,
-    });
-  }, [selectedSiteCode, token, user?.role]);
+    onSelectedSiteChangeRef.current?.(detailState.data, detailState.selectedCode);
+  }, [detailState.data, detailState.selectedCode]);
 
   const handleViewportStateChange = useCallback((next: ViewportSitesState) => {
     setViewportState(next);
@@ -235,18 +195,16 @@ export function SitesWorkspace({
 
   const handleFiltersChange = useCallback((next: SiteFilterCriteria) => {
     setFilters(next);
-    setCurrentPage(1);
-  }, []);
+  }, [setFilters]);
 
   const handleClearFilters = useCallback(() => {
     setFilters(EMPTY_SITE_FILTERS);
-    setCurrentPage(1);
-  }, []);
+  }, [setFilters]);
 
   const handleSelectRow = useCallback((feature: SiteFeature) => {
     setSelectedFeature(feature);
+    selectSite(feature.properties.code);
     setIsMobilePanelOpen(true);
-    detailControllerRef.current?.select(feature.properties.code);
 
     const map = mapRef.current;
     const bounds = computeSiteBounds(feature.geometry);
@@ -263,13 +221,13 @@ export function SitesWorkspace({
         },
       );
     }
-  }, []);
+  }, [selectSite]);
 
   const handleSelectPolygon = useCallback(
     (feature: SiteFeature) => {
       setSelectedFeature(feature);
+      selectSite(feature.properties.code);
       setIsMobilePanelOpen(true);
-      detailControllerRef.current?.select(feature.properties.code);
 
       const targetPage = findPageForSiteCode(
         filteredFeaturesRef.current,
@@ -280,29 +238,29 @@ export function SitesWorkspace({
         setCurrentPage(targetPage);
       }
     },
-    [pageSize],
+    [pageSize, selectSite, setCurrentPage],
   );
 
   const handleCloseDetail = useCallback(() => {
     setSelectedFeature(null);
-    detailControllerRef.current?.clear();
-  }, []);
+    selectSite(null);
+  }, [selectSite]);
 
   const handleRetryDetail = useCallback(() => {
-    detailControllerRef.current?.retry();
-  }, []);
+    void retryDetail();
+  }, [retryDetail]);
 
   const handleRetryViewport = useCallback(() => {
     setRetrySignal((count) => count + 1);
   }, []);
 
   const handleLoadMoreSurveys = useCallback(() => {
-    surveyHistoryControllerRef.current?.loadNextPage();
-  }, []);
+    void loadMoreSurveys();
+  }, [loadMoreSurveys]);
 
   const handleRetrySurveys = useCallback(() => {
-    surveyHistoryControllerRef.current?.retry();
-  }, []);
+    void retrySurveys();
+  }, [retrySurveys]);
 
   const handleRequestSignIn = useCallback(() => {
     setSignInOpen(true);
@@ -331,71 +289,46 @@ export function SitesWorkspace({
   const filtersActive = hasActiveSiteFilters(filters);
 
   const sidePanel = (
-    <aside
-      aria-label="Synchronized site list and details"
-      className={`z-10 flex w-full max-w-full flex-col overflow-hidden border-t border-[#CFDDE0] bg-[#FAFCFC] lg:h-full lg:w-[420px] lg:shrink-0 lg:border-t-0 lg:border-l xl:w-[450px] ${
-        isMobilePanelOpen
-          ? selectedSiteCode
-            ? "h-[58%]"
-            : "h-[48%]"
-          : "h-auto"
-      }`}
+    <SitesWorkspacePanel
+      isMobilePanelOpen={isMobilePanelOpen}
+      hasSelectedSite={Boolean(selectedSiteCode)}
+      matchedCount={matchedCount}
+      onToggleMobilePanel={() => setIsMobilePanelOpen((open) => !open)}
     >
-      {/* Mobile collapsible header bar */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#CFDDE0] bg-[#F4F8F9] px-3 py-2 lg:hidden">
-        <span className="text-xs font-semibold text-[#0F292E] tabular-nums">
-          Sites in view ({matchedCount})
-        </span>
-        <button
-          type="button"
-          aria-expanded={isMobilePanelOpen}
-          onClick={() => setIsMobilePanelOpen((open) => !open)}
-          className="rounded-md border border-[#CFDDE0] bg-white px-2.5 py-1 text-xs font-medium text-[#0D6E6E] transition-colors hover:bg-[#E7F1F2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0D6E6E]"
-        >
-          {isMobilePanelOpen ? "Hide list" : "Show list"}
-        </button>
-      </div>
+      <SiteFilters
+        filters={filters}
+        provinceOptions={provinceOptions}
+        matchedCount={matchedCount}
+        totalInView={totalInView}
+        isLoading={viewportState.status === "loading"}
+        onChange={handleFiltersChange}
+        onClear={handleClearFilters}
+      />
 
-      <div
-        className={`${
-          isMobilePanelOpen ? "flex" : "hidden lg:flex"
-        } min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden`}
-      >
-        <SiteFilters
-          filters={filters}
-          provinceOptions={provinceOptions}
-          matchedCount={matchedCount}
-          totalInView={totalInView}
-          isLoading={viewportState.status === "loading"}
-          onChange={handleFiltersChange}
-          onClear={handleClearFilters}
-        />
+      <SiteTable
+        features={filteredFeatures}
+        page={currentPage}
+        pageSize={pageSize}
+        selectedSiteCode={selectedSiteCode}
+        viewportStatus={viewportState.status}
+        viewportError={viewportState.error}
+        hasActiveFilters={filtersActive}
+        provinceNames={mergedProvinceNames}
+        onSelectRow={handleSelectRow}
+        onPageChange={setCurrentPage}
+        onClearFilters={handleClearFilters}
+        onRetry={handleRetryViewport}
+      />
 
-        <SiteTable
-          features={filteredFeatures}
-          page={currentPage}
-          pageSize={pageSize}
-          selectedSiteCode={selectedSiteCode}
-          viewportStatus={viewportState.status}
-          viewportError={viewportState.error}
-          hasActiveFilters={filtersActive}
-          provinceNames={mergedProvinceNames}
-          onSelectRow={handleSelectRow}
-          onPageChange={setCurrentPage}
-          onClearFilters={handleClearFilters}
-          onRetry={handleRetryViewport}
-        />
-
-        <SiteDetailPanel
-          selectedFeature={selectedFeature}
-          detailState={detailState}
-          provinceNames={mergedProvinceNames}
-          onClose={handleCloseDetail}
-          onRetry={handleRetryDetail}
-          renderSurveyHistory={renderSurveyHistory ?? defaultRenderSurveyHistory}
-        />
-      </div>
-    </aside>
+      <SiteDetailPanel
+        selectedFeature={selectedFeature}
+        detailState={detailState}
+        provinceNames={mergedProvinceNames}
+        onClose={handleCloseDetail}
+        onRetry={handleRetryDetail}
+        renderSurveyHistory={renderSurveyHistory ?? defaultRenderSurveyHistory}
+      />
+    </SitesWorkspacePanel>
   );
 
   return (

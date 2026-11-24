@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
 import {
   buildSiteStatusFillExpression,
   buildSiteStatusStrokeExpression,
@@ -10,59 +9,34 @@ import {
 import type { ProvinceFeatureCollection } from "@/src/features/provinces/types";
 import type {
   BboxBounds,
-  SiteFeature,
   SiteFeatureCollection,
 } from "@/src/features/sites/types";
 import {
   EMPTY_SURVEY_POINT_COLLECTION,
   type SurveyPointFeatureCollection,
 } from "@/src/features/surveys/types";
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+  EMPTY_FEATURE_COLLECTION,
+  EMPTY_PROVINCE_COLLECTION,
+  OPENFREEMAP_LIBERTY_STYLE_URL,
+  PROVINCE_CASING_LAYER_ID,
+  PROVINCE_FILL_LAYER_ID,
+  PROVINCE_LINE_LAYER_ID,
+  PROVINCE_SOURCE_ID,
+  SITE_FILL_LAYER_ID,
+  SITE_OUTLINE_LAYER_ID,
+  SITE_SOURCE_ID,
+  SURVEY_POINT_FILL_COLOR,
+  SURVEY_POINT_HALO_COLOR,
+  SURVEY_POINT_HALO_LAYER_ID,
+  SURVEY_POINT_LAYER_ID,
+  SURVEY_POINT_SOURCE_ID,
+  SURVEY_POINT_STROKE_COLOR,
+} from "../map-constants";
+import type { SeagrassMapProps } from "../types";
 
-export const OPENFREEMAP_LIBERTY_STYLE_URL =
-  "https://tiles.openfreemap.org/styles/liberty";
-
-export const DEFAULT_MAP_CENTER: [number, number] = [98.85, 8.05];
-export const DEFAULT_MAP_ZOOM = 7.4;
-
-export const PROVINCE_SOURCE_ID = "seagrass-provinces";
-export const PROVINCE_FILL_LAYER_ID = "seagrass-provinces-fill";
-export const PROVINCE_CASING_LAYER_ID = "seagrass-provinces-casing";
-export const PROVINCE_LINE_LAYER_ID = "seagrass-provinces-line";
-
-export const SITE_SOURCE_ID = "seagrass-sites";
-export const SITE_FILL_LAYER_ID = "seagrass-sites-fill";
-export const SITE_OUTLINE_LAYER_ID = "seagrass-sites-outline";
-
-export const SURVEY_POINT_SOURCE_ID = "seagrass-survey-points";
-export const SURVEY_POINT_HALO_LAYER_ID = "seagrass-survey-points-halo";
-export const SURVEY_POINT_LAYER_ID = "seagrass-survey-points-circle";
-
-export const SURVEY_POINT_FILL_COLOR = "#7E22CE";
-export const SURVEY_POINT_STROKE_COLOR = "#FFFFFF";
-export const SURVEY_POINT_HALO_COLOR = "#3B0764";
-
-const EMPTY_FEATURE_COLLECTION: SiteFeatureCollection = {
-  type: "FeatureCollection",
-  features: [],
-};
-
-const EMPTY_PROVINCE_COLLECTION: ProvinceFeatureCollection = {
-  type: "FeatureCollection",
-  features: [],
-};
-
-export interface SeagrassMapProps {
-  sites: SiteFeatureCollection | null;
-  provinces?: ProvinceFeatureCollection | null;
-  surveyPoints?: SurveyPointFeatureCollection | null;
-  selectedSiteCode?: string | null;
-  resetViewSignal?: number;
-  onInitialBounds: (bounds: BboxBounds) => void;
-  onSettledBounds: (bounds: BboxBounds) => void;
-  onSelectSite?: (feature: SiteFeature) => void;
-  onMapReady?: (map: maplibregl.Map) => void;
-  onBasemapError?: (message: string) => void;
-}
 
 function readMapBounds(map: maplibregl.Map): BboxBounds {
   const bounds = map.getBounds();
@@ -109,7 +83,7 @@ function createSurveyPopupNode(props: Record<string, unknown>, coords: [number, 
   return root;
 }
 
-export function SeagrassMap({
+export function useSeagrassMap({
   sites,
   provinces = null,
   surveyPoints = null,
@@ -526,12 +500,5 @@ export function SeagrassMap({
     });
   }, [resetViewSignal]);
 
-  return (
-    <div
-      ref={containerRef}
-      role="region"
-      aria-label="Seagrass sites interactive map"
-      className="h-full w-full"
-    />
-  );
+  return containerRef;
 }

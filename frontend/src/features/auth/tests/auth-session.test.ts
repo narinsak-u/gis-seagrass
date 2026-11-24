@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import {
   createAuthSessionController,
   type AuthSessionState,
-} from "./auth-session";
+} from "../auth-session";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -83,9 +82,9 @@ describe("createAuthSessionController", () => {
 
       const user = await controller.login(" dev-viewer@example.test ", "dev-viewer-password");
 
-      assert.deepEqual(user, { email: "dev-viewer@example.test", role: "viewer" });
-      assert.equal(storageTouched, false);
-      assert.deepEqual(calls, [
+      expect(user).toEqual({ email: "dev-viewer@example.test", role: "viewer" });
+      expect(storageTouched).toBe(false);
+      expect(calls).toEqual([
         {
           url: "/api/auth/login",
           method: "POST",
@@ -103,13 +102,13 @@ describe("createAuthSessionController", () => {
         },
       ]);
 
-      assert.equal(states.some((s) => s.status === "authenticating"), true);
+      expect(states.some((s) => s.status === "authenticating")).toBe(true);
       const finalState = controller.getState();
-      assert.equal(finalState.status, "authenticated");
-      assert.equal(finalState.token, "jwt-abc-123");
-      assert.deepEqual(finalState.user, { email: "dev-viewer@example.test", role: "viewer" });
-      assert.equal(finalState.error, null);
-      assert.equal(finalState.signInOpen, false);
+      expect(finalState.status).toBe("authenticated");
+      expect(finalState.token).toBe("jwt-abc-123");
+      expect(finalState.user).toEqual({ email: "dev-viewer@example.test", role: "viewer" });
+      expect(finalState.error).toBe(null);
+      expect(finalState.signInOpen).toBe(false);
     } finally {
       if (originalLocalStorage === undefined) {
         delete (globalThis as Record<string, unknown>).localStorage;
@@ -148,13 +147,13 @@ describe("createAuthSessionController", () => {
 
     const result = await controller.login("viewer@example.test", "wrong-pass");
 
-    assert.equal(result, null);
+    expect(result).toBe(null);
     const state = controller.getState();
-    assert.equal(state.status, "error");
-    assert.equal(state.token, null);
-    assert.equal(state.user, null);
-    assert.equal(state.signInOpen, true);
-    assert.deepEqual(state.error, {
+    expect(state.status).toBe("error");
+    expect(state.token).toBe(null);
+    expect(state.user).toBe(null);
+    expect(state.signInOpen).toBe(true);
+    expect(state.error).toEqual({
       code: "UNAUTHORIZED",
       message: "Invalid email or password",
       status: 401,
@@ -175,11 +174,11 @@ describe("createAuthSessionController", () => {
     const controller = createAuthSessionController({ fetchImpl: fakeFetch });
     const result = await controller.login("viewer@example.test", "pw");
 
-    assert.equal(result, null);
-    assert.equal(controller.getState().token, null);
-    assert.equal(controller.getState().user, null);
-    assert.equal(controller.getState().status, "error");
-    assert.equal(controller.getState().error?.message, "Authentication required");
+    expect(result).toBe(null);
+    expect(controller.getState().token).toBe(null);
+    expect(controller.getState().user).toBe(null);
+    expect(controller.getState().status).toBe("error");
+    expect(controller.getState().error?.message).toBe("Authentication required");
   });
 
   it("refreshes current role from /api/auth/me and clears session on 401", async () => {
@@ -203,20 +202,20 @@ describe("createAuthSessionController", () => {
 
     const controller = createAuthSessionController({ fetchImpl: fakeFetch });
     await controller.login("user@example.test", "secret");
-    assert.equal(controller.getState().user?.role, "viewer");
+    expect(controller.getState().user?.role).toBe("viewer");
 
     const refreshed = await controller.refreshIdentity();
-    assert.deepEqual(refreshed, { email: "user@example.test", role: "editor" });
-    assert.equal(controller.getState().user?.role, "editor");
+    expect(refreshed).toEqual({ email: "user@example.test", role: "editor" });
+    expect(controller.getState().user?.role).toBe("editor");
 
     const afterExpiry = await controller.refreshIdentity();
-    assert.equal(afterExpiry, null);
+    expect(afterExpiry).toBe(null);
     const state = controller.getState();
-    assert.equal(state.token, null);
-    assert.equal(state.user, null);
-    assert.equal(state.status, "anonymous");
-    assert.equal(state.signInOpen, true);
-    assert.equal(state.error?.status, 401);
+    expect(state.token).toBe(null);
+    expect(state.user).toBe(null);
+    expect(state.status).toBe("anonymous");
+    expect(state.signInOpen).toBe(true);
+    expect(state.error?.status).toBe(401);
   });
 
   it("logout clears session immediately and ignores late in-flight login responses", async () => {
@@ -232,18 +231,18 @@ describe("createAuthSessionController", () => {
     const loginPromise = controller.login("viewer@example.test", "secret");
 
     controller.logout();
-    assert.equal(signals[0]?.aborted, true);
+    expect(signals[0]?.aborted).toBe(true);
 
     loginPending.resolve(
       jsonResponse({ access_token: "stale-token", token_type: "Bearer", expires_in: 900 }),
     );
     const result = await loginPromise;
 
-    assert.equal(result, null);
-    assert.equal(controller.getState().token, null);
-    assert.equal(controller.getState().user, null);
-    assert.equal(controller.getState().status, "anonymous");
-    assert.equal(controller.getState().signInOpen, false);
+    expect(result).toBe(null);
+    expect(controller.getState().token).toBe(null);
+    expect(controller.getState().user).toBe(null);
+    expect(controller.getState().status).toBe("anonymous");
+    expect(controller.getState().signInOpen).toBe(false);
   });
 
   it("handleUnauthorized clears token and identity and opens sign-in with recoverable message", async () => {
@@ -256,15 +255,15 @@ describe("createAuthSessionController", () => {
 
     const controller = createAuthSessionController({ fetchImpl: fakeFetch });
     await controller.login("admin@example.test", "secret");
-    assert.equal(controller.getState().token, "tok-active");
+    expect(controller.getState().token).toBe("tok-active");
 
     controller.handleUnauthorized("Token expired. Please sign in again.");
     const state = controller.getState();
-    assert.equal(state.token, null);
-    assert.equal(state.user, null);
-    assert.equal(state.status, "anonymous");
-    assert.equal(state.signInOpen, true);
-    assert.equal(state.error?.code, "UNAUTHORIZED");
-    assert.equal(state.error?.message, "Token expired. Please sign in again.");
+    expect(state.token).toBe(null);
+    expect(state.user).toBe(null);
+    expect(state.status).toBe("anonymous");
+    expect(state.signInOpen).toBe(true);
+    expect(state.error?.code).toBe("UNAUTHORIZED");
+    expect(state.error?.message).toBe("Token expired. Please sign in again.");
   });
 });

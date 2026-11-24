@@ -1,6 +1,5 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { proxyApiRequest } from "./api-proxy";
+import { describe, expect, it } from "vitest";
+import { proxyApiRequest } from "../api-proxy";
 
 describe("proxyApiRequest", () => {
   it("forwards GET path, query string, and Authorization header to API_INTERNAL_URL", async () => {
@@ -32,16 +31,13 @@ describe("proxyApiRequest", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(calls.length, 1);
-    assert.equal(
-      calls[0].url,
-      "http://api:3000/sites.geojson?bbox=98,7,99.5,9&status=active",
-    );
-    assert.equal(calls[0].init.method, "GET");
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://api:3000/sites.geojson?bbox=98,7,99.5,9&status=active");
+    expect(calls[0].init.method).toBe("GET");
     const forwardedHeaders = new Headers(calls[0].init.headers);
-    assert.equal(forwardedHeaders.get("authorization"), "Bearer secret-token");
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), {
+    expect(forwardedHeaders.get("authorization")).toBe("Bearer secret-token");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
       type: "FeatureCollection",
       features: [],
     });
@@ -75,16 +71,13 @@ describe("proxyApiRequest", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(calls[0].url, "http://127.0.0.1:3000/auth/login");
-    assert.equal(calls[0].init.method, "POST");
+    expect(calls[0].url).toBe("http://127.0.0.1:3000/auth/login");
+    expect(calls[0].init.method).toBe("POST");
     const forwardedHeaders = new Headers(calls[0].init.headers);
-    assert.equal(forwardedHeaders.get("content-type"), "application/json");
-    assert.equal(
-      calls[0].init.body,
-      JSON.stringify({ email: "viewer@example.com", password: "wrong" }),
-    );
-    assert.equal(response.status, 401);
-    assert.deepEqual(await response.json(), errorEnvelope);
+    expect(forwardedHeaders.get("content-type")).toBe("application/json");
+    expect(calls[0].init.body).toBe(JSON.stringify({ email: "viewer@example.com", password: "wrong" }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(errorEnvelope);
   });
 
   it("returns 502 with shared error envelope when upstream request fails", async () => {
@@ -101,10 +94,10 @@ describe("proxyApiRequest", () => {
       fetchImpl: fakeFetch,
     });
 
-    assert.equal(response.status, 502);
+    expect(response.status).toBe(502);
     const body = await response.json();
-    assert.equal(body.error.code, "UPSTREAM_UNAVAILABLE");
-    assert.equal(typeof body.error.message, "string");
-    assert.deepEqual(body.error.details, {});
+    expect(body.error.code).toBe("UPSTREAM_UNAVAILABLE");
+    expect(typeof body.error.message).toBe("string");
+    expect(body.error.details).toEqual({});
   });
 });
