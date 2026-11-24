@@ -1,20 +1,5 @@
-export interface ProvinceProperties {
-  code: string;
-  name_th: string;
-}
+import type { z } from "zod";
+import type { provinceFeatureSchema, provinceFeatureCollectionSchema } from "./schema";
 
-export interface ProvinceGeometry {
-  type: "MultiPolygon";
-  coordinates: number[][][][];
-}
-
-export interface ProvinceFeature {
-  type: "Feature";
-  geometry: ProvinceGeometry;
-  properties: ProvinceProperties;
-}
-
-export interface ProvinceFeatureCollection {
-  type: "FeatureCollection";
-  features: ProvinceFeature[];
-}
+export type ProvinceFeature = z.infer<typeof provinceFeatureSchema>;
+export type ProvinceFeatureCollection = z.infer<typeof provinceFeatureCollectionSchema>;
