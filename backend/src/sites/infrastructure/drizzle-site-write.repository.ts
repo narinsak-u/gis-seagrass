@@ -23,14 +23,14 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
           code: site.code,
           name: site.name,
           provinceCode: spatial.provinceCode,
-          geom: sql`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326))`,
+          geom: siteMultiPolygon(source),
           areaRai: spatial.areaRai,
           createdBy: actorId,
           updatedBy: actorId,
         })
         .returning({
           version: sites.version,
-          geometry: sql<SiteFeature['geometry']>`ST_AsGeoJSON(${sites.geom}, 15)::jsonb`,
+          geometry: siteGeometryJson(),
         });
       return feature(site.code, site.name, spatial.provinceCode, spatial.areaRai, row.version, row.geometry);
     } catch (error) {
@@ -60,7 +60,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
         code: site.code,
         name: site.name,
         provinceCode: spatial.provinceCode,
-        geom: sql`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326))`,
+        geom: siteMultiPolygon(source),
         areaRai: spatial.areaRai,
         createdBy: null,
         updatedBy: null,
@@ -80,7 +80,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
         name: sites.name,
         provinceCode: sites.provinceCode,
         areaRai: sites.areaRai,
-        geometry: sql<SiteFeature['geometry']>`ST_AsGeoJSON(${sites.geom}, 15)::jsonb`,
+        geometry: siteGeometryJson(),
       })
       .from(sites)
       .where(and(eq(sites.code, code), isNull(sites.deletedAt)))
@@ -93,7 +93,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
     const [row] = await tx
       .select({
         id: sql<string>`${sites.id}::text`,
-        within: sql<boolean>`ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, ${sites.geom}::geography, 50)`,
+        within: withinSiteDistance(lon, lat),
       })
       .from(sites)
       .where(and(eq(sites.code, code), isNull(sites.deletedAt)))
@@ -112,7 +112,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
     const tx = asDrizzleTransaction(context);
     const [row] = await tx
       .select({
-        within: sql<boolean>`ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, ${sites.geom}::geography, 50)`,
+        within: withinSiteDistance(lon, lat),
       })
       .from(sites)
       .where(and(eq(sites.id, BigInt(id)), isNull(sites.deletedAt)));
@@ -129,7 +129,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
           ? {
               provinceCode: spatial.provinceCode,
               areaRai: spatial.areaRai,
-              geom: sql`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${spatial.source}), 4326))`,
+              geom: siteMultiPolygon(spatial.source),
             }
           : {}),
         version: sql`${sites.version} + 1`,
@@ -142,7 +142,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
         name: sites.name,
         provinceCode: sites.provinceCode,
         areaRai: sites.areaRai,
-        geometry: sql<SiteFeature['geometry']>`ST_AsGeoJSON(${sites.geom}, 15)::jsonb`,
+        geometry: siteGeometryJson(),
       });
     return feature(site.code, row.name, row.provinceCode, row.areaRai, row.version, row.geometry);
   }
@@ -157,7 +157,7 @@ export class DrizzleSiteWriteRepository implements SiteWriteRepository {
   }
 }
 
-// Retained as raw SQL (spec §§3.1.4 & 9.1): 4-stage WITH ... MATERIALIZED PostGIS CTE validating geometry, resolving dominant province overlap, and rounding area_rai in one round trip.
+// Retained as raw SQL (ADR-0003): 4-stage WITH ... MATERIALIZED PostGIS CTE validating geometry, resolving dominant province overlap, and rounding area_rai in one round trip.
 async function deriveSiteSpatial(tx: DrizzleTransaction, source: string): Promise<{ provinceCode: string; areaRai: string }> {
   const result = await tx.execute<{ valid: boolean; empty: boolean; province_code: string | null; area_rai: string | null }>(sql`
     WITH candidate AS MATERIALIZED (
@@ -179,6 +179,18 @@ async function deriveSiteSpatial(tx: DrizzleTransaction, source: string): Promis
   if (!spatial.valid || spatial.empty) throw new ApplicationError('INVALID_GEOMETRY', 'Invalid geometry');
   if (spatial.province_code === null) throw new ApplicationError('OUTSIDE_COVERAGE', 'Site must overlap a Province');
   return { provinceCode: spatial.province_code, areaRai: spatial.area_rai! };
+}
+
+function siteGeometryJson() {
+  return sql<SiteFeature['geometry']>`ST_AsGeoJSON(${sites.geom}, 15)::jsonb`;
+}
+
+function siteMultiPolygon(source: string) {
+  return sql`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${source}), 4326))`;
+}
+
+function withinSiteDistance(lon: number, lat: number) {
+  return sql<boolean>`ST_DWithin(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, ${sites.geom}::geography, 50)`;
 }
 
 function feature(code: string, name: string, provinceCode: string, areaRai: string, version: number, geometry: SiteFeature['geometry']): SiteFeature {

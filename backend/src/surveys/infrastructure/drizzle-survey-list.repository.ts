@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE_DATABASE, sites, surveySpecies, surveys, type DatabaseProvider } from '../../platform/database';
 import type { SurveyListRepository, SurveyPage } from '../application/survey-list.repository';
+import { SURVEY_PROJECTION } from './survey-projection';
 
 @Injectable()
 export class DrizzleSurveyListRepository implements SurveyListRepository {
@@ -21,14 +22,8 @@ export class DrizzleSurveyListRepository implements SurveyListRepository {
       .where(eq(surveys.siteId, site.id));
     const items = await this.db
       .select({
-        id: sql<string>`${surveys.id}::text`,
-        lon: sql<number>`ST_X(${surveys.geom})::float8`,
-        lat: sql<number>`ST_Y(${surveys.geom})::float8`,
-        surveyed_on: surveys.surveyedOn,
-        cover_percent: sql<number>`${surveys.coverPercent}::float8`,
-        note: surveys.note,
+        ...SURVEY_PROJECTION,
         created_by: surveys.createdBy,
-        species: sql<string[]>`COALESCE(array_agg(${surveySpecies.speciesCode} ORDER BY ${surveySpecies.speciesCode}) FILTER (WHERE ${surveySpecies.speciesCode} IS NOT NULL), ARRAY[]::text[])`,
       })
       .from(surveys)
       .leftJoin(surveySpecies, eq(surveySpecies.surveyId, surveys.id))

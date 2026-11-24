@@ -6,6 +6,7 @@ import type { SiteWriteTransaction } from '../../site-survey-workflows';
 import type { SurveyInput, SurveyWriteRepository, SurveyWriteResponse } from '../application/survey-write.repository';
 import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey-workflows/infrastructure/drizzle-transaction';
 import { queryLatestCoverPercentages } from './latest-cover-percentages';
+import { SURVEY_PROJECTION } from './survey-projection';
 
 @Injectable()
 export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
@@ -21,7 +22,7 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
       .values({
         siteId: BigInt(siteId),
         surveyRef: ref,
-        geom: sql`ST_SetSRID(ST_MakePoint(${input.lon!}, ${input.lat!}), 4326)`,
+        geom: surveyPoint(input.lon!, input.lat!),
         surveyedOn: input.surveyed_on!,
         coverPercent: String(input.cover_percent!),
       })
@@ -54,6 +55,7 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
     return result.length > 0;
   }
 
+  // Drizzle 0.45's PgSelectBuilder requires .from(...); VALUES (1) evaluates clock_timestamp() without scanning or locking any table.
   async today(context: SiteWriteTransaction): Promise<string> {
     const tx = asDrizzleTransaction(context);
     const [result] = await tx
@@ -84,7 +86,7 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
       .insert(surveys)
       .values({
         siteId: BigInt(siteId),
-        geom: sql`ST_SetSRID(ST_MakePoint(${input.lon!}, ${input.lat!}), 4326)`,
+        geom: surveyPoint(input.lon!, input.lat!),
         surveyedOn: input.surveyed_on!,
         coverPercent: String(input.cover_percent!),
         note: input.note ?? null,
@@ -100,7 +102,7 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
   async update(context: SiteWriteTransaction, id: string, siteId: string, input: SurveyInput, actorId: string): Promise<SurveyWriteResponse> {
     const tx = asDrizzleTransaction(context);
     await tx.update(surveys).set({
-      geom: input.lon === undefined ? undefined : sql`ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)`,
+      geom: input.lon === undefined ? undefined : surveyPoint(input.lon, input.lat!),
       surveyedOn: input.surveyed_on,
       coverPercent: input.cover_percent === undefined ? undefined : String(input.cover_percent),
       note: input.note,
@@ -130,14 +132,8 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
   private async response(tx: DrizzleTransaction, id: string): Promise<SurveyWriteResponse> {
     const [row] = await tx
       .select({
-        id: sql<string>`${surveys.id}::text`,
+        ...SURVEY_PROJECTION,
         site_id: sql<string>`${surveys.siteId}::text`,
-        lon: sql<number>`ST_X(${surveys.geom})::float8`,
-        lat: sql<number>`ST_Y(${surveys.geom})::float8`,
-        surveyed_on: surveys.surveyedOn,
-        cover_percent: sql<number>`${surveys.coverPercent}::float8`,
-        note: surveys.note,
-        species: sql<string[]>`COALESCE(array_agg(${surveySpecies.speciesCode} ORDER BY ${surveySpecies.speciesCode}) FILTER (WHERE ${surveySpecies.speciesCode} IS NOT NULL), ARRAY[]::text[])`,
       })
       .from(surveys)
       .leftJoin(surveySpecies, eq(surveySpecies.surveyId, surveys.id))
@@ -147,4 +143,8 @@ export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {
     const { site_id: _siteId, ...survey } = row;
     return { ...survey, siteStatus: deriveSiteStatus(coverPercentages.get(row.site_id) ?? []) };
   }
+}
+
+function surveyPoint(lon: number, lat: number) {
+  return sql`ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)`;
 }
