@@ -7,6 +7,7 @@ import {
   buildSiteStatusFillExpression,
   buildSiteStatusStrokeExpression,
 } from "@/src/features/sites/status";
+import type { ProvinceFeatureCollection } from "@/src/features/provinces/types";
 import type {
   BboxBounds,
   SiteFeature,
@@ -19,6 +20,11 @@ export const OPENFREEMAP_LIBERTY_STYLE_URL =
 export const DEFAULT_MAP_CENTER: [number, number] = [98.85, 8.05];
 export const DEFAULT_MAP_ZOOM = 7.4;
 
+export const PROVINCE_SOURCE_ID = "seagrass-provinces";
+export const PROVINCE_FILL_LAYER_ID = "seagrass-provinces-fill";
+export const PROVINCE_CASING_LAYER_ID = "seagrass-provinces-casing";
+export const PROVINCE_LINE_LAYER_ID = "seagrass-provinces-line";
+
 export const SITE_SOURCE_ID = "seagrass-sites";
 export const SITE_FILL_LAYER_ID = "seagrass-sites-fill";
 export const SITE_OUTLINE_LAYER_ID = "seagrass-sites-outline";
@@ -28,8 +34,14 @@ const EMPTY_FEATURE_COLLECTION: SiteFeatureCollection = {
   features: [],
 };
 
+const EMPTY_PROVINCE_COLLECTION: ProvinceFeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
 export interface SeagrassMapProps {
   sites: SiteFeatureCollection | null;
+  provinces?: ProvinceFeatureCollection | null;
   selectedSiteCode?: string | null;
   resetViewSignal?: number;
   onInitialBounds: (bounds: BboxBounds) => void;
@@ -51,6 +63,7 @@ function readMapBounds(map: maplibregl.Map): BboxBounds {
 
 export function SeagrassMap({
   sites,
+  provinces = null,
   selectedSiteCode = null,
   resetViewSignal = 0,
   onInitialBounds,
@@ -63,6 +76,7 @@ export function SeagrassMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const layersReadyRef = useRef(false);
   const latestSitesRef = useRef<SiteFeatureCollection>(EMPTY_FEATURE_COLLECTION);
+  const latestProvincesRef = useRef<ProvinceFeatureCollection>(EMPTY_PROVINCE_COLLECTION);
   const latestSelectedCodeRef = useRef<string | null>(selectedSiteCode);
 
   const onInitialBoundsRef = useRef(onInitialBounds);
@@ -77,6 +91,7 @@ export function SeagrassMap({
   onMapReadyRef.current = onMapReady;
   onBasemapErrorRef.current = onBasemapError;
   latestSitesRef.current = sites ?? EMPTY_FEATURE_COLLECTION;
+  latestProvincesRef.current = provinces ?? EMPTY_PROVINCE_COLLECTION;
   latestSelectedCodeRef.current = selectedSiteCode;
 
   useEffect(() => {
@@ -109,7 +124,73 @@ export function SeagrassMap({
       "bottom-right",
     );
 
-    const ensureSiteLayers = () => {
+    const ensureMapLayers = () => {
+      // Add viewport Province boundaries underneath Site polygons so Site fills/clicks remain crisp
+      if (!map.getSource(PROVINCE_SOURCE_ID)) {
+        map.addSource(PROVINCE_SOURCE_ID, {
+          type: "geojson",
+          data: latestProvincesRef.current as unknown as GeoJSON.FeatureCollection,
+        });
+      }
+
+      const siteBeforeId = map.getLayer(SITE_FILL_LAYER_ID) ? SITE_FILL_LAYER_ID : undefined;
+
+      if (!map.getLayer(PROVINCE_FILL_LAYER_ID)) {
+        map.addLayer(
+          {
+            id: PROVINCE_FILL_LAYER_ID,
+            type: "fill",
+            source: PROVINCE_SOURCE_ID,
+            paint: {
+              "fill-color": "#1E4E79",
+              "fill-opacity": 0.04,
+            },
+          },
+          siteBeforeId,
+        );
+      }
+
+      if (!map.getLayer(PROVINCE_CASING_LAYER_ID)) {
+        map.addLayer(
+          {
+            id: PROVINCE_CASING_LAYER_ID,
+            type: "line",
+            source: PROVINCE_SOURCE_ID,
+            layout: {
+              "line-join": "round",
+              "line-cap": "round",
+            },
+            paint: {
+              "line-color": "#FFFFFF",
+              "line-opacity": 0.85,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 4, 2.8, 9, 4.2, 13, 5.2],
+            },
+          },
+          siteBeforeId,
+        );
+      }
+
+      if (!map.getLayer(PROVINCE_LINE_LAYER_ID)) {
+        map.addLayer(
+          {
+            id: PROVINCE_LINE_LAYER_ID,
+            type: "line",
+            source: PROVINCE_SOURCE_ID,
+            layout: {
+              "line-join": "round",
+              "line-cap": "butt",
+            },
+            paint: {
+              "line-color": "#2B4C8C",
+              "line-opacity": 0.9,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.5, 9, 2.4, 13, 3.0],
+              "line-dasharray": [4, 2],
+            },
+          },
+          siteBeforeId,
+        );
+      }
+
       if (!map.getSource(SITE_SOURCE_ID)) {
         map.addSource(SITE_SOURCE_ID, {
           type: "geojson",
@@ -160,7 +241,7 @@ export function SeagrassMap({
     };
 
     const handleLoad = () => {
-      ensureSiteLayers();
+      ensureMapLayers();
       onMapReadyRef.current?.(map);
       onInitialBoundsRef.current(readMapBounds(map));
     };
@@ -229,6 +310,17 @@ export function SeagrassMap({
       source.setData((sites ?? EMPTY_FEATURE_COLLECTION) as unknown as GeoJSON.FeatureCollection);
     }
   }, [sites]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !layersReadyRef.current) return;
+    const source = map.getSource(PROVINCE_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(
+        (provinces ?? EMPTY_PROVINCE_COLLECTION) as unknown as GeoJSON.FeatureCollection,
+      );
+    }
+  }, [provinces]);
 
   useEffect(() => {
     const map = mapRef.current;
