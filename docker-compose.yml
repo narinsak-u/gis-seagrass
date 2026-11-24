@@ -49,9 +49,6 @@ services:
   web:
     build:
       context: ./frontend
-    depends_on:
-      api:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -70,8 +67,6 @@ services:
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
-      api:
-        condition: service_healthy
       web:
         condition: service_healthy
 

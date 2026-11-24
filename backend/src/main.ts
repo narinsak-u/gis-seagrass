@@ -7,7 +7,7 @@ import { runImport } from './import/run';
 import { requireJwtSecret, seedDevelopmentAccounts } from './auth/auth.module';
 import { setupSwagger } from './swagger';
 import type { NestExpressApplication } from "@nestjs/platform-express";
-import { configureLoginBodyParsing } from "./auth/presentation/malformed-login-json.middleware";
+import { configureLoginBodyParsing, requireJwtSecret, seedDevelopmentAccounts } from "./auth/auth.module";
 
 async function bootstrap(): Promise<void> {
   requireJwtSecret();

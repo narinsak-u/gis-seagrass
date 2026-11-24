@@ -15,6 +15,12 @@ const statusLabels = {
   no_data: "No data",
 } as const;
 
+const surveyLocation = {
+  lon: 99.538168,
+  lat: 7.330521,
+  surveyed_on: "2026-11-23",
+  species: ["TH"],
+};
 
 async function openWorkspace(page: Page) {
   await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
@@ -216,11 +222,8 @@ test("E2E-06 admin Survey API write is visible in Site history UI", async ({ pag
   const write = await request.post(`/api/sites/${siteCode}/surveys`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
-      lon: 99.538168,
-      lat: 7.330521,
-      surveyed_on: "2026-11-23",
+      ...surveyLocation,
       cover_percent: 63.21,
-      species: ["TH"],
       note,
     },
   });
@@ -248,11 +251,8 @@ test("E2E-07 editor role is visible and admin-only Survey API write returns 403"
   const response = await request.post(`/api/sites/${siteCode}/surveys`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
-      lon: 99.538168,
-      lat: 7.330521,
-      surveyed_on: "2026-11-23",
+      ...surveyLocation,
       cover_percent: 60,
-      species: ["TH"],
       note: `Rejected editor write ${Date.now()}`,
     },
   });

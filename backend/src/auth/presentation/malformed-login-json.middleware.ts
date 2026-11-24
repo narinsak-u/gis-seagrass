@@ -12,7 +12,7 @@ export function malformedLoginJsonMiddleware(
   _response: unknown,
   next: (error?: unknown) => void,
 ): void {
-  if (request.method === 'POST' && request.path === '/auth/login'
+  if (request.method === 'POST' && /^\/auth\/login\/?$/.test(request.path)
     && typeof error === 'object' && error !== null && 'type' in error
     && error.type === 'entity.parse.failed') {
     request.body = {};
