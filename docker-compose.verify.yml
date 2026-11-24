@@ -20,12 +20,9 @@ services:
         target: /app/reports
         bind:
           create_host_path: false
+  gateway:
     ports: !override
-      - "127.0.0.1:${VERIFY_API_PORT:-38081}:3000"
-
-  web:
-    ports: !override
-      - "127.0.0.1:${VERIFY_WEB_PORT:-38082}:3000"
+      - "127.0.0.1:${VERIFY_GATEWAY_PORT:-38080}:80"
 
 volumes:
   seagrass-db-data:

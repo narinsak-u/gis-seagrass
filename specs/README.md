@@ -18,9 +18,9 @@ Before beginning Step 6, the preparatory backend architecture refactors in [`bac
 | `step-6-map-ui.md` | MapLibre map, synchronized viewport list and filters | Required | Implemented and verified |
 | `step-7-map-editing.md` | Map interactions and editing | Optional | Planned |
 | `step-8-dashboard-export.md` | Aggregation, dashboard, exports | Optional | Planned |
-| `step-9-production.md` | Production enhancements | Optional | Planned |
+| `step-9-production.md` | Caddy gateway, login throttling, Playwright E2E, path-scoped CI | Optional | Implemented and locally verified |
 
-Step 3 is implemented and verified against `step-3-site-api.md`. Step 4 is implemented and verified against `step-4-survey-api.md`, including the agreed Site-status formula. Step 5 is implemented and verified against `step-5-auth-concurrency.md`; its confirmed `.scratch/` spec and nine tickets are resolved. Step 6 is implemented and verified against `step-6-map-ui.md`, including the bounded Province geometry and protected current-user identity endpoints. Steps 7–9 remain planned names, not created specs. Do not fabricate acceptance criteria for those later Steps.
+Steps 7–8 remain planned. Step 9 is implemented and locally verified against its confirmed spec and tickets; GitHub-hosted workflow execution was not observed.
 
 ## Repository structure and package management
 
@@ -31,6 +31,7 @@ gis-seagrass/
 ├── frontend/              # Next.js, own package.json and lockfile
 ├── backend/               # NestJS, own package.json and lockfile
 │   └── seed-data/         # Original source files; do not modify
+├── gateway/               # Stock Caddy reverse-proxy config
 ├── specs/                 # Step-by-step implementation specifications
 ├── docker-compose.yml
 ├── .env.example
@@ -40,7 +41,7 @@ gis-seagrass/
 
 - `frontend/` and `backend/` each own their dependencies, scripts, TypeScript config, Dockerfile, and package lockfile.
 - No `apps/`, root `package.json`, `pnpm-workspace.yaml`, Turborepo or shared workspace packages.
-- Use `npm` independently within each app (e.g. `cd backend && npm install`); root Docker Compose coordinates all three services (`db`, `api`, `web`).
+- Use `npm` independently within each app (e.g. `cd backend && npm install`); root Docker Compose coordinates all four services (`db`, `api`, `web`, `gateway`).
 - Shared behavior between import and HTTP APIs lives in the **backend's** service/domain code, not a cross-application package.
 
 ## Global agent workflow and Git policy

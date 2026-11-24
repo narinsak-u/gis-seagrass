@@ -1,3 +1,4 @@
+import { ThrottlerModule } from '@nestjs/throttler';
 import { type DynamicModule, Module } from '@nestjs/common';
 import type { DatabaseProvider } from '../platform/database';
 import { AuthService } from './application/auth.service';
@@ -12,7 +13,7 @@ export class AuthModule {
   static register(databaseModule: DynamicModule): DynamicModule {
     return {
       module: AuthModule,
-      imports: [databaseModule],
+      imports: [databaseModule, ThrottlerModule.forRoot([{ ttl: 60_000, limit: 20 }])],
       controllers: [AuthController],
       providers: [
         AuthGuard,
@@ -33,6 +34,7 @@ export { AuthGuard, Roles } from './presentation/auth.guard';
 export type { AuthenticatedRequest } from './presentation/auth.guard';
 export type { ActorRole, AuthenticatedActor } from './domain/actor';
 export { requireJwtSecret };
+export { configureLoginBodyParsing } from './presentation/login-body-parser.middleware';
 
 export async function seedDevelopmentAccounts(database: DatabaseProvider, enabled: boolean): Promise<void> {
   if (!enabled) return;

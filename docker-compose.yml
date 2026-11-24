@@ -35,8 +35,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${BIND_HOST:-127.0.0.1}:${API_PORT:-3000}:3000"
     healthcheck:
       test:
         - CMD
@@ -51,13 +49,6 @@ services:
   web:
     build:
       context: ./frontend
-    environment:
-      API_INTERNAL_URL: http://api:3000
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-3001}:3000"
     healthcheck:
       test:
         - CMD
@@ -69,6 +60,15 @@ services:
       retries: 5
       start_period: 30s
 
+  gateway:
+    image: caddy:2.10.2-alpine
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${GATEWAY_PORT:-8080}:80"
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web:
+        condition: service_healthy
 
 volumes:
   seagrass-db-data:

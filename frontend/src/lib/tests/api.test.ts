@@ -7,7 +7,7 @@ import {
 } from "../api";
 
 describe("apiFetch", () => {
-  it("calls the same-origin /api proxy with Bearer token and AbortSignal", async () => {
+  it("calls the same-origin /api endpoint with Bearer token and AbortSignal", async () => {
     let capturedUrl = "";
     let capturedInit: RequestInit | undefined;
     const controller = new AbortController();
@@ -74,7 +74,7 @@ describe("apiFetch", () => {
       fetchImpl: fakeFetch,
     });
 
-    const parsed = new URL(capturedUrl, "http://localhost:3001");
+    const parsed = new URL(capturedUrl, "http://localhost:8080");
     expect(parsed.pathname).toBe("/api/sites.geojson");
     expect(parsed.searchParams.get("bbox")).toBe("98.1,7.2,99.4,8.9");
     expect(parsed.searchParams.get("status")).toBe("active");

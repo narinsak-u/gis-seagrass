@@ -135,3 +135,24 @@ integration('protected requests resolve current role and active status for each 
   }
 });
 
+integration('POST /auth/login route variants count parser failures toward the shared limit', async () => {
+  const attempt = (body: string, path: string, contentType = 'application/json') => fetch(`${fixture.origin}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': contentType, 'x-forwarded-for': '203.0.113.8' },
+    body,
+  });
+  const paths = ['/auth/login', '/auth/login/', '/AUTH/LOGIN', '/AUTH/LOGIN/'] as const;
+  for (let count = 0; count < 20; count++) {
+    const malformedJson = count % 2 === 0;
+    const path = paths[count % paths.length];
+    const contentType = malformedJson ? 'application/json' : 'application/json; charset=unsupported';
+    expect((await attempt(malformedJson ? '{' : JSON.stringify({}), path, contentType)).status).toBe(400);
+  }
+
+  const limited = await attempt('{', '/AUTH/LOGIN/', 'application/json; charset=unsupported');
+  expect(limited.status).toBe(429);
+  expect(Object.keys(await limited.json() as Record<string, unknown>)).toStrictEqual(['error']);
+
+  const error = (await (await fetch(`${fixture.origin}/auth/me`)).json() as Record<string, unknown>).error as Record<string, unknown>;
+  expect(Object.keys(error).sort()).toStrictEqual(['code', 'details', 'message']);
+});
