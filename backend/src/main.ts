@@ -6,6 +6,8 @@ import { runMigrations } from './platform/database';
 import { runImport } from './import/run';
 import { requireJwtSecret, seedDevelopmentAccounts } from './auth/auth.module';
 import { setupSwagger } from './swagger';
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import { configureLoginBodyParsing } from "./auth/presentation/malformed-login-json.middleware";
 
 async function bootstrap(): Promise<void> {
   requireJwtSecret();
@@ -14,7 +16,8 @@ async function bootstrap(): Promise<void> {
     await runMigrations(database);
     await runImport(database);
     await seedDevelopmentAccounts(database, process.env.SEED_DEVELOPMENT_ACCOUNTS === 'true');
-    const app = await NestFactory.create(AppModule.register(database), { rawBody: true });
+    const app = await NestFactory.create<NestExpressApplication>(AppModule.register(database), { rawBody: true, bodyParser: false });
+    configureLoginBodyParsing(app);
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
     app.enableShutdownHooks();
     setupSwagger(app);
