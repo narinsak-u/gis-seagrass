@@ -24,7 +24,6 @@ export interface SurveyPageResponse {
   items: SurveyListItem[];
   total: number;
   page: number;
-  pageSize: number;
 }
 export type SurveyHistoryStatus =
   | "idle"

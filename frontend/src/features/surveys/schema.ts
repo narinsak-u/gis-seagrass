@@ -16,5 +16,4 @@ export const surveyPageSchema = z.object({
   items: z.array(surveyItemSchema),
   total: z.number().int().nonnegative(),
   page: z.number().int().positive(),
-  pageSize: z.number().int().positive(),
 });

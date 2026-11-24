@@ -35,7 +35,7 @@ export function surveyHistoryQueryOptions(
     },
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
-      lastPage.page < Math.ceil(lastPage.total / lastPage.pageSize)
+      lastPage.page < Math.ceil(lastPage.total / pageSize)
         ? lastPage.page + 1
         : undefined,
     staleTime: 30_000,

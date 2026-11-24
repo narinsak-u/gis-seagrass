@@ -259,7 +259,6 @@ test("E2E-08 changing accounts hides prior Survey history before new results loa
         }],
         total: 1,
         page: 1,
-        pageSize: 10,
       }),
     });
   });

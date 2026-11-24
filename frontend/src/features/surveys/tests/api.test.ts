@@ -60,7 +60,6 @@ const validPage = {
   }],
   total: 3,
   page: 2,
-  pageSize: 10,
 };
 
 describe("Survey page validation", () => {
@@ -69,7 +68,7 @@ describe("Survey page validation", () => {
   });
 
   it.each([
-    [{ ...validPage, pageSize: undefined }],
+    [{ ...validPage, total: undefined }],
     [{ ...validPage, total: -1 }],
     [{ ...validPage, page: 0 }],
     [{ ...validPage, items: [{ ...validPage.items[0], lon: Number.NaN }] }],
@@ -108,7 +107,7 @@ describe("fetchSiteSurveys", () => {
   it("rejects malformed successful responses", async () => {
     vi.spyOn(apiClient, "request").mockResolvedValue({
       status: 200,
-      data: { items: [], total: 1, page: 1 },
+      data: { items: [], total: 1 },
     } as never);
 
     await expect(fetchSiteSurveys({

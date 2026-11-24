@@ -38,7 +38,6 @@ describe("Survey history query", () => {
           items: [survey(String(page), "2025-03-08")],
           total: 23,
           page,
-          pageSize: 10,
         },
       } as never;
     });
@@ -49,11 +48,12 @@ describe("Survey history query", () => {
 
     await observer.refetch();
     await observer.fetchNextPage();
+    await observer.fetchNextPage();
     const result = observer.getCurrentResult();
 
-    expect(result.data?.pages.map(({ page }) => page)).toEqual([1, 2]);
-    expect(result.hasNextPage).toBe(true);
-    expect(requestedPages).toEqual([1, 2]);
+    expect(result.data?.pages.map(({ page }) => page)).toEqual([1, 2, 3]);
+    expect(result.hasNextPage).toBe(false);
+    expect(requestedPages).toEqual([1, 2, 3]);
     observer.destroy();
     client.clear();
     request.mockRestore();
