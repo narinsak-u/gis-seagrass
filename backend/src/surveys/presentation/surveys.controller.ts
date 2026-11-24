@@ -1,12 +1,12 @@
 import { BadRequestException, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Patch, Post, Query, Body, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ApiErrorEnvelope } from '../../platform/http';
-import { parseSurveyId, parseSurveyInput } from './survey-validation';
-import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './survey-openapi';
+import { parseSurveyId, parseSurveyInput } from './surveys.validation';
+import { SURVEY_CREATE_BODY_SCHEMA, SURVEY_ERROR_SCHEMA, SURVEY_LIST_SCHEMA, SURVEY_PATCH_BODY_SCHEMA, SURVEY_WRITE_SCHEMA } from './surveys.openapi';
 import { AuthGuard, Roles, type AuthenticatedRequest } from '../../auth/auth.module';
-import { SURVEY_LIST_REPOSITORY, type SurveyListRepository } from '../application/contracts/survey-list-repository';
-import { SurveyCommands } from '../application/use-cases/survey-commands';
-import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './dto/survey.dto';
+import { SURVEY_LIST_REPOSITORY, type SurveyListRepository } from '../application/survey-list.repository';
+import { SurveyCommands } from '../application/survey-commands';
+import { SurveyCreateDto, SurveyListQueryDto, SurveyPatchDto } from './surveys.dto';
 
 @ApiExtraModels(ApiErrorEnvelope)
 @ApiResponse({ status: 500, description: 'INTERNAL_ERROR', schema: SURVEY_ERROR_SCHEMA })

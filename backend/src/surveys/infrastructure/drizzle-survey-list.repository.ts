@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, count, eq, isNull, sql } from 'drizzle-orm';
-import { sites, surveys } from '../../../platform/database';
-import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../../platform/database';
-import type { SurveyListRepository, SurveyPage } from '../../application/contracts/survey-list-repository';
+import { sites, surveys } from '../../platform/database';
+import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
+import type { SurveyListRepository, SurveyPage } from '../application/survey-list.repository';
 
 interface SurveyListRow extends Record<string, unknown> {
   id: string;

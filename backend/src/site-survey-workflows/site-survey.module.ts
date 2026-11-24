@@ -10,9 +10,9 @@ import {
   type SurveyWriteRepository,
 } from '../surveys';
 import { DrizzleSiteWriteRepository } from '../sites/infrastructure/drizzle-site-write.repository';
-import { DrizzleSiteSurveyConstraintRepository } from '../surveys/infrastructure/repositories/drizzle-site-survey-constraint-repository';
-import { DrizzleSurveyStatusRepository } from '../surveys/infrastructure/repositories/drizzle-survey-status-repository';
-import { DrizzleSurveyWriteRepository } from '../surveys/infrastructure/repositories/drizzle-survey-write-repository';
+import { DrizzleSiteSurveyConstraintRepository } from '../surveys/infrastructure/drizzle-site-survey-constraint.repository';
+import { DrizzleSurveyStatusRepository } from '../surveys/infrastructure/drizzle-survey-status.repository';
+import { DrizzleSurveyWriteRepository } from '../surveys/infrastructure/drizzle-survey-write.repository';
 import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner } from './application/contracts/transaction-runner';
 import { SiteSurveyCoordinator } from './application/use-cases/site-survey-coordinator';
 import { DrizzleSiteSurveyTransactionRunner, SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER } from './infrastructure/transactions/drizzle-transaction-runner';

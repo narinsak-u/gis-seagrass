@@ -1,7 +1,7 @@
-import { ApplicationError } from '../../../shared';
-import type { SiteWriteTransaction } from '../../../site-survey-workflows';
-import type { SiteSurveyCoordinator } from '../../../site-survey-workflows';
-import type { SurveyInput, SurveyWriteRepository } from '../contracts/survey-write-repository';
+import { ApplicationError } from '../../shared';
+import type { SiteWriteTransaction } from '../../site-survey-workflows';
+import type { SiteSurveyCoordinator } from '../../site-survey-workflows';
+import type { SurveyInput, SurveyWriteRepository } from './survey-write.repository';
 
 export class SurveyCommands {
   constructor(

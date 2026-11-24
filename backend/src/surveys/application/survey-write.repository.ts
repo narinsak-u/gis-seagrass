@@ -1,4 +1,4 @@
-import type { SiteWriteTransaction } from '../../../site-survey-workflows';
+import type { SiteWriteTransaction } from '../../site-survey-workflows';
 export interface SurveyInput {
   lon?: number;
   lat?: number;

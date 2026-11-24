@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { SiteWriteTransaction } from '../../../site-survey-workflows';
-import type { SiteSurveyConstraintRepository } from '../../application/contracts/site-survey-constraint-repository';
-import { asDrizzleTransaction } from '../../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';
+import type { SiteWriteTransaction } from '../../site-survey-workflows';
+import type { SiteSurveyConstraintRepository } from '../application/site-survey-constraint.repository';
+import { asDrizzleTransaction } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';
 
 @Injectable()
 export class DrizzleSiteSurveyConstraintRepository implements SiteSurveyConstraintRepository {

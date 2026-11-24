@@ -1,4 +1,4 @@
-import type { SiteWriteTransaction } from '../../../site-survey-workflows';
+import type { SiteWriteTransaction } from '../../site-survey-workflows';
 
 export interface SiteSurveyConstraintRepository {
   hasSurveys(tx: SiteWriteTransaction, siteId: string): Promise<boolean>;
