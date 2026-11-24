@@ -4,7 +4,7 @@
 
 **Blocked by:** 06: Simplify map layers and workspace without changing interaction.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] All consumed frontend API calls use the one Axios client with Zod response validation; remove obsolete Fetch transport, injection knobs, duplicate request controllers, stale exports, and implementation-only tests without losing observable coverage.
 - [ ] Current architecture and setup docs describe only implemented behavior and limitations; the accepted frontend ADR remains consistent with the final implementation.
