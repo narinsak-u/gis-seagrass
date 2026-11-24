@@ -1,12 +1,20 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 const accounts = {
-  viewer: { email: "dev-viewer@example.test", password: "dev-viewer-password" },
-  editor: { email: "dev-editor@example.test", password: "dev-editor-password" },
-  admin: { email: "dev-admin@example.test", password: "dev-admin-password" },
+  viewer: { email: process.env.E2E_VIEWER_EMAIL!, password: process.env.E2E_VIEWER_PASSWORD! },
+  editor: { email: process.env.E2E_EDITOR_EMAIL!, password: process.env.E2E_EDITOR_PASSWORD! },
+  admin: { email: process.env.E2E_ADMIN_EMAIL!, password: process.env.E2E_ADMIN_PASSWORD! },
 } as const;
 
 const siteCode = "TRG-001";
+const statusLabels = {
+  very_good: "Very good",
+  good: "Good",
+  fair: "Fair",
+  poor: "Poor",
+  no_data: "No data",
+} as const;
+
 
 async function openWorkspace(page: Page) {
   await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
@@ -28,11 +36,15 @@ async function openWorkspace(page: Page) {
   return { collection, bbox: new URL(response.url()).searchParams.get("bbox") };
 }
 
+async function fillCredentials(dialog: Locator, role: keyof typeof accounts) {
+  await dialog.getByLabel("Email").fill(accounts[role].email);
+  await dialog.getByLabel("Password").fill(accounts[role].password);
+}
+
 async function signIn(page: Page, role: keyof typeof accounts) {
   await page.getByRole("button", { name: "Sign in", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Email").fill(accounts[role].email);
-  await dialog.getByLabel("Password").fill(accounts[role].password);
+  await fillCredentials(dialog, role);
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByTestId("auth-identity")).toBeVisible();
   await expect(page.getByTestId("auth-role")).toHaveText(role);
@@ -55,7 +67,7 @@ function polygonCenter(feature: {
   ];
 }
 
-async function clickSitePolygon(page: Page, feature: Parameters<typeof polygonCenter>[0]) {
+async function siteCanvasPoint(page: Page, feature: Parameters<typeof polygonCenter>[0]) {
   const [lon, lat] = polygonCenter(feature);
   const canvas = page.getByRole("region", { name: "Seagrass sites interactive map" }).locator("canvas");
   const bounds = await canvas.boundingBox();
@@ -64,14 +76,27 @@ async function clickSitePolygon(page: Page, feature: Parameters<typeof polygonCe
   const centerLat = (8.05 * Math.PI) / 180;
   const siteLat = (lat * Math.PI) / 180;
   const mercatorY = (value: number) => Math.log(Math.tan(Math.PI / 4 + value / 2));
-  const x = bounds!.width / 2 + ((lon - 98.85) * worldPixels) / 360;
-  const y = bounds!.height / 2 -
-    ((mercatorY(siteLat) - mercatorY(centerLat)) * worldPixels) / (2 * Math.PI);
+  return {
+    canvas,
+    x: bounds!.x + bounds!.width / 2 + ((lon - 98.85) * worldPixels) / 360,
+    y: bounds!.y + bounds!.height / 2 -
+      ((mercatorY(siteLat) - mercatorY(centerLat)) * worldPixels) / (2 * Math.PI),
+  };
+}
+
+async function sitePolygonIsInteractive(page: Page, feature: Parameters<typeof polygonCenter>[0]) {
+  const point = await siteCanvasPoint(page, feature);
+  await page.mouse.move(point.x, point.y);
+  return point.canvas.evaluate((element) => (element as HTMLCanvasElement).style.cursor === "pointer");
+}
+
+async function clickSitePolygon(page: Page, feature: Parameters<typeof polygonCenter>[0]) {
+  const point = await siteCanvasPoint(page, feature);
   await expect.poll(async () => {
-    await page.mouse.move(bounds!.x + x, bounds!.y + y);
-    return canvas.evaluate((element) => (element as HTMLCanvasElement).style.cursor);
+    await page.mouse.move(point.x, point.y);
+    return point.canvas.evaluate((element) => (element as HTMLCanvasElement).style.cursor);
   }).toBe("pointer");
-  await page.mouse.click(bounds!.x + x, bounds!.y + y);
+  await page.mouse.click(point.x, point.y);
 }
 
 test("E2E-01 public map renders seeded Sites, polygons, and status legend", async ({ page }) => {
@@ -82,7 +107,14 @@ test("E2E-01 public map renders seeded Sites, polygons, and status legend", asyn
   await expect(page.locator("canvas")).toBeVisible();
 });
 
-test("E2E-02 panning to another seeded area requests a changed viewport bbox", async ({ page }) => {
+test("E2E-02 panning reaches Phang Nga and requests only bounded Site geometry", async ({ page }) => {
+  const unboundedGeometryRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("/api/sites.geojson") && !url.searchParams.has("bbox")) {
+      unboundedGeometryRequests.push(request.url());
+    }
+  });
   const { bbox: initialBbox } = await openWorkspace(page);
   expect(initialBbox).toBeTruthy();
   const changedRequest = page.waitForResponse((response) => {
@@ -96,20 +128,45 @@ test("E2E-02 panning to another seeded area requests a changed viewport bbox", a
   const startY = bounds!.y + bounds!.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(startX + 180, startY + 130, { steps: 5 });
+  await page.mouse.move(startX + 205, startY + 240, { steps: 5 });
   await page.mouse.up();
   const changed = await changedRequest;
   expect(changed.ok()).toBeTruthy();
-  expect(new URL(changed.url()).searchParams.get("bbox")).not.toBe(initialBbox);
-  expect(new URL(changed.url()).searchParams.has("all")).toBeFalsy();
+  const changedUrl = new URL(changed.url());
+  expect(changedUrl.searchParams.has("all")).toBeFalsy();
+  const bbox = changedUrl.searchParams.get("bbox")!.split(",").map(Number);
+  const collection = await changed.json();
+  const target = collection.features.find((feature: { properties: { code: string } }) =>
+    feature.properties.code === "PNA-004",
+  );
+  expect(target).toBeTruthy();
+  const [lon, lat] = polygonCenter(target);
+  expect(bbox).toHaveLength(4);
+  expect(lon).toBeGreaterThanOrEqual(bbox[0]);
+  expect(lon).toBeLessThanOrEqual(bbox[2]);
+  expect(lat).toBeGreaterThanOrEqual(bbox[1]);
+  expect(lat).toBeLessThanOrEqual(bbox[3]);
+  expect(unboundedGeometryRequests).toEqual([]);
 });
 
-test("E2E-03 search filters table and selecting a row zooms to the same Site", async ({ page }) => {
-  const { bbox: initialBbox } = await openWorkspace(page);
+test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the same Site", async ({ page }) => {
+  const { collection, bbox: initialBbox } = await openWorkspace(page);
+  const target = collection.features.find((feature: { properties: { code: string } }) =>
+    feature.properties.code === siteCode,
+  );
+  const excluded = collection.features.find((feature: { properties: { code: string } }) =>
+    feature.properties.code !== siteCode,
+  );
+  expect(target).toBeTruthy();
+  expect(excluded).toBeTruthy();
+  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(true);
   const table = page.getByRole("table", { name: "Active sites in map view" });
   await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
   const row = table.getByRole("row").filter({ hasText: siteCode });
   await expect(row).toHaveCount(1);
+  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(false);
   const zoomedRequest = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith("/api/sites.geojson"),
   );
@@ -121,7 +178,7 @@ test("E2E-03 search filters table and selecting a row zooms to the same Site", a
   expect(initialBbox).not.toBe(new URL(response.url()).searchParams.get("bbox"));
 });
 
-test("E2E-04 polygon detail opens and protected Survey history appears after viewer sign-in", async ({ page }) => {
+test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
   const { collection } = await openWorkspace(page);
   const feature = collection.features.find((candidate: { properties: { code: string } }) =>
     candidate.properties.code === siteCode,
@@ -130,13 +187,14 @@ test("E2E-04 polygon detail opens and protected Survey history appears after vie
   await clickSitePolygon(page, feature);
   const detail = page.getByRole("region", { name: "Site detail" });
   await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { name: feature.properties.name })).toBeVisible();
   await expect(detail.getByText(`Code: ${siteCode}`)).toBeVisible();
+  await expect(detail.getByText(statusLabels[feature.properties.siteStatus as keyof typeof statusLabels], { exact: true })).toBeVisible();
   const history = page.getByTestId("survey-history-section");
   await expect(history.getByTestId("survey-history-signin-prompt")).toBeVisible();
   await history.getByRole("button", { name: "Sign in to view Survey history" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Email").fill(accounts.viewer.email);
-  await dialog.getByLabel("Password").fill(accounts.viewer.password);
+  await fillCredentials(dialog, "viewer");
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByTestId("auth-role")).toHaveText("viewer");
   await expect(history.getByRole("list", { name: `Survey history for ${siteCode}` })).toBeVisible();

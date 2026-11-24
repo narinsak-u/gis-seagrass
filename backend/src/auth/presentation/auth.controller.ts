@@ -25,7 +25,6 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiBody({ schema: { type: 'object', additionalProperties: false, required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } } })
   @ApiResponse({ status: 200, description: 'Signed access token', schema: { type: 'object', required: ['access_token', 'token_type', 'expires_in'], properties: { access_token: { type: 'string' }, token_type: { type: 'string', enum: ['Bearer'] }, expires_in: { type: 'integer', enum: [900] } } } })
   @ApiResponse({ status: 400, description: 'Malformed credentials', schema: AUTH_ERROR_SCHEMA })
