@@ -5,17 +5,22 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0"
+    "start": "next start --hostname 0.0.0.0",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
+    "maplibre-gl": "^6.19.0",
     "next": "16.4.6",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "22.18.6",
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
     "typescript": "5.9.3"
   }
 }
