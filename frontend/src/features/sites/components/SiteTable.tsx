@@ -22,6 +22,7 @@ export interface SiteTableProps {
   onSelectRow: (feature: SiteFeature) => void;
   onPageChange: (page: number) => void;
   onClearFilters: () => void;
+  onRetry: () => void;
   onResetView: () => void;
 }
 
