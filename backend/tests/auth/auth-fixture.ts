@@ -3,7 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { runMigrations, createDatabaseProvider, type DatabaseProvider } from '../../src/platform/database';
-import { configureLoginBodyParsing } from '../../src/auth/presentation/malformed-login-json.middleware';
+import { configureLoginBodyParsing } from '../../src/auth/presentation/login-body-parser.middleware';
 import { setupSwagger } from '../../src/swagger';
 import { hashPassword } from '../../src/auth/application/auth-token';
 import type { Pool } from 'pg';

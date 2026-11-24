@@ -34,7 +34,7 @@ export { AuthGuard, Roles } from './presentation/auth.guard';
 export type { AuthenticatedRequest } from './presentation/auth.guard';
 export type { ActorRole, AuthenticatedActor } from './domain/actor';
 export { requireJwtSecret };
-export { configureLoginBodyParsing } from './presentation/malformed-login-json.middleware';
+export { configureLoginBodyParsing } from './presentation/login-body-parser.middleware';
 
 export async function seedDevelopmentAccounts(database: DatabaseProvider, enabled: boolean): Promise<void> {
   if (!enabled) return;
