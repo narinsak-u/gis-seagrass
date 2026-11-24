@@ -4,7 +4,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { species, surveySpecies, surveys } from '../../platform/database';
 import type { SiteWriteTransaction } from '../../site-survey-workflows';
 import type { SurveyInput, SurveyWriteRepository, SurveyWriteResponse } from '../application/survey-write.repository';
-import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey-workflows/infrastructure/transactions/drizzle-transaction';
+import { asDrizzleTransaction, type DrizzleTransaction } from '../../site-survey-workflows/infrastructure/drizzle-transaction';
 
 @Injectable()
 export class DrizzleSurveyWriteRepository implements SurveyWriteRepository {

@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { ApiBody, ApiResponse, type SchemaObject } from '@nestjs/swagger';
-import { AuthService } from '../application/use-cases/auth-service';
-import { LoginDto } from './dto/auth.dto';
+import { AuthService } from '../application/auth.service';
+import { LoginDto } from './auth.dto';
 
 const LOGIN_ERROR_SCHEMA: SchemaObject = {
   type: 'object',

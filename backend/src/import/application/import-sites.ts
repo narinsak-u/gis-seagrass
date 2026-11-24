@@ -1,6 +1,6 @@
-import { isRecord } from '../../../shared';
-import type { SiteSurveyCoordinator } from '../../../site-survey-workflows';
-import { parseSiteFeature, SiteValidationError } from '../../../sites';
+import { isRecord } from '../../shared';
+import type { SiteSurveyCoordinator } from '../../site-survey-workflows';
+import { parseSiteFeature, SiteValidationError } from '../../sites';
 
 export interface SiteImportResult {
   summary: { inserted: number; skipped_existing: number; rejected: number };

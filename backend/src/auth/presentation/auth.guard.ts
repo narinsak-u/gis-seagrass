@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AuthService } from '../application/use-cases/auth-service';
+import { AuthService } from '../application/auth.service';
 import type { ActorRole, AuthenticatedActor } from '../domain/actor';
 
 export interface AuthenticatedRequest { user: AuthenticatedActor; headers: { authorization?: string } }

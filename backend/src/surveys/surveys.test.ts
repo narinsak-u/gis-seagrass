@@ -9,7 +9,7 @@ import { AppModule } from '../app.module';
 import { createDatabaseProvider, type DatabaseProvider } from '../platform/database';
 import { runMigrations } from '../platform/database';
 import { setupSwagger } from '../swagger';
-import { signAccessToken } from '../auth/application/security/auth-token';
+import { signAccessToken } from '../auth/application/auth-token';
 
 const testDatabaseUrl = process.env.IMPORT_TEST_DATABASE_URL;
 const integration = testDatabaseUrl ? test : test.skip;

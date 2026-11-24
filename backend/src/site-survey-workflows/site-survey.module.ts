@@ -13,9 +13,9 @@ import { DrizzleSiteWriteRepository } from '../sites/infrastructure/drizzle-site
 import { DrizzleSiteSurveyConstraintRepository } from '../surveys/infrastructure/drizzle-site-survey-constraint.repository';
 import { DrizzleSurveyStatusRepository } from '../surveys/infrastructure/drizzle-survey-status.repository';
 import { DrizzleSurveyWriteRepository } from '../surveys/infrastructure/drizzle-survey-write.repository';
-import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner } from './application/contracts/transaction-runner';
-import { SiteSurveyCoordinator } from './application/use-cases/site-survey-coordinator';
-import { DrizzleSiteSurveyTransactionRunner, SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER } from './infrastructure/transactions/drizzle-transaction-runner';
+import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner } from './application/transaction-runner.port';
+import { SiteSurveyCoordinator } from './application/site-survey-coordinator';
+import { DrizzleSiteSurveyTransactionRunner, SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER } from './infrastructure/drizzle-transaction-runner';
 
 @Module({})
 export class SiteSurveyModule {

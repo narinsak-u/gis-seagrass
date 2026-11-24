@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
-import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../../platform/database';
-import { users } from '../../../platform/database';
-import type { AuthRepository, AuthUserRecord } from '../../application/contracts/auth-repository';
-import type { ActorRole, AuthenticatedActor } from '../../domain/actor';
+import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
+import { users } from '../../platform/database';
+import type { AuthRepository, AuthUserRecord } from '../application/auth.repository';
+import type { ActorRole, AuthenticatedActor } from '../domain/actor';
 
 @Injectable()
 export class DrizzleAuthRepository implements AuthRepository {

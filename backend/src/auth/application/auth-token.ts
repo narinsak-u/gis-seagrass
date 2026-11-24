@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { isRecord } from '../../../shared';
+import { isRecord } from '../../shared';
 
 const scrypt = promisify(scryptCallback);
 export const TOKEN_LIFETIME_SECONDS = 900;

@@ -10,7 +10,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../platform/database';
 import { runMigrations } from '../platform/database';
 import { createSiteSurveyImportOperations } from './infrastructure/site-survey-operations';
-import { importSiteFeatures } from './application/use-cases/sites';
+import { importSiteFeatures } from './application/import-sites';
 import { parseSiteFeature } from '../sites';
 
 test('Site parser requires nonempty identity and finite in-range lon/lat polygon coordinates', () => {

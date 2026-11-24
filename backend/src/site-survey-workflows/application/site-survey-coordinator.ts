@@ -1,7 +1,7 @@
-import { ApplicationError } from '../../../shared';
-import type { LatestSurveySummary, SiteSurveyConstraintRepository, SurveyStatusRepository } from '../../../surveys';
-import { deriveSiteStatus, type SitePatch, type SiteSpatial, type SiteStatus, type SiteWriteInput, type SiteWriteRepository } from '../../../sites';
-import type { SiteSurveyTransactionRunner, SiteWriteTransaction } from '../contracts/transaction-runner';
+import { ApplicationError } from '../../shared';
+import type { LatestSurveySummary, SiteSurveyConstraintRepository, SurveyStatusRepository } from '../../surveys';
+import { deriveSiteStatus, type SitePatch, type SiteSpatial, type SiteStatus, type SiteWriteInput, type SiteWriteRepository } from '../../sites';
+import type { SiteSurveyTransactionRunner, SiteWriteTransaction } from './transaction-runner.port';
 
 export class SiteSurveyCoordinator {
   constructor(

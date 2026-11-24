@@ -1,4 +1,4 @@
-import type { ActorRole, AuthenticatedActor } from '../../domain/actor';
+import type { ActorRole, AuthenticatedActor } from '../domain/actor';
 
 export interface AuthUserRecord {
   id: string;

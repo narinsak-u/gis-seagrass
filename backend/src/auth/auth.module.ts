@@ -1,11 +1,11 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import type { DatabaseProvider } from '../platform/database';
-import { AuthService } from './application/use-cases/auth-service';
-import { requireJwtSecret } from './application/security/auth-token';
-import { AUTH_REPOSITORY, type AuthRepository } from './application/contracts/auth-repository';
-import { AuthGuard } from './http/auth.guard';
-import { AuthController } from './http/auth.controller';
-import { DrizzleAuthRepository } from './infrastructure/repositories/drizzle-auth-repository';
+import { AuthService } from './application/auth.service';
+import { requireJwtSecret } from './application/auth-token';
+import { AUTH_REPOSITORY, type AuthRepository } from './application/auth.repository';
+import { AuthGuard } from './presentation/auth.guard';
+import { AuthController } from './presentation/auth.controller';
+import { DrizzleAuthRepository } from './infrastructure/drizzle-auth.repository';
 
 @Module({})
 export class AuthModule {
@@ -29,8 +29,8 @@ export class AuthModule {
   }
 }
 
-export { AuthGuard, Roles } from './http/auth.guard';
-export type { AuthenticatedRequest } from './http/auth.guard';
+export { AuthGuard, Roles } from './presentation/auth.guard';
+export type { AuthenticatedRequest } from './presentation/auth.guard';
 export type { ActorRole, AuthenticatedActor } from './domain/actor';
 export { requireJwtSecret };
 
