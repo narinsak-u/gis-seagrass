@@ -114,6 +114,15 @@ The POST example uses an existing Survey point and species codes from the commit
 
 Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
 
+## Step 6 map workspace
+
+The web app at <http://localhost:3001> provides public, viewport-bounded Site browsing with the OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Search and pagination use only the current viewport's Site features. Selecting a row zooms to its Site; selecting a polygon opens its detail.
+
+Sign in with one of the development accounts above to see the current email and role and read protected Survey history for the selected Site. Survey points come only from loaded history pages. The token stays in tab memory; sign-out or token rejection clears protected data while public browsing remains available. `GET /provinces.geojson` requires a WGS84 `bbox`; `GET /auth/me` returns the active user's email and role.
+
+The map depends on OpenFreeMap's third-party tile service, provided without an availability guarantee; it needs network access. Step 6 is read-only: Site/Survey editing, dashboards, and exports are not included.
+
+
 ## Build applications independently
 
 ```sh

@@ -1,6 +1,6 @@
 # Step 6 — Map and Synchronized Site List
 
-**Project phase:** Step 6 — Map and Synchronized Site List. **Prerequisites:** Steps 1–5 completed and verified. **Commit prefix:** `step-6:`. **Status:** Agreed specification; not yet implemented.
+**Project phase:** Step 6 — Map and Synchronized Site List. **Prerequisites:** Steps 1–5 completed and verified. **Commit prefix:** `step-6:`. **Status:** Implemented and verified.
 
 ## Objective
 
@@ -62,15 +62,15 @@ Site/Survey editing, dashboards, exports, and additional basemap styles are outs
 
 ## Definition of done
 
-- [ ] Map displays active Site polygons colored by `siteStatus`, a matching legend, Survey points, Province boundaries, and one basemap.
-- [ ] Initial load and settled viewport changes request only the current bbox; requests are debounced and stale responses are ignored.
-- [ ] Province, status, and search filters produce matching map and table results.
-- [ ] Selecting a table row zooms to the Site; selecting a polygon opens its detail and history panel.
-- [ ] Login, email/current-role display, and role-gated Survey history and points follow Step 5 authorization behavior plus the new `/auth/me` contract.
-- [ ] Loading, error, retry, empty, and no-history states are handled.
-- [ ] Layout works at 375 px and required controls are keyboard-accessible.
-- [ ] Automated checks and browser verification pass; unverified criteria remain unchecked.
-- [ ] Root README describes only verified frontend features and limitations.
+- [x] Map displays active Site polygons colored by `siteStatus`, a matching legend, authorized selected-Site Survey points, viewport-bounded Province boundaries, and one basemap.
+- [x] Initial load and settled viewport changes request only the current bbox; requests are debounced and stale responses are ignored.
+- [x] Province, status, and search filters produce matching map and table results.
+- [x] Selecting a table row zooms to the Site; selecting a polygon opens its detail and history panel.
+- [x] Login, email/current-role display, and role-gated Survey history and points follow Step 5 authorization behavior plus the new `/auth/me` contract.
+- [x] Loading, error, retry, empty, and no-history states are handled.
+- [x] Layout works at 375 px and required controls are keyboard-accessible.
+- [x] Automated checks and browser verification pass; unverified criteria remain unchecked.
+- [x] Root README describes only verified frontend features and limitations.
 
 ## Git instructions for this Step
 
