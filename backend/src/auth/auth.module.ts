@@ -17,8 +17,7 @@ export class AuthModule {
       controllers: [AuthController],
       providers: [
         AuthGuard,
-        DrizzleAuthRepository,
-        { provide: AUTH_REPOSITORY, useExisting: DrizzleAuthRepository },
+        { provide: AUTH_REPOSITORY, useClass: DrizzleAuthRepository },
         {
           provide: AuthService,
           useFactory: (users: AuthRepository) => new AuthService(users),

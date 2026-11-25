@@ -11,8 +11,7 @@ export class SurveysModule {
       imports: [databaseModule, authModule, siteSurveyModule],
       controllers: [SurveysController],
       providers: [
-        DrizzleSurveyListRepository,
-        { provide: SURVEY_LIST_REPOSITORY, useExisting: DrizzleSurveyListRepository },
+        { provide: SURVEY_LIST_REPOSITORY, useClass: DrizzleSurveyListRepository },
       ],
     };
   }

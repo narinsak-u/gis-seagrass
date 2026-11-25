@@ -11,11 +11,6 @@ export class DrizzleSiteSurveyTransactionRunner implements SiteSurveyTransaction
   }
 }
 
-export const SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER = {
-  provide: SITE_SURVEY_TRANSACTION_RUNNER,
-  useExisting: DrizzleSiteSurveyTransactionRunner,
-};
-
 export function createSiteSurveyTransactionRunner(db: DatabaseProvider['db']): SiteSurveyTransactionRunner {
   return new DrizzleSiteSurveyTransactionRunner(db);
 }
