@@ -118,11 +118,12 @@ Compose defaults are development-only: database user `seagrass`, password `seagr
 
 ## Step 6 map workspace
 
-The web app at <http://localhost:8080> provides public, viewport-bounded Site browsing with the OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Search and pagination use only the current viewport's Site features. Selecting a row zooms to its Site; selecting a polygon opens its detail.
+The web app at <http://localhost:8080> provides public Site browsing with an OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Site and Province geometry requests use the current map viewport's bounding box; table search and pagination cover only the currently loaded viewport's Sites, not a nationwide catalogue. Selecting a row zooms to its Site; selecting a polygon opens its detail.
 
-Sign in with one of the development accounts above to see the current email and role and read protected Survey history for the selected Site. Survey points come only from loaded history pages. The token stays in tab memory; sign-out or token rejection clears protected data while public browsing remains available. `GET /provinces.geojson` requires a WGS84 `bbox`; `GET /auth/me` returns the active user's email and role.
+Sign in with one of the development accounts above to see the current email and role and read protected Survey history for the selected Site. Survey points come only from loaded history pages. Tokens stay in tab memory and are passed explicitly to protected API calls; logout or `401` clears protected Survey data, and session epochs isolate history across account changes. Public browsing remains available after sign-out. `GET /provinces.geojson` requires a WGS84 `bbox`; `GET /auth/me` returns the active user's email and role.
 
 The map depends on OpenFreeMap's third-party tile service, provided without an availability guarantee; it needs network access. Step 6 is read-only: Site/Survey editing, dashboards, and exports are not included.
+At 375px viewport width, the Site table supports keyboard selection and opens Site detail.
 
 ### Isolated Playwright E2E
 
@@ -153,7 +154,7 @@ Run the same test commands locally:
 CI does not build or publish Docker images, deploy, or run PostGIS integration or browser E2E tests.
 
 
-Frontend uses feature-first modules: UI lives in each feature's `components/`, feature hooks in `hooks/`, and shared workspace state in `state/`; feature contracts stay in their feature modules. TanStack Query owns server-data caching; Zustand owns shared Site workspace filters, pagination, and selection. Authentication tokens stay in tab memory, never in query keys or persistent storage; logout and `401` clear protected Survey cache.
+Frontend stays feature-first: UI lives in each feature's `components/`, feature hooks in `hooks/`, and feature contracts stay in their feature modules. Axios provides the shared same-origin `/api` transport, 10-second timeout, cancellation, and normalized errors; feature API boundaries use Zod to parse Site, Province, Survey, and authentication responses. TanStack Query owns server-data fetching, cancellation, and caching. Zustand owns shared Site-workspace filters, pagination, and selection, plus authentication session state; tokens remain explicit request arguments, stored only in tab memory and never in query keys or persistent storage. Survey query keys include a session epoch to isolate account changes; logout and `401` clear protected Survey cache.
 
 Frontend tests use Vitest `describe`/`it`/`expect` and live in `src/features/<feature>/tests/`; shared library tests live in `src/lib/tests/`.
 

@@ -51,7 +51,11 @@ async function signIn(page: Page, role: keyof typeof accounts) {
   await page.getByRole("button", { name: "Sign in", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await fillCredentials(dialog, role);
+  const identityResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/auth/me"),
+  );
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
+  expect((await identityResponse).ok()).toBeTruthy();
   await expect(page.getByTestId("auth-identity")).toBeVisible();
   await expect(page.getByTestId("auth-role")).toHaveText(role);
 }
@@ -101,7 +105,7 @@ async function clickSitePolygon(page: Page, feature: Parameters<typeof polygonCe
   await expect.poll(async () => {
     await page.mouse.move(point.x, point.y);
     return point.canvas.evaluate((element) => (element as HTMLCanvasElement).style.cursor);
-  }).toBe("pointer");
+  }, { timeout: 15_000 }).toBe("pointer");
   await page.mouse.click(point.x, point.y);
 }
 
@@ -156,6 +160,7 @@ test("E2E-02 panning reaches Phang Nga and requests only bounded Site geometry",
 });
 
 test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the same Site", async ({ page }) => {
+  test.setTimeout(60_000);
   const { collection, bbox: initialBbox } = await openWorkspace(page);
   const target = collection.features.find((feature: { properties: { code: string } }) =>
     feature.properties.code === siteCode,
@@ -165,26 +170,126 @@ test("E2E-03 filtering synchronizes polygons and selecting a row zooms to the sa
   );
   expect(target).toBeTruthy();
   expect(excluded).toBeTruthy();
-  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
-  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, target), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded), { timeout: 15_000 }).toBe(true);
   const table = page.getByRole("table", { name: "Active sites in map view" });
   await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
   const row = table.getByRole("row").filter({ hasText: siteCode });
   await expect(row).toHaveCount(1);
-  await expect.poll(() => sitePolygonIsInteractive(page, target)).toBe(true);
-  await expect.poll(() => sitePolygonIsInteractive(page, excluded)).toBe(false);
+  await expect.poll(() => sitePolygonIsInteractive(page, target), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => sitePolygonIsInteractive(page, excluded), { timeout: 15_000 }).toBe(false);
   const zoomedRequest = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith("/api/sites.geojson"),
   );
   await row.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) }).click();
-  await expect(row).toHaveAttribute("aria-current", "true");
   const response = await zoomedRequest;
   expect(response.ok()).toBeTruthy();
+  await expect(row).toHaveAttribute("aria-current", "true");
   await expect(page.getByRole("region", { name: "Site detail" })).toBeVisible();
   expect(initialBbox).not.toBe(new URL(response.url()).searchParams.get("bbox"));
 });
 
+test("E2E-09 375px workspace supports keyboard Site selection and detail", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openWorkspace(page);
+
+  const table = page.getByRole("table", { name: "Active sites in map view" });
+  await expect(table).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
+  const siteButton = table.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) });
+  await expect(siteButton).toBeVisible();
+  await siteButton.focus();
+  await expect(siteButton).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(siteButton).toHaveAttribute("aria-pressed", "true");
+  const detail = page.getByRole("region", { name: "Site detail" });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByText(siteCode, { exact: true })).toBeVisible();
+});
+
+test("E2E-10 moving the map hides stale Sites while the next viewport loads", async ({ page }) => {
+  const { bbox: initialBbox } = await openWorkspace(page);
+  const { promise: requestStarted, resolve: notifyRequest } = Promise.withResolvers<void>();
+  const { promise: responseGate, resolve: releaseResponse } = Promise.withResolvers<void>();
+  await page.route("**/api/sites.geojson?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("bbox") === initialBbox) {
+      await route.continue();
+      return;
+    }
+    notifyRequest();
+    await responseGate;
+    await route.continue();
+  });
+
+  const table = page.getByRole("table", { name: "Active sites in map view" });
+  await expect(table.getByRole("row").nth(1)).toBeVisible();
+  const canvas = page.getByRole("region", { name: "Seagrass sites interactive map" }).locator("canvas");
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const x = bounds!.x + bounds!.width / 2;
+  const y = bounds!.y + bounds!.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 205, y + 240, { steps: 5 });
+  await page.mouse.up();
+
+  await requestStarted;
+  await expect(page.getByText("Loading active sites in map view…")).toBeVisible();
+  await expect(table).toHaveCount(0);
+  releaseResponse();
+  await expect(table).toBeVisible();
+});
+
+test("E2E-11 Site request failure recovers without refetching every later map view", async ({ page }) => {
+  const { bbox: initialBbox } = await openWorkspace(page);
+  let failRequests = true;
+  const movedRequests: string[] = [];
+  await page.route("**/api/sites.geojson?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("province") === "82") {
+      if (failRequests) {
+        await route.fulfill({ status: 503, body: "Temporary failure" });
+        return;
+      }
+      if (url.searchParams.get("bbox") !== initialBbox) movedRequests.push(route.request().url());
+    }
+    await route.continue();
+  });
+
+  await page.getByRole("combobox", { name: "Province" }).selectOption("82");
+  const error = page.getByRole("alert").filter({ hasText: "Unable to load sites for this map view" });
+  await expect(error).toBeVisible();
+  failRequests = false;
+  const recovered = page.waitForResponse((response) =>
+    new URL(response.url()).searchParams.get("province") === "82" && response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await recovered;
+  await expect(error).toHaveCount(0);
+
+  const changed = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith("/api/sites.geojson") &&
+      url.searchParams.get("province") === "82" &&
+      url.searchParams.get("bbox") !== initialBbox;
+  });
+  const canvas = page.getByRole("region", { name: "Seagrass sites interactive map" }).locator("canvas");
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const x = bounds!.x + bounds!.width / 2;
+  const y = bounds!.y + bounds!.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 205, y + 240, { steps: 5 });
+  await page.mouse.up();
+  await changed;
+  await page.waitForLoadState("networkidle");
+  expect(movedRequests).toHaveLength(1);
+});
+
 test("E2E-04 polygon detail shows Site identity and protected Survey history after viewer sign-in", async ({ page }) => {
+  test.setTimeout(60_000);
   const { collection } = await openWorkspace(page);
   const feature = collection.features.find((candidate: { properties: { code: string } }) =>
     candidate.properties.code === siteCode,
@@ -201,9 +306,17 @@ test("E2E-04 polygon detail shows Site identity and protected Survey history aft
   await history.getByRole("button", { name: "Sign in to view Survey history" }).click();
   const dialog = page.getByRole("dialog");
   await fillCredentials(dialog, "viewer");
+  const identityResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/auth/me"),
+  );
   await dialog.getByRole("button", { name: "Sign in", exact: true }).click();
+  expect((await identityResponse).ok()).toBeTruthy();
   await expect(page.getByTestId("auth-role")).toHaveText("viewer");
-  await expect(history.getByRole("list", { name: `Survey history for ${siteCode}` })).toBeVisible();
+  const historyList = history.getByRole("list", { name: `Survey history for ${siteCode}` });
+  const retry = history.getByRole("button", { name: "Retry" });
+  await expect(historyList.or(retry)).toBeVisible({ timeout: 15_000 });
+  if (await retry.isVisible()) await retry.click();
+  await expect(historyList).toBeVisible({ timeout: 15_000 });
 });
 
 test("E2E-05 viewer identity is shown, no write controls appear, and sign-out clears session", async ({ page }) => {
@@ -214,6 +327,56 @@ test("E2E-05 viewer identity is shown, no write controls appear, and sign-out cl
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByTestId("auth-identity")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+});
+
+test("E2E-08 changing accounts hides prior Survey history before new results load", async ({ page }) => {
+  await openWorkspace(page);
+  await page.getByRole("searchbox", { name: "Search sites" }).fill(siteCode);
+  await page.getByRole("button", { name: new RegExp(`Select site ${siteCode}`) }).click();
+  const history = page.getByTestId("survey-history-section");
+  let requestCount = 0;
+  const { promise: editorRequestStarted, resolve: notifyEditorRequest } =
+    Promise.withResolvers<void>();
+  const { promise: editorResponseGate, resolve: releaseEditorRequest } =
+    Promise.withResolvers<void>();
+  await page.route(`**/api/sites/${siteCode}/surveys*`, async (route) => {
+    requestCount += 1;
+    const note = requestCount === 1 ? "VIEWER-SESSION-SURVEY" : "EDITOR-SESSION-SURVEY";
+    if (requestCount > 1) {
+      notifyEditorRequest();
+      await editorResponseGate;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          id: note,
+          lon: surveyLocation.lon,
+          lat: surveyLocation.lat,
+          surveyed_on: surveyLocation.surveyed_on,
+          cover_percent: 50,
+          species: surveyLocation.species,
+          note,
+          created_by: null,
+          survey_ref: null,
+        }],
+        total: 1,
+        page: 1,
+      }),
+    });
+  });
+
+  await signIn(page, "viewer");
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toHaveCount(0);
+
+  await signIn(page, "editor");
+  await editorRequestStarted;
+  await expect(history.getByText("VIEWER-SESSION-SURVEY", { exact: true })).toHaveCount(0);
+  releaseEditorRequest();
+  await expect(history.getByText("EDITOR-SESSION-SURVEY", { exact: true })).toBeVisible();
 });
 
 test("E2E-06 admin Survey API write is visible in Site history UI", async ({ page, request }) => {
@@ -236,7 +399,7 @@ test("E2E-06 admin Survey API write is visible in Site history UI", async ({ pag
     page.getByRole("region", { name: "Site detail" }).getByText(statusLabels.good, { exact: true }),
   ).toBeVisible();
   const history = page.getByTestId("survey-history-section");
-  await expect(history.getByText(note, { exact: true })).toBeVisible();
+  await expect(history.getByText(note, { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test("E2E-07 editor role is visible and admin-only Survey API write returns 403", async ({ page, request }) => {

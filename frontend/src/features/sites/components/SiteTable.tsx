@@ -23,6 +23,7 @@ export interface SiteTableProps {
   onPageChange: (page: number) => void;
   onClearFilters: () => void;
   onRetry: () => void;
+  onResetView: () => void;
 }
 
 const AREA_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -42,6 +43,7 @@ export function SiteTable({
   onPageChange,
   onClearFilters,
   onRetry,
+  onResetView,
 }: SiteTableProps) {
   const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
   const paginated = paginateItems(features, page, pageSize);
@@ -54,6 +56,25 @@ export function SiteTable({
     }
   }, [selectedSiteCode, paginated.page]);
 
+
+  if (viewportStatus === "invalid") {
+    return (
+      <div
+        role="alert"
+        className="m-3 rounded-xl border border-[#E5B8AF] bg-[#FFF8F6] p-3.5 text-xs text-[#5E1E11]"
+      >
+        <p className="font-semibold">Invalid map viewport</p>
+        <p className="mt-1 text-[#7A2D1D]">Return to the coast to load sites.</p>
+        <button
+          type="button"
+          onClick={onResetView}
+          className="mt-2.5 rounded-lg bg-[#8F2F1B] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#702313] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8F2F1B]"
+        >
+          Return to coast
+        </button>
+      </div>
+    );
+  }
   if (viewportStatus === "error" && viewportError) {
     return (
       <div

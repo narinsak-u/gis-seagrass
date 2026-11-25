@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type * as maplibregl from "maplibre-gl";
-import { fetchActiveSitesGeoJson } from "@/src/lib/api";
-import { fetchProvincesGeoJson } from "@/src/features/provinces/api";
+import { ApiClientError } from "@/src/lib/api";
 import {
-  createViewportProvincesController,
-  type ViewportProvincesController,
+  provinceViewportQueryOptions,
   type ViewportProvincesState,
 } from "@/src/features/provinces/provinces-viewport";
 import type { ProvinceFeature } from "@/src/features/provinces/types";
@@ -15,12 +14,15 @@ import type {
   SiteFeature,
   SiteFeatureCollection,
 } from "@/src/features/sites/types";
-import type { SurveyPointFeatureCollection } from "@/src/features/surveys/types";
 import {
-  createViewportSitesController,
-  type ViewportSitesController,
+  createViewportDebouncer,
+  formatBbox,
+  isValidBboxBounds,
+  normalizeBboxBounds,
+  siteViewportQueryOptions,
   type ViewportSitesState,
 } from "@/src/features/sites/viewport";
+import type { SurveyPointFeatureCollection } from "@/src/features/surveys/types";
 import { SeagrassMap } from "./SeagrassMap";
 import { MapWorkspaceStatus } from "./MapWorkspaceStatus";
 
@@ -28,7 +30,7 @@ export interface MapWorkspaceProps {
   /** Extension slot for Ticket 04 authentication bar / identity display. */
   headerActions?: ReactNode;
   /** Extension slot for Ticket 02 synchronized viewport table, filters, and Site detail panel. */
-  sidePanel?: ReactNode;
+  sidePanel?: ReactNode | ((onResetView: () => void) => ReactNode);
   /** Optional province filter forwarded to /api/sites.geojson?province=... (Ticket 02). */
   provinceFilter?: string;
   /** Optional client-side filtered GeoJSON override for map rendering (Ticket 02). */
@@ -51,22 +53,7 @@ export interface MapWorkspaceProps {
   onProvincesChange?: (provinces: ProvinceFeature[]) => void;
 }
 
-const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
-  status: "idle",
-  data: null,
-  error: null,
-  bbox: null,
-  bboxString: null,
-  province: undefined,
-};
 
-const INITIAL_PROVINCES_STATE: ViewportProvincesState = {
-  status: "idle",
-  data: null,
-  error: null,
-  bbox: null,
-  bboxString: null,
-};
 
 export function MapWorkspace({
   headerActions,
@@ -82,101 +69,119 @@ export function MapWorkspace({
   retrySignal = 0,
   onProvincesChange,
 }: MapWorkspaceProps) {
-  const [viewportState, setViewportState] = useState<ViewportSitesState>(
-    INITIAL_VIEWPORT_STATE,
-  );
-  const [provincesState, setProvincesState] = useState<ViewportProvincesState>(
-    INITIAL_PROVINCES_STATE,
-  );
+  const [settledBounds, setSettledBounds] = useState<BboxBounds | null>(null);
   const [basemapNotice, setBasemapNotice] = useState<string | null>(null);
   const [resetViewSignal, setResetViewSignal] = useState(0);
+  const [viewportPending, setViewportPending] = useState(false);
+  const queryClient = useQueryClient();
 
-  const controllerRef = useRef<ViewportSitesController | null>(null);
-  const provincesControllerRef = useRef<ViewportProvincesController | null>(null);
-  const provinceFilterRef = useRef(provinceFilter);
   const onViewportStateChangeRef = useRef(onViewportStateChange);
   const onViewportBoundsChangeRef = useRef(onViewportBoundsChange);
   const onProvincesChangeRef = useRef(onProvincesChange);
+  const handledRetrySignalRef = useRef(retrySignal);
+  const viewportDebouncerRef = useRef<ReturnType<typeof createViewportDebouncer> | null>(null);
+  if (!viewportDebouncerRef.current) {
+    viewportDebouncerRef.current = createViewportDebouncer((bounds) => {
+      setSettledBounds(bounds);
+      setViewportPending(false);
+    });
+  }
+  const normalizedBounds = settledBounds ? normalizeBboxBounds(settledBounds) : null;
+  const bboxString =
+    settledBounds &&
+    isValidBboxBounds(settledBounds) &&
+    normalizedBounds &&
+    isValidBboxBounds(normalizedBounds)
+      ? formatBbox(normalizedBounds)
+      : null;
+  const provincesQuery = useQuery({
+    ...provinceViewportQueryOptions(bboxString ?? ""),
+    enabled: bboxString !== null && !viewportPending,
+  });
+  const provincesState: ViewportProvincesState = {
+    status: getViewportStatus(settledBounds, bboxString, viewportPending, provincesQuery, provincesQuery.data),
+    data: bboxString && !viewportPending ? provincesQuery.data ?? null : null,
+    error: getViewportError(provincesQuery.error),
+    bbox: normalizedBounds,
+    bboxString,
+  };
+  const sitesQuery = useQuery({
+    ...siteViewportQueryOptions(bboxString ?? "", provinceFilter),
+    enabled: bboxString !== null && !viewportPending,
+  });
+  const viewportState: ViewportSitesState = {
+    status: getViewportStatus(settledBounds, bboxString, viewportPending, sitesQuery, sitesQuery.data),
+    data: bboxString && !viewportPending ? sitesQuery.data ?? null : null,
+    error: getViewportError(sitesQuery.error),
+    bbox: normalizedBounds,
+    bboxString,
+    province: provinceFilter,
+  };
 
-  provinceFilterRef.current = provinceFilter;
   onViewportStateChangeRef.current = onViewportStateChange;
   onViewportBoundsChangeRef.current = onViewportBoundsChange;
   onProvincesChangeRef.current = onProvincesChange;
 
   useEffect(() => {
-    const controller = createViewportSitesController({
-      debounceMs: 250,
-      fetchSites: ({ bbox, province, signal }) =>
-        fetchActiveSitesGeoJson({ bbox, province, signal }),
-      onStateChange: (next) => {
-        setViewportState(next);
-        onViewportStateChangeRef.current?.(next);
-      },
-    });
-    controllerRef.current = controller;
+    onViewportStateChangeRef.current?.(viewportState);
+  }, [viewportState.status, viewportState.data, sitesQuery.error, viewportState.bboxString, provinceFilter]);
 
-    const provincesController = createViewportProvincesController({
-      debounceMs: 250,
-      fetchProvinces: ({ bbox, signal }) =>
-        fetchProvincesGeoJson({ bbox, signal }),
-      onStateChange: (next) => {
-        setProvincesState(next);
-        if (next.status === "ready" || next.status === "empty") {
-          onProvincesChangeRef.current?.(next.data?.features ?? []);
-        }
-      },
-    });
-    provincesControllerRef.current = provincesController;
-
-    return () => {
-      controller.dispose();
-      controllerRef.current = null;
-      provincesController.dispose();
-      provincesControllerRef.current = null;
-    };
-  }, []);
-
-  // Re-query current viewport when provinceFilter prop changes (Ticket 02 hook)
   useEffect(() => {
-    const controller = controllerRef.current;
-    if (!controller) return;
-    const current = controller.getState();
-    if (current.bbox && current.province !== provinceFilter) {
-      controller.loadInitial(current.bbox, provinceFilter);
+    if (!viewportPending && bboxString && provincesQuery.data) {
+      onProvincesChangeRef.current?.(provincesQuery.data.features);
     }
-  }, [provinceFilter]);
+  }, [provincesQuery.data, bboxString, viewportPending]);
 
   useEffect(() => {
-    if (retrySignal === 0) return;
-    controllerRef.current?.retry();
-  }, [retrySignal]);
+    if (retrySignal <= handledRetrySignalRef.current) return;
+    handledRetrySignalRef.current = retrySignal;
+    if (bboxString && !viewportPending) void sitesQuery.refetch();
+  }, [retrySignal, sitesQuery.refetch, bboxString, viewportPending]);
 
   const handleInitialBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
-    controllerRef.current?.loadInitial(bounds, provinceFilterRef.current);
-    provincesControllerRef.current?.loadInitial(bounds);
+    viewportDebouncerRef.current?.cancel();
+    setViewportPending(false);
+    setSettledBounds(bounds);
   }, []);
 
   const handleSettledBounds = useCallback((bounds: BboxBounds) => {
     onViewportBoundsChangeRef.current?.(bounds);
-    controllerRef.current?.onViewportSettled(bounds, provinceFilterRef.current);
-    provincesControllerRef.current?.onViewportSettled(bounds);
-  }, []);
+    const nextBounds = isValidBboxBounds(bounds) ? normalizeBboxBounds(bounds) : null;
+    if (bboxString && nextBounds && isValidBboxBounds(nextBounds) && formatBbox(nextBounds) === bboxString) {
+      return;
+    }
+    void queryClient.cancelQueries({ queryKey: ["sites", "viewport"] });
+    void queryClient.cancelQueries({ queryKey: ["provinces", "viewport"] });
+    setViewportPending(true);
+    onViewportStateChangeRef.current?.({
+      status: "loading",
+      data: null,
+      error: null,
+      bbox: null,
+      bboxString: null,
+      province: provinceFilter,
+    });
+    setSettledBounds(null);
+    viewportDebouncerRef.current?.schedule(bounds);
+  }, [bboxString, queryClient, provinceFilter]);
 
   const handleRetry = useCallback(() => {
-    controllerRef.current?.retry();
-  }, []);
+    if (bboxString) void sitesQuery.refetch();
+  }, [bboxString, sitesQuery.refetch]);
 
   const handleRetryProvinces = useCallback(() => {
-    provincesControllerRef.current?.retry();
-  }, []);
+    if (bboxString) void provincesQuery.refetch();
+  }, [bboxString, provincesQuery.refetch]);
 
   const handleResetView = useCallback(() => {
     setResetViewSignal((count) => count + 1);
   }, []);
 
   const displayedSites =
-    visibleSitesOverride !== undefined ? visibleSitesOverride : viewportState.data;
+    viewportPending || !bboxString
+      ? null
+      : visibleSitesOverride !== undefined ? visibleSitesOverride : viewportState.data;
   const siteCount = displayedSites?.features.length ?? 0;
   const provinceCount = provincesState.data?.features.length ?? 0;
 
@@ -246,8 +251,33 @@ export function MapWorkspace({
           />
         </section>
 
-        {sidePanel}
+        {typeof sidePanel === "function" ? sidePanel(handleResetView) : sidePanel}
       </main>
     </div>
   );
+}
+
+function getViewportStatus(
+  bounds: BboxBounds | null,
+  bboxString: string | null,
+  pending: boolean,
+  query: { isPending: boolean; isFetching: boolean; isError: boolean },
+  data: { features: readonly unknown[] } | undefined,
+): ViewportSitesState["status"] {
+  if (pending) return "loading";
+  if (!bounds) return "idle";
+  if (!bboxString) return "invalid";
+  if (query.isPending || query.isFetching) return "loading";
+  if (query.isError) return "error";
+  if (data) return data.features.length ? "ready" : "empty";
+  return "idle";
+}
+
+function getViewportError(error: unknown): ViewportSitesState["error"] {
+  if (!error) return null;
+  return {
+    code: error instanceof ApiClientError ? error.code : "NETWORK_ERROR",
+    message: error instanceof Error ? error.message : "Request failed",
+    status: error instanceof ApiClientError ? error.status : undefined,
+  };
 }

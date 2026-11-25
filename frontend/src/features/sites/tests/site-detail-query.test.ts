@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/src/lib/api";
 import { describe, expect, it } from "vitest";
 import { siteDetailQueryOptions } from "../hooks/site-detail-query";
 
@@ -23,23 +24,26 @@ describe("site detail query", () => {
   it("loads a Site through the shared API client and caches by Site code", async () => {
     let calls = 0;
     let requestedUrl = "";
-    const fetchImpl: typeof fetch = async (input) => {
+    const previousAdapter = apiClient.defaults.adapter;
+    apiClient.defaults.adapter = async (config) => {
       calls += 1;
-      requestedUrl = String(input);
-      return new Response(JSON.stringify(site), {
-        headers: { "content-type": "application/json" },
-      });
+      requestedUrl = String(config.url);
+      return { data: site, status: 200, statusText: "OK", headers: {}, config };
     };
     const client = new QueryClient();
-    const options = siteDetailQueryOptions("TRG-001", fetchImpl);
+    const options = siteDetailQueryOptions("TRG-001");
 
-    const first = await client.fetchQuery(options);
-    const second = await client.fetchQuery(options);
+    try {
+      const first = await client.fetchQuery(options);
+      const second = await client.fetchQuery(options);
 
-    expect(first).toEqual(site);
-    expect(second).toBe(first);
-    expect(requestedUrl).toBe("/api/sites/TRG-001");
-    expect(calls).toBe(1);
-    client.clear();
+      expect(first).toEqual(site);
+      expect(second).toBe(first);
+      expect(requestedUrl).toBe("/sites/TRG-001");
+      expect(calls).toBe(1);
+    } finally {
+      apiClient.defaults.adapter = previousAdapter;
+      client.clear();
+    }
   });
 });

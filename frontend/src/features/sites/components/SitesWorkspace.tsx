@@ -66,6 +66,7 @@ const INITIAL_VIEWPORT_STATE: ViewportSitesState = {
   province: undefined,
 };
 
+
 export function SitesWorkspace({
   headerActions,
   provinceNames,
@@ -76,6 +77,7 @@ export function SitesWorkspace({
   pageSize = DEFAULT_PAGE_SIZE,
 }: SitesWorkspaceProps) {
   const token = useAuthStore((state) => state.token);
+  const sessionEpoch = useAuthStore((state) => state.sessionEpoch);
   const user = useAuthStore((state) => state.user);
   const setSignInOpen = useAuthStore((state) => state.setSignInOpen);
   const handleUnauthorized = useAuthStore((state) => state.handleUnauthorized);
@@ -105,8 +107,10 @@ export function SitesWorkspace({
   } = useSurveyHistory({
     siteCode: selectedSiteCode,
     token,
+    sessionEpoch,
     role: user?.role,
-    onUnauthorized: handleUnauthorized,
+    onUnauthorized: (message, requestToken, expectedEpoch) =>
+      handleUnauthorized(message, requestToken, expectedEpoch),
   });
 
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -288,7 +292,7 @@ export function SitesWorkspace({
   const matchedCount = filteredFeatures.length;
   const filtersActive = hasActiveSiteFilters(filters);
 
-  const sidePanel = (
+  const sidePanel = (onResetView: () => void) => (
     <SitesWorkspacePanel
       isMobilePanelOpen={isMobilePanelOpen}
       hasSelectedSite={Boolean(selectedSiteCode)}
@@ -318,6 +322,7 @@ export function SitesWorkspace({
         onPageChange={setCurrentPage}
         onClearFilters={handleClearFilters}
         onRetry={handleRetryViewport}
+        onResetView={onResetView}
       />
 
       <SiteDetailPanel

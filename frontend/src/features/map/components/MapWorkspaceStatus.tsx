@@ -83,6 +83,22 @@ export function MapWorkspaceStatus({
           </div>
         )}
 
+        {siteState.status === "invalid" && (
+          <div
+            role="alert"
+            className="pointer-events-auto rounded-xl border border-[#E5B8AF] bg-[#FFF8F6]/98 px-3.5 py-2.5 text-xs text-[#5E1E11] shadow-md backdrop-blur-sm"
+          >
+            <p className="font-semibold">Invalid map viewport</p>
+            <button
+              type="button"
+              onClick={onResetView}
+              className="mt-2 rounded-lg bg-[#8F2F1B] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#702313] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8F2F1B]"
+            >
+              Return to coast
+            </button>
+          </div>
+        )}
+
         {siteState.status === "error" && siteState.error && (
           <div
             role="alert"

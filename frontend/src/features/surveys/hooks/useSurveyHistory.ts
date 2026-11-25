@@ -1,49 +1,49 @@
 "use client";
 
-import { useEffect } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { ActorRole } from "@/src/features/auth/auth-session";
 import { ApiClientError } from "@/src/lib/api";
 import {
-  INITIAL_SURVEY_HISTORY_STATE,
-  type SurveyHistoryState,
-} from "../history-controller";
-import {
   buildSurveyPointCollection,
   DEFAULT_SURVEY_PAGE_SIZE,
+  INITIAL_SURVEY_HISTORY_STATE,
   isAuthorizedSurveyRole,
+  mergeSurveyHistoryItems,
+  type SurveyHistoryState,
 } from "../types";
 import { surveyHistoryQueryOptions } from "./survey-history-query";
 
 interface UseSurveyHistoryOptions {
   siteCode: string | null;
   token: string | null;
+  sessionEpoch: number;
   role: ActorRole | string | null | undefined;
-  onUnauthorized: (message: string) => void;
+  onUnauthorized: (message: string, token: string, expectedEpoch: number) => void;
   pageSize?: number;
 }
 
 export function useSurveyHistory({
   siteCode,
   token,
+  sessionEpoch,
   role,
   onUnauthorized,
   pageSize = DEFAULT_SURVEY_PAGE_SIZE,
 }: UseSurveyHistoryOptions) {
   const authorized = Boolean(siteCode && token && isAuthorizedSurveyRole(role));
   const query = useInfiniteQuery({
-    ...surveyHistoryQueryOptions(siteCode ?? "", token ?? "", pageSize),
+    ...surveyHistoryQueryOptions(
+      siteCode ?? "",
+      token ?? "",
+      sessionEpoch,
+      pageSize,
+      onUnauthorized,
+    ),
     enabled: authorized,
   });
 
-  useEffect(() => {
-    if (query.error instanceof ApiClientError && query.error.status === 401) {
-      onUnauthorized(query.error.message);
-    }
-  }, [onUnauthorized, query.error]);
-
   const items = authorized
-    ? query.data?.pages.flatMap((page) => page.items) ?? []
+    ? mergeSurveyHistoryItems(query.data?.pages.map((page) => page.items) ?? [])
     : [];
   const total = authorized ? query.data?.pages[0]?.total ?? 0 : 0;
   const hasMore = authorized && Boolean(query.hasNextPage);
@@ -75,7 +75,7 @@ export function useSurveyHistory({
     loadedPages: authorized ? query.data?.pages.length ?? 0 : 0,
     pageSize,
     hasMore,
-    isPartialCoverage: hasMore,
+    isPartialCoverage: items.length < total,
     error:
       error instanceof ApiClientError
         ? { code: error.code, message: error.message, status: error.status }

@@ -1,8 +1,6 @@
-import { apiFetch } from "@/src/lib/api";
-import {
-  DEFAULT_SURVEY_PAGE_SIZE,
-  type SurveyPageResponse,
-} from "./types";
+import { apiRequest, ApiClientError } from "@/src/lib/api";
+import { DEFAULT_SURVEY_PAGE_SIZE, type SurveyPageResponse } from "./types";
+import { surveyPageSchema } from "./schema";
 
 export interface FetchSiteSurveysParams {
   code: string;
@@ -10,7 +8,6 @@ export interface FetchSiteSurveysParams {
   pageSize?: number;
   token: string;
   signal?: AbortSignal;
-  fetchImpl?: typeof fetch;
 }
 
 export async function fetchSiteSurveys({
@@ -19,17 +16,18 @@ export async function fetchSiteSurveys({
   pageSize = DEFAULT_SURVEY_PAGE_SIZE,
   token,
   signal,
-  fetchImpl,
 }: FetchSiteSurveysParams): Promise<SurveyPageResponse> {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("pageSize", String(pageSize));
-  return apiFetch<SurveyPageResponse>(
-    `/sites/${encodeURIComponent(code)}/surveys?${params.toString()}`,
-    {
-      token,
-      signal,
-      fetchImpl,
-    },
+  const payload = await apiRequest<unknown>(
+    `/sites/${encodeURIComponent(code)}/surveys`,
+    { params: { page, pageSize }, token, signal },
   );
+  const result = surveyPageSchema.safeParse(payload);
+  if (!result.success || result.data.page !== page) {
+    throw new ApiClientError(
+      0,
+      "INVALID_API_RESPONSE",
+      "The API returned an invalid Survey page response",
+    );
+  }
+  return result.data;
 }
