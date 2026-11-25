@@ -1,240 +1,167 @@
 # Seagrass Monitoring
 
-## Development stack and seed import
+PostGIS-backed API and map for seagrass Sites, Surveys, and survey history. The repository has separate `backend/` and `frontend/` npm projects. Docker Compose runs both with PostGIS and a Caddy gateway.
 
-Copy example configuration, then start the database, API, web, and Caddy gateway:
+## Architecture
+
+```text
+Browser → Caddy → Next.js
+                 └→ /api → NestJS → Drizzle → PostgreSQL/PostGIS
+```
+
+Caddy serves the web app and forwards `/api/*` requests to NestJS after removing `/api`. The frontend groups UI and data access by feature. Axios handles HTTP requests, Zod validates API responses, TanStack Query manages server data, and Zustand holds workspace and session state.
+
+The NestJS backend uses `domain/`, `application/`, `infrastructure/`, and `presentation/` layers in the auth, sites, and surveys features. `site-survey-workflows/` coordinates transactions that span Sites and Surveys. The standalone importer reuses those write rules without starting NestJS. Startup applies migrations and imports seed data before opening the API.
+
+## Technology stack
+
+| Area | Technologies |
+|---|---|
+| Runtime and language | Node.js 22, TypeScript |
+| Backend | NestJS, Drizzle ORM, PostgreSQL, PostGIS |
+| Frontend | Next.js, React, MapLibre GL, Tailwind CSS |
+| Frontend data and state | Axios, Zod, TanStack Query, Zustand |
+| Gateway and local services | Docker Compose, Caddy |
+| Testing and linting | Vitest, Playwright, Oxlint |
+
+## Project structure
+
+```text
+.
+├── backend/
+│   ├── src/
+│   │   ├── auth/                 # Authentication and access control
+│   │   ├── sites/                # Site and Province APIs
+│   │   ├── surveys/              # Survey API and status queries
+│   │   ├── site-survey-workflows/ # Cross-feature transactions
+│   │   ├── import/               # Seed parsers and importer
+│   │   ├── platform/             # Database, health, HTTP, errors
+│   │   └── shared/               # Shared application and spatial code
+│   ├── seed-data/                # Imported source files
+│   └── tests/                    # Unit and PostGIS integration tests
+├── frontend/
+│   ├── src/
+│   │   ├── app/                  # Next.js routes and providers
+│   │   ├── features/             # Auth, map, sites, surveys, provinces
+│   │   └── lib/                  # Shared API client
+│   ├── e2e/                      # Playwright tests
+│   └── scripts/                  # E2E support scripts
+├── gateway/                      # Caddy reverse proxy
+├── docs/adr/                     # Architecture decisions
+├── specs/                        # Feature specifications
+├── .github/workflows/            # Path-scoped CI
+├── docker-compose.yml
+├── .env.example
+├── DESIGN.md
+└── README.md
+```
+
+Backend and frontend are separate npm projects with independent manifests and lockfiles.
+
+## Run locally
 
 ```sh
 cp .env.example .env
+```
+
+Set a private `JWT_SECRET` of at least 32 characters in `.env`, then start the stack:
+
+```sh
 docker compose up --build --wait -d
 ```
 
-Set a private `JWT_SECRET` of at least 32 characters in `.env` for deployments; the example value is for local development only. Compose enables development-account seeding explicitly.
+Open <http://localhost:8080>. The API health endpoint is <http://localhost:8080/api/health>; Swagger UI is at <http://localhost:8080/api/docs>.
 
-API startup applies migrations, imports the four files in `backend/seed-data/`, seeds only missing development accounts, then listens internally. Open the app and API through Caddy at <http://localhost:8080>; API health is <http://localhost:8080/api/health>.
+API startup applies migrations, imports seed data, optionally seeds development accounts, then starts the server. Compose enables development account seeding. The database and gateway bind to loopback; Caddy is the only browser-facing entry point.
 
-To run the same importer manually:
-
-```sh
-docker compose exec api npm run import
-(cd backend && npm run import)
-```
-For a host-shell import, set `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` to the reachable database; Compose's `.env` is not loaded by the local npm process.
-
-The importer serializes runs with a PostgreSQL advisory lock and skips existing identities without overwriting records. It reports inserted, skipped-existing, and rejected counts per source. The host report is `reports/import_report.csv`; its `file,row,reason` rows identify source positions (GeoJSON features start at 1; survey positions include the CSV header). Each run writes evidence for that run's rejected rows.
-
-Verified Compose startup summary: provinces `{inserted:0,skipped_existing:3,rejected:0}`, species `{inserted:0,skipped_existing:6,rejected:0}`, sites `{inserted:0,skipped_existing:27,rejected:3}`, surveys `{inserted:274,skipped_existing:0,rejected:26}`. Resulting database totals were 3 provinces, 6 species, 27 Sites, 274 surveys, and 543 `survey_species` links. These are observed results, not application constants. The report lists Site feature positions 9 and 19 as `INVALID_GEOMETRY`, and position 30 as `DUPLICATE_CODE`. Its 26 survey rejections include `UNKNOWN_SPECIES`, `OUTSIDE_SITE`, `INVALID_COORDINATES`, `INVALID_COVER`, `SITE_NOT_FOUND`, and `FUTURE_DATE`, with each source position in the CSV.
-
-Re-running import skips existing records and revalidates source errors. Restart the full stack without deleting its named volume:
+Stop the stack without deleting its database:
 
 ```sh
 docker compose down
-docker compose up --build --wait -d
 ```
 
-`docker compose down` preserves the database volume; never add `-v` unless you intend to erase it. Site CRUD and spatial reads are implemented in Step 3. Development accounts are enabled only by the development Compose configuration.
+Never add `-v` unless you intend to erase the database volume.
 
-## Login and development accounts
+## Seed data
 
-The local Compose stack seeds these accounts only when `SEED_DEVELOPMENT_ACCOUNTS=true`. Startup inserts missing accounts and never resets existing credentials, roles, or active flags:
+The importer reads `backend/seed-data/` and serializes runs with a PostgreSQL advisory lock. It inserts new records, skips existing identities without overwriting them, and reports rejected rows in `reports/import_report.csv`.
 
-| Role | Email | Password |
-| --- | --- | --- |
-| viewer | `dev-viewer@example.test` | `dev-viewer-password` |
-| editor | `dev-editor@example.test` | `dev-editor-password` |
-| admin | `dev-admin@example.test` | `dev-admin-password` |
-
-Use these credentials only on a local development stack. Do not enable account seeding or use the example signing secret in deployments. `JWT_SECRET` is required before API startup and must be set privately outside development.
+Run it again with:
 
 ```sh
-curl -X POST 'http://localhost:8080/api/auth/login' \
+docker compose exec api npm run import
+```
+
+For a host-shell import, set `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE`. The local npm process does not load Compose’s `.env`.
+
+## Accounts and access
+
+Development accounts are inserted only when `SEED_DEVELOPMENT_ACCOUNTS=true`. Existing accounts are not reset.
+
+| Role | Email | Password |
+|---|---|---|
+| Viewer | `dev-viewer@example.test` | `dev-viewer-password` |
+| Editor | `dev-editor@example.test` | `dev-editor-password` |
+| Admin | `dev-admin@example.test` | `dev-admin-password` |
+
+Use these credentials and the example signing secret only for local development. Do not enable development account seeding in deployments.
+
+Site browsing is public. Survey history requires a Viewer, Editor, or Admin account. Site and Survey writes require an Admin. Protected requests check the user’s current active status and role. Access tokens expire after 15 minutes.
+
+Login example:
+
+```sh
+curl -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}'
 ```
 
-Success returns `access_token`, `token_type: "Bearer"`, and `expires_in: 900`. Login errors use the shared `{ "error": { "code": "...", "message": "...", "details": {} } }` envelope.
+The response contains a Bearer access token. Login is limited to 20 attempts per 60 seconds per client IP. The limit is in-memory and resets when the API restarts.
 
-Only `POST /api/auth/login` is limited: 20 attempts per 60 seconds per client IP. Caddy overwrites `X-Forwarded-For`; NestJS trusts one proxy hop. The in-memory limit resets on API restart and is not shared across replicas.
+## API and data rules
 
-| Action | Anonymous | Viewer | Editor | Admin |
-| --- | --- | --- | --- | --- |
-| Site map, list, detail, and Site status | Read | Read | Read | Read |
-| Survey list | `401` | Read | Read | Read |
-| Create, update, or delete Sites and Surveys | `401` | `403` | `403` | Write |
+| Endpoint | Access | Purpose |
+|---|---|---|
+| `GET /api/sites` | Public | Search and paginate active Sites |
+| `GET /api/sites.geojson?bbox=minLon,minLat,maxLon,maxLat` | Public | Sites in a WGS84 map viewport |
+| `GET /api/sites/:code` | Public | Site geometry and latest Survey summary |
+| `GET /api/provinces.geojson?bbox=...` | Public | Provinces in a WGS84 map viewport |
+| `GET /api/sites/:code/surveys` | Viewer, Editor, Admin | Paginated Survey history |
+| `POST /api/sites`, `PATCH /api/sites/:code`, `DELETE /api/sites/:code` | Admin | Create, update, or retire a Site |
+| `POST /api/sites/:code/surveys`, `PATCH /api/surveys/:id`, `DELETE /api/surveys/:id` | Admin | Create, update, or delete a Survey |
 
-Protected routes check the current account role and active flag on each request, before looking up a Site or Survey. Missing, malformed, expired, invalid, disabled-user, or deleted-user tokens return `401 UNAUTHORIZED`; insufficient roles return `403 FORBIDDEN`. Malformed JSON returns `400 VALIDATION_ERROR` before authentication. All errors use the shared envelope.
+Sites use soft deletion; their codes remain reserved, and Sites with Surveys cannot be deleted. Site creation and geometry updates require valid geometry with positive-area overlap with a Province. Updates require the current Site version; stale versions return `409 VERSION_CONFLICT`.
 
-## Step 3 Site API
+Survey locations must be within 50 meters of their Site. Dates cannot be in the future in Thailand. Cover must be 0–100 with at most two decimal places. Species codes must exist. Site and Survey writes serialize where needed to preserve these rules.
 
-The API provides Site list/search, GeoJSON bbox reads, detail, create, versioned update, and soft delete. Reads omit soft-deleted Sites. Site boundaries may overlap; create and geometry updates require positive-area Province overlap. Geometry updates cannot leave linked Surveys more than 50 meters from the Site. API errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`. An authorized stale PATCH returns `409 VERSION_CONFLICT` with the current Site PATCH GeoJSON Feature at `error.details.current`; exactly one of two concurrent PATCH requests using the same version succeeds.
+Site status is calculated from the average Survey cover on its latest survey date: `very_good`, `good`, `fair`, `poor`, or `no_data`. Errors use `{ "error": { "code": "...", "message": "...", "details": {} } }`.
 
-Every public Site list item, GeoJSON feature property, and Site detail feature property includes `siteStatus`: `very_good`, `good`, `fair`, `poor`, or `no_data`. It is derived from the mean cover of all Surveys on the Site's latest observation date; earlier Surveys do not affect it. Sites without Surveys return `no_data`. The value is computed from current Survey data and updates after Survey creation, update, or deletion. Site reads remain public and add no status filter; POST and PATCH response shapes are unchanged.
+## Map
 
-Start the stack as above, then try these read-only requests:
+The map loads Sites and Provinces for the current viewport. Search, filters, and pagination apply only to the loaded Sites, not a nationwide catalogue. Selecting a table row zooms to its Site; selecting a polygon opens its details.
 
-```sh
-curl 'http://localhost:8080/api/sites?page=1&pageSize=2'
-curl 'http://localhost:8080/api/sites.geojson?bbox=99,7,100,8'
-curl 'http://localhost:8080/api/sites/TRG-001'
-```
+Sign in to view Survey history and plot its loaded observation points. The map uses OpenFreeMap tiles and needs network access. The UI is read-only; Site and Survey editing, dashboards, and exports are not included.
 
-Run unit and isolated PostGIS integration tests:
+## Development and tests
 
-```sh
-(cd backend && npm test)
-```
-
-`npm test` builds the backend and runs unit and PostGIS integration suites. Database-backed tests skip unless `IMPORT_TEST_DATABASE_URL` points to a disposable PostGIS database. Swagger UI is at <http://localhost:8080/api/docs>; OpenAPI JSON is at <http://localhost:8080/api/docs-json>. These API routes are available only through Caddy.
-
-## Step 4 Survey API
-
-Survey routes list observations for an active Site, create observations, partially update them, and hard-delete them. List items include nullable `created_by` as the creator's user ID. Imported Surveys may have no creator. Lists use `page` and `pageSize` (default 1 and 20; maximum page size 100), sorted by survey date then ID descending. Survey IDs are decimal strings. POST and PATCH return the Survey fields plus `siteStatus`, derived from the mean cover of all Surveys on the latest date. DELETE returns `204` without a body.
-
-Coordinates use WGS84 longitude/latitude. A Survey point must be inside or within 50 meters of its Site, measured with PostGIS geography. Dates cannot exceed today in Thailand; cover must be from 0 to 100 and representable at two-decimal precision without rounding. Species codes must exist; duplicate codes become one association. Writes to a Survey and its species links are atomic and serialize with Site geometry edits/deletion. Site and Survey inserts store `created_by` and `updated_by` from the admin token; successful updates set `updated_by` and `updated_at`, including species-only Survey edits and Site soft deletion. Client-supplied audit fields cannot impersonate actors. Survey hard deletion leaves no retained actor record. Password hashes and signing secrets are never returned.
+Install and build each app independently:
 
 ```sh
-TOKEN="$(curl -s -X POST 'http://localhost:8080/api/auth/login' \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"dev-viewer@example.test","password":"dev-viewer-password"}' | jq -r .access_token)"
-curl 'http://localhost:8080/api/sites/TRG-001/surveys?page=1&pageSize=20' \
-  -H "Authorization: Bearer $TOKEN"
-ADMIN_TOKEN="$(curl -s -X POST 'http://localhost:8080/api/auth/login' \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"dev-admin@example.test","password":"dev-admin-password"}' | jq -r .access_token)"
-curl -X POST 'http://localhost:8080/api/sites/TRG-001/surveys' \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"lon":99.538168,"lat":7.330521,"surveyed_on":"2025-03-08","cover_percent":62.2,"species":["TH","CR","EA"],"note":null}'
-curl -X PATCH 'http://localhost:8080/api/surveys/123' \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' -d '{"cover_percent":50}'
-curl -X DELETE 'http://localhost:8080/api/surveys/123' \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+npm --prefix backend ci
+npm --prefix frontend ci
+npm --prefix backend run build
+npm --prefix frontend run build
 ```
 
-The POST example uses an existing Survey point and species codes from the committed seed data; it creates a separate Survey without an import reference. The ID `123` is illustrative; use an ID returned by POST. Swagger UI at `/docs` documents the routes and bearer security.
-
-Compose defaults are development-only: database user `seagrass`, password `seagrass_dev_only`, database `seagrass`. Do not use these credentials outside local development. Override them privately in ignored `.env`, based on `.env.example`; never commit secrets.
-
-## Step 6 map workspace
-
-The web app at <http://localhost:8080> provides public Site browsing with an OpenFreeMap Liberty basemap, Province boundaries, status-colored polygons, synchronized filters and table, and Site detail with the latest public Survey summary. Site and Province geometry requests use the current map viewport's bounding box; table search and pagination cover only the currently loaded viewport's Sites, not a nationwide catalogue. Selecting a row zooms to its Site; selecting a polygon opens its detail.
-
-Sign in with one of the development accounts above to see the current email and role and read protected Survey history for the selected Site. Survey points come only from loaded history pages. Tokens stay in tab memory and are passed explicitly to protected API calls; logout or `401` clears protected Survey data, and session epochs isolate history across account changes. Public browsing remains available after sign-out. `GET /provinces.geojson` requires a WGS84 `bbox`; `GET /auth/me` returns the active user's email and role.
-
-The map depends on OpenFreeMap's third-party tile service, provided without an availability guarantee; it needs network access. Step 6 is read-only: Site/Survey editing, dashboards, and exports are not included.
-At 375px viewport width, the Site table supports keyboard selection and opens Site detail.
-
-### Isolated Playwright E2E
-
-The E2E command builds and starts real web, API, and PostGIS services from the committed seed files under a unique Compose project and named database volume. It publishes only the gateway on loopback (default `18080`), uses test-only DB credentials and JWT secret, keeps the seed directory read-only, and removes only that project and volume on exit.
-
-Install browser binaries once, then run from `frontend/`:
+Run tests:
 
 ```sh
-npx playwright install chromium
-npm run test:e2e
+npm --prefix backend run test:unit
+npm --prefix frontend test
 ```
 
-Set `E2E_GATEWAY_PORT` if port `18080` is occupied. The command is repeatable and does not use or stop the development Compose project. Playwright HTML reports, traces, screenshots, and the isolated import report stay in ignored `frontend/playwright-report/` and `frontend/test-results/`; inspect them after failures. The browser supplies an empty local MapLibre style, so application layers and map interactions do not depend on OpenFreeMap uptime.
+Backend integration tests need `IMPORT_TEST_DATABASE_URL` set to a disposable PostGIS database. Run them with `npm --prefix backend run test:integration`. Frontend lint uses `npm --prefix frontend run lint`.
 
-E2E inserts viewer, editor, and admin accounts with unique per-run credentials after the disposable database starts; development accounts are disabled. E2E covers public map and viewport reads, synchronized filters/details/history, viewer login/logout, admin Survey creation through the API plus UI history readback, and editor-role `403` authorization. Step 6 has no mutation UI; no Site or Survey mutation controls are added.
+Playwright E2E uses an isolated Compose project and database volume. From `frontend/`, install Chromium with `npx playwright install chromium`, then run `npm run test:e2e`. It does not use or stop the development stack.
 
-## CI workflows
-
-GitHub Actions runs backend unit tests when `backend/**` changes and frontend Vitest tests when `frontend/**` changes. Each workflow also runs when its own workflow file changes. PostGIS integration and Playwright E2E remain local checks.
-
-Run the same test commands locally:
-
-```sh
-(cd backend && npm run test:unit)
-(cd frontend && npm test)
-```
-
-CI does not build or publish Docker images, deploy, or run PostGIS integration or browser E2E tests.
-
-
-Frontend stays feature-first: UI lives in each feature's `components/`, feature hooks in `hooks/`, and feature contracts stay in their feature modules. Axios provides the shared same-origin `/api` transport, 10-second timeout, cancellation, and normalized errors; feature API boundaries use Zod to parse Site, Province, Survey, and authentication responses. TanStack Query owns server-data fetching, cancellation, and caching. Zustand owns shared Site-workspace filters, pagination, and selection, plus authentication session state; tokens remain explicit request arguments, stored only in tab memory and never in query keys or persistent storage. Survey query keys include a session epoch to isolate account changes; logout and `401` clear protected Survey cache.
-
-Frontend tests use Vitest `describe`/`it`/`expect` and live in `src/features/<feature>/tests/`; shared library tests live in `src/lib/tests/`.
-
-Run frontend tests, lint, and build:
-
-```sh
-cd frontend
-npm test
-npm run lint
-npm run build
-```
-
-
-## Build applications independently
-
-```sh
-(cd backend && npm ci && npm run build)
-(cd frontend && npm ci && npm run build)
-```
-
-## Backend tests
-
-`cd backend && npm test` builds the backend, then runs `.unit.spec.ts` and `.integration.spec.ts` Vitest projects serially. `npm run test:unit` runs unit tests without PostGIS; `npm run test:integration` requires `IMPORT_TEST_DATABASE_URL` pointing at disposable PostGIS. CI runs only backend unit tests.
-
-```sh
-docker run --rm --name seagrass-step2-test \
-  -e POSTGRES_USER=seagrass_test \
-  -e POSTGRES_PASSWORD=seagrass_test_only \
-  -e POSTGRES_DB=seagrass_test \
-  -p 127.0.0.1:55432:5432 \
-  postgis/postgis:16-3.4
-```
-
-Keep the container running, then run in another terminal:
-
-```sh
-cd backend
-IMPORT_TEST_DATABASE_URL=postgresql://seagrass_test:seagrass_test_only@127.0.0.1:55432/seagrass_test npm run test:integration
-```
-
-The container has no persistent volume. Stop it after tests; `--rm` removes its database. `.env.example` records the test URL separately from Compose development settings.
-
-
-## Disposable Compose verification
-
-`docker-compose.verify.yml` isolates gateway smoke checks from development: use a unique Compose project and named database volume, loopback-only database and gateway ports, and a temporary host report directory. The API and Web have no published host ports.
-
-Run from the repository root. Choose unused ports if defaults are occupied:
-
-```sh
-export VERIFY_PROJECT="gis-seagrass-step9-$(date +%s)"
-export VERIFY_DB_VOLUME="${VERIFY_PROJECT}-db"
-export VERIFY_REPORT_DIR="$(mktemp -d)"
-export VERIFY_DB_PORT=55433 VERIFY_GATEWAY_PORT=38080
-dc() { docker compose --project-name "$VERIFY_PROJECT" -f docker-compose.yml -f docker-compose.verify.yml "$@"; }
-
-dc config
-dc up --build --wait -d
-curl --fail http://127.0.0.1:$VERIFY_GATEWAY_PORT/api/health
-cat "$VERIFY_REPORT_DIR/import_report.csv"
-dc down --volumes --remove-orphans
-rm -rf "$VERIFY_REPORT_DIR"
-```
-
-The unique project, explicit volume name, and temporary report directory keep development resources untouched. `down --volumes` is safe here only because it targets this disposable project and its unique volume; never use it for the development project.
-
-
-
-## Database checks
-
-Rerun ordered Drizzle migrations while Compose is up:
-
-```sh
-docker compose exec api npm run migrate
-```
-
-Run the rollback-only schema check:
-
-```sh
-docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backend/tests/platform/schema.sql
-```
-
-The check rolls back its temporary data. The database port defaults to `localhost:5432`; published ports bind to loopback by default.
+GitHub Actions runs backend unit tests and frontend tests for changes in their respective directories. CI does not run PostGIS integration tests or Playwright E2E.
