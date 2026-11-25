@@ -13,4 +13,4 @@ Blocked by: 01, 02, 03
 ## Comments
 
 
-Full suite: 25/25 files, 81/81 tests, zero skipped; build and test typecheck passed. CLI, concurrency, and import idempotency were covered. Canonical spec was pre-existing untracked user content and is excluded from the code commit. These local tracker documents remain untracked until safely committed separately.
+Full suite: 25/25 files, 81/81 tests, zero skipped; build and test typecheck passed. CLI, concurrency, and import idempotency were covered.

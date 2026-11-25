@@ -10,17 +10,17 @@ Before beginning Step 6, the preparatory backend architecture refactors in [`bac
 
 | File | Scope | Priority | Status |
 | --- | --- | --- | --- |
-| `step-1-setup.md` | Docker Compose, project, PostGIS, migrations, healthcheck | Required | Detailed |
-| `step-2-seed-data.md` | Import, spatial validation, idempotency, report | Required | Detailed |
+| `step-1-setup.md` | Docker Compose, project, PostGIS, migrations, healthcheck | Required | Implemented and verified |
+| `step-2-seed-data.md` | Import, spatial validation, idempotency, report | Required | Implemented and verified |
 | `step-3-site-api.md` | Site CRUD, bbox GeoJSON, Swagger | Required | Implemented and verified |
 | `step-4-survey-api.md` | Survey CRUD, distance rule, status | Required | Implemented and verified |
 | `step-5-auth-concurrency.md` | JWT, RBAC, optimistic locking | Required | Implemented and verified |
 | `step-6-map-ui.md` | MapLibre map, synchronized viewport list and filters | Required | Implemented and verified |
-| `step-7-map-editing.md` | Map interactions and editing | Optional | Planned |
-| `step-8-dashboard-export.md` | Aggregation, dashboard, exports | Optional | Planned |
+| `step-7-map-editing.md` | Map interactions and editing | Optional | Skipped |
+| `step-8-dashboard-export.md` | Aggregation, dashboard, exports | Optional | Skipped |
 | `step-9-production.md` | Caddy gateway, login throttling, Playwright E2E, path-scoped CI | Optional | Implemented and locally verified |
 
-Steps 7–8 remain planned. Step 9 is implemented and locally verified against its confirmed spec and tickets; GitHub-hosted workflow execution was not observed.
+Optional Steps 7–8 were skipped. Step 9 is implemented and locally verified against its confirmed spec and tickets; GitHub-hosted workflow execution was not observed.
 
 ## Repository structure and package management
 

@@ -28,4 +28,4 @@ Each ticket must record a concrete before/after benefit or a reason to retain ex
 
 Full backend suite passed against isolated disposable PostGIS: 25/25 files, 81/81 tests, zero skipped. Backend build and test typecheck passed; suite covered CLI execution, concurrency, and import idempotency. Source inspection and independent code/standards review confirmed the four-layer boundaries, Application-owned controller dependencies, workflow ownership, unchanged Site/Survey and HTTP behavior, and no unnecessary abstractions. Review also confirmed unchanged authorization, status calculations, lock order, transaction boundaries, 50-meter checks, optimistic locking, advisory locking, schema, migrations, SQL policy, and frontend.
 
-Portability beyond this isolated PostGIS environment was not tested. The canonical spec was pre-existing untracked user content and is not included in the code commit; local tracker docs remain untracked until safely committed separately.
+Portability beyond this isolated PostGIS environment was not tested.
