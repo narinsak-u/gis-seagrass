@@ -20,10 +20,8 @@ export class SitesModule {
       imports: [databaseModule, authModule, siteSurveyModule],
       controllers: [SitesController, SitesGeoJsonController, ProvincesGeoJsonController],
       providers: [
-        DrizzleSiteReadRepository,
-        { provide: SITE_READ_REPOSITORY, useExisting: DrizzleSiteReadRepository },
-        DrizzleProvinceReadRepository,
-        { provide: PROVINCE_READ_REPOSITORY, useExisting: DrizzleProvinceReadRepository },
+        { provide: SITE_READ_REPOSITORY, useClass: DrizzleSiteReadRepository },
+        { provide: PROVINCE_READ_REPOSITORY, useClass: DrizzleProvinceReadRepository },
         {
           provide: SiteQueries,
           useFactory: (sites: SiteReadRepository, siteSurvey: SiteSurveyReadContract) => new SiteQueries(sites, siteSurvey),
