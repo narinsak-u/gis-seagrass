@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
-import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner, type SiteWriteTransaction } from '../application/transaction-runner.port';
+import { type SiteSurveyTransactionRunner, type SiteWriteTransaction } from '../application/transaction-runner.port';
 
 @Injectable()
 export class DrizzleSiteSurveyTransactionRunner implements SiteSurveyTransactionRunner {
