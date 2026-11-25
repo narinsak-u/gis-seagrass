@@ -39,10 +39,7 @@ export class SurveyCommands {
 
   update(id: string, input: SurveyInput, actorId: string) {
     return this.coordinator.transaction(async (tx) => {
-      const siteId = await this.surveys.siteId(tx, id);
-      if (!siteId) throw surveyNotFound();
-      if (!(await this.coordinator.lockActiveSite(tx, siteId))) throw surveyNotFound();
-      if (!(await this.surveys.lock(tx, id, siteId))) throw surveyNotFound();
+      const siteId = await this.lockSurveySite(tx, id);
       if (input.lon !== undefined && !(await this.coordinator.siteWithinDistance(tx, siteId, input.lon, input.lat!))) throw outsideSite();
       if (input.surveyed_on !== undefined) {
         await this.validateDateAndSpecies(tx, input.surveyed_on, input.species ?? (await this.surveys.species(tx, id)));
@@ -53,12 +50,16 @@ export class SurveyCommands {
 
   remove(id: string): Promise<void> {
     return this.coordinator.transaction(async (tx) => {
-      const siteId = await this.surveys.siteId(tx, id);
-      if (!siteId) throw surveyNotFound();
-      if (!(await this.coordinator.lockActiveSite(tx, siteId))) throw surveyNotFound();
-      if (!(await this.surveys.lock(tx, id, siteId))) throw surveyNotFound();
+      await this.lockSurveySite(tx, id);
       await this.surveys.remove(tx, id);
     });
+  }
+  private async lockSurveySite(tx: SiteWriteTransaction, id: string): Promise<string> {
+    const siteId = await this.surveys.siteId(tx, id);
+    if (!siteId) throw surveyNotFound();
+    if (!(await this.coordinator.lockActiveSite(tx, siteId))) throw surveyNotFound();
+    if (!(await this.surveys.lock(tx, id, siteId))) throw surveyNotFound();
+    return siteId;
   }
   private async validateDateAndSpecies(tx: SiteWriteTransaction, date: string, species: string[]): Promise<void> {
     if (date > await this.surveys.today(tx)) throw new ApplicationError('VALIDATION_ERROR', 'Invalid request');

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type DatabaseProvider } from '../../platform/database';
-import { SITE_SURVEY_TRANSACTION_RUNNER, type SiteSurveyTransactionRunner, type SiteWriteTransaction } from '../application/transaction-runner.port';
+import { type SiteSurveyTransactionRunner, type SiteWriteTransaction } from '../application/transaction-runner.port';
 
 @Injectable()
 export class DrizzleSiteSurveyTransactionRunner implements SiteSurveyTransactionRunner {
@@ -10,11 +10,6 @@ export class DrizzleSiteSurveyTransactionRunner implements SiteSurveyTransaction
     return this.db.transaction((tx) => work(tx as unknown as SiteWriteTransaction));
   }
 }
-
-export const SITE_SURVEY_TRANSACTION_RUNNER_PROVIDER = {
-  provide: SITE_SURVEY_TRANSACTION_RUNNER,
-  useExisting: DrizzleSiteSurveyTransactionRunner,
-};
 
 export function createSiteSurveyTransactionRunner(db: DatabaseProvider['db']): SiteSurveyTransactionRunner {
   return new DrizzleSiteSurveyTransactionRunner(db);
