@@ -16,30 +16,24 @@ export function parseSurveyInput(body: unknown, create: boolean, rawBody?: Buffe
   const record = body as Record<string, unknown>;
   if (Object.keys(record).some((key) => !editableKeys.includes(key)) || (!create && !editableKeys.some((key) => record[key] !== undefined))) invalid();
   const input: SurveyInput = {};
-  if (create || record.lon !== undefined) {
-    if (typeof record.lon !== 'number' || !Number.isFinite(record.lon) || record.lon < -180 || record.lon > 180) invalid();
-    input.lon = record.lon;
-  }
-  if (create || record.lat !== undefined) {
-    if (typeof record.lat !== 'number' || !Number.isFinite(record.lat) || record.lat < -90 || record.lat > 90) invalid();
-    input.lat = record.lat;
-  }
+  if (create || record.lon !== undefined) input.lon = record.lon as number;
+  if (create || record.lat !== undefined) input.lat = record.lat as number;
   if ((input.lon === undefined) !== (input.lat === undefined)) invalid();
   if (create || record.surveyed_on !== undefined) {
     if (typeof record.surveyed_on !== 'string' || !isStrictCalendarDate(record.surveyed_on)) invalid();
     input.surveyed_on = record.surveyed_on;
   }
   if (create || record.cover_percent !== undefined) {
-    const value = record.cover_percent;
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100 || Number(value.toFixed(2)) !== value) invalid();
+    const value = record.cover_percent as number;
+    if (Number(value.toFixed(2)) !== value) invalid();
     input.cover_percent = value;
   }
   if (create || record.species !== undefined) {
-    if (!Array.isArray(record.species) || record.species.some((code) => typeof code !== 'string' || code.length === 0 || code.includes('\0'))) invalid();
-    input.species = [...new Set(record.species as string[])];
+    const species = record.species as string[];
+    if (species.some((code) => code.length === 0 || code.includes('\0'))) invalid();
+    input.species = [...new Set(species)];
   }
   if (record.note !== undefined) {
-    if (record.note !== null && typeof record.note !== 'string') invalid();
     if (typeof record.note === 'string' && record.note.includes('\0')) invalid();
     input.note = record.note as string | null;
   } else if (create) input.note = null;
